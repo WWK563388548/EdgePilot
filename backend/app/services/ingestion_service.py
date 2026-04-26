@@ -1,8 +1,13 @@
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+
+from backend.app import models as db
 from backend.app.core.config import settings
-from backend.app.core.database import connect
+from backend.app.core.database import SessionLocal
 from backend.app.schemas.ingestion import (
     BarRecord,
     BarsIngestionRequest,
@@ -26,30 +31,32 @@ class IngestionService:
         return PolygonClient(api_key=settings.polygon_api_key, base_url=settings.polygon_base_url)
 
     @staticmethod
-    def _database_url() -> str:
-        return settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
-
-    @staticmethod
-    def _connect():
-        return connect()
-
-    @staticmethod
-    def _upsert_freshness(cur, dataset_key: str, last_updated_at: datetime, source: str) -> None:
-        cur.execute(
-            """
-            INSERT INTO data_freshness (dataset_key, last_updated_at, source)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (dataset_key) DO UPDATE SET
-                last_updated_at = EXCLUDED.last_updated_at,
-                source = EXCLUDED.source,
-                updated_at = now()
-            """,
-            (dataset_key, last_updated_at, source),
+    def _upsert_freshness(
+        session: Session,
+        dataset_key: str,
+        last_updated_at: datetime,
+        source: str,
+    ) -> None:
+        statement = insert(db.DataFreshness).values(
+            dataset_key=dataset_key,
+            last_updated_at=last_updated_at,
+            source=source,
+            updated_at=last_updated_at,
+        )
+        session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[db.DataFreshness.dataset_key],
+                set_={
+                    "last_updated_at": statement.excluded.last_updated_at,
+                    "source": statement.excluded.source,
+                    "updated_at": statement.excluded.updated_at,
+                },
+            )
         )
 
     @staticmethod
     def _record_ingestion_run(
-        cur,
+        session: Session,
         *,
         dataset_key: str,
         status: str,
@@ -59,42 +66,34 @@ class IngestionService:
         completed_at: datetime,
         error_message: str | None = None,
     ) -> None:
-        cur.execute(
-            """
-            INSERT INTO ingestion_runs (
-                run_id, dataset_key, status, records_written, source,
-                started_at, completed_at, error_message
+        session.add(
+            db.IngestionRun(
+                run_id=f"run_{uuid4().hex}",
+                dataset_key=dataset_key,
+                status=status,
+                records_written=records_written,
+                source=source,
+                started_at=started_at,
+                completed_at=completed_at,
+                error_message=error_message,
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                str(uuid4()),
-                dataset_key,
-                status,
-                records_written,
-                source,
-                started_at,
-                completed_at,
-                error_message,
-            ),
         )
 
     @staticmethod
     def _record_failed_run(dataset_key: str, started_at: datetime, error_message: str) -> None:
         completed_at = datetime.now(UTC)
-        with IngestionService._connect() as conn:
-            with conn.cursor() as cur:
-                IngestionService._record_ingestion_run(
-                    cur,
-                    dataset_key=dataset_key,
-                    status="failed",
-                    records_written=0,
-                    source="polygon",
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    error_message=error_message,
-                )
-            conn.commit()
+        with SessionLocal() as session:
+            IngestionService._record_ingestion_run(
+                session,
+                dataset_key=dataset_key,
+                status="failed",
+                records_written=0,
+                source="polygon",
+                started_at=started_at,
+                completed_at=completed_at,
+                error_message=error_message,
+            )
+            session.commit()
 
     @staticmethod
     def ingest_bars(request: BarsIngestionRequest) -> IngestionResponse:
@@ -115,78 +114,78 @@ class IngestionService:
             IngestionService._record_failed_run(dataset_key, started_at, error_message)
             raise RuntimeError(error_message)
 
-        with IngestionService._connect() as conn:
-            with conn.cursor() as cur:
-                records_written = 0
-                for row in rows:
-                    if "t" not in row:
-                        continue
-                    ts = datetime.fromtimestamp(row["t"] / 1000, tz=UTC)
-                    cur.execute(
-                        """
-                        INSERT INTO bars (
-                            ts, symbol_id, timeframe, open, high, low, close,
-                            volume, vwap, adjusted, source
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (symbol_id, timeframe, ts) DO UPDATE SET
-                            open = EXCLUDED.open,
-                            high = EXCLUDED.high,
-                            low = EXCLUDED.low,
-                            close = EXCLUDED.close,
-                            volume = EXCLUDED.volume,
-                            vwap = EXCLUDED.vwap,
-                            adjusted = EXCLUDED.adjusted,
-                            source = EXCLUDED.source
-                        """,
-                        (
-                            ts,
-                            request.ticker,
-                            request.timeframe,
-                            row.get("o"),
-                            row.get("h"),
-                            row.get("l"),
-                            row.get("c"),
-                            row.get("v"),
-                            row.get("vw"),
-                            True,
-                            "polygon",
-                        ),
-                    )
-                    records_written += 1
-
-                last_updated_at = datetime.now(UTC)
-                if records_written == 0:
-                    error_message = f"Polygon returned no writable bars for {request.ticker}"
-                    IngestionService._record_ingestion_run(
-                        cur,
-                        dataset_key=dataset_key,
-                        status="failed",
-                        records_written=0,
-                        source="polygon",
-                        started_at=started_at,
-                        completed_at=last_updated_at,
-                        error_message=error_message,
-                    )
-                    conn.commit()
-                    raise RuntimeError(error_message)
-
-                IngestionService._upsert_freshness(
-                    cur,
-                    dataset_key=dataset_key,
-                    last_updated_at=last_updated_at,
+        with SessionLocal() as session:
+            records_written = 0
+            for row in rows:
+                if "t" not in row:
+                    continue
+                ts = datetime.fromtimestamp(row["t"] / 1000, tz=UTC)
+                statement = insert(db.Bar).values(
+                    ts=ts,
+                    symbol_id=request.ticker,
+                    timeframe=request.timeframe,
+                    open=row.get("o"),
+                    high=row.get("h"),
+                    low=row.get("l"),
+                    close=row.get("c"),
+                    volume=row.get("v"),
+                    vwap=row.get("vw"),
+                    adjusted=True,
                     source="polygon",
                 )
+                session.execute(
+                    statement.on_conflict_do_update(
+                        index_elements=[
+                            db.Bar.symbol_id,
+                            db.Bar.timeframe,
+                            db.Bar.ts,
+                        ],
+                        set_={
+                            "open": statement.excluded.open,
+                            "high": statement.excluded.high,
+                            "low": statement.excluded.low,
+                            "close": statement.excluded.close,
+                            "volume": statement.excluded.volume,
+                            "vwap": statement.excluded.vwap,
+                            "adjusted": statement.excluded.adjusted,
+                            "source": statement.excluded.source,
+                        },
+                    )
+                )
+                records_written += 1
+
+            last_updated_at = datetime.now(UTC)
+            if records_written == 0:
+                error_message = f"Polygon returned no writable bars for {request.ticker}"
                 IngestionService._record_ingestion_run(
-                    cur,
+                    session,
                     dataset_key=dataset_key,
-                    status="success",
-                    records_written=records_written,
+                    status="failed",
+                    records_written=0,
                     source="polygon",
                     started_at=started_at,
                     completed_at=last_updated_at,
+                    error_message=error_message,
                 )
-            conn.commit()
+                session.commit()
+                raise RuntimeError(error_message)
+
+            IngestionService._upsert_freshness(
+                session,
+                dataset_key=dataset_key,
+                last_updated_at=last_updated_at,
+                source="polygon",
+            )
+            IngestionService._record_ingestion_run(
+                session,
+                dataset_key=dataset_key,
+                status="success",
+                records_written=records_written,
+                source="polygon",
+                started_at=started_at,
+                completed_at=last_updated_at,
+            )
+            session.commit()
 
         return IngestionResponse(records_written=records_written, last_updated_at=last_updated_at)
 
@@ -210,183 +209,165 @@ class IngestionService:
         snapshot_ts = datetime.now(UTC)
         snapshot_date = snapshot_ts.date()
 
-        with IngestionService._connect() as conn:
-            with conn.cursor() as cur:
-                records_written = 0
-                for row in rows:
-                    details = row.get("details", {})
-                    greeks = row.get("greeks", {})
-                    quote = row.get("last_quote", {})
-                    day = row.get("day", {})
-                    bid = quote.get("bid")
-                    ask = quote.get("ask")
-                    mid = ((ask + bid) / 2) if (ask is not None and bid is not None) else None
-                    spread_pct = (
-                        (ask - bid) / mid
-                        if (ask is not None and bid is not None and mid not in (None, 0))
-                        else None
-                    )
-                    expiration = IngestionService._parse_date(details.get("expiration_date"))
-                    dte = (expiration - snapshot_date).days if expiration else None
-                    option_symbol = details.get("ticker")
-                    strike = details.get("strike_price")
-                    option_type = details.get("contract_type")
-                    if not (option_symbol and expiration and strike is not None and option_type):
-                        continue
+        with SessionLocal() as session:
+            records_written = 0
+            for row in rows:
+                details = row.get("details", {})
+                greeks = row.get("greeks", {})
+                quote = row.get("last_quote", {})
+                day = row.get("day", {})
+                bid = quote.get("bid")
+                ask = quote.get("ask")
+                mid = ((ask + bid) / 2) if (ask is not None and bid is not None) else None
+                spread_pct = (
+                    (ask - bid) / mid
+                    if (ask is not None and bid is not None and mid not in (None, 0))
+                    else None
+                )
+                expiration = IngestionService._parse_date(details.get("expiration_date"))
+                dte = (expiration - snapshot_date).days if expiration else None
+                option_symbol = details.get("ticker")
+                strike = details.get("strike_price")
+                option_type = details.get("contract_type")
+                if not (option_symbol and expiration and strike is not None and option_type):
+                    continue
 
-                    cur.execute(
-                        """
-                        INSERT INTO options_chain_snapshots (
-                            snapshot_ts, underlying_symbol, option_symbol, expiration,
-                            strike, option_type, bid, ask, mid, last, volume,
-                            open_interest, iv, delta, gamma, theta, vega,
-                            dte, spread_pct, source
-                        )
-                        VALUES (
-                            %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s
-                        )
-                        ON CONFLICT (snapshot_ts, option_symbol) DO NOTHING
-                        """,
-                        (
-                            snapshot_ts,
-                            request.underlying_symbol,
-                            option_symbol,
-                            expiration,
-                            strike,
-                            option_type,
-                            bid,
-                            ask,
-                            mid,
-                            day.get("close"),
-                            day.get("volume"),
-                            row.get("open_interest"),
-                            row.get("implied_volatility"),
-                            greeks.get("delta"),
-                            greeks.get("gamma"),
-                            greeks.get("theta"),
-                            greeks.get("vega"),
-                            dte,
-                            spread_pct,
-                            "polygon",
-                        ),
-                    )
-                    records_written += 1
-
-                last_updated_at = datetime.now(UTC)
-                if records_written == 0:
-                    error_message = (
-                        f"Polygon returned no writable option rows for {request.underlying_symbol}"
-                    )
-                    IngestionService._record_ingestion_run(
-                        cur,
-                        dataset_key=dataset_key,
-                        status="failed",
-                        records_written=0,
-                        source="polygon",
-                        started_at=started_at,
-                        completed_at=last_updated_at,
-                        error_message=error_message,
-                    )
-                    conn.commit()
-                    raise RuntimeError(error_message)
-
-                IngestionService._upsert_freshness(
-                    cur,
-                    dataset_key=dataset_key,
-                    last_updated_at=last_updated_at,
+                statement = insert(db.OptionChainSnapshot).values(
+                    snapshot_ts=snapshot_ts,
+                    underlying_symbol=request.underlying_symbol,
+                    option_symbol=option_symbol,
+                    expiration=expiration,
+                    strike=strike,
+                    option_type=option_type,
+                    bid=bid,
+                    ask=ask,
+                    mid=mid,
+                    last=day.get("close"),
+                    volume=day.get("volume"),
+                    open_interest=row.get("open_interest"),
+                    iv=row.get("implied_volatility"),
+                    delta=greeks.get("delta"),
+                    gamma=greeks.get("gamma"),
+                    theta=greeks.get("theta"),
+                    vega=greeks.get("vega"),
+                    dte=dte,
+                    spread_pct=spread_pct,
                     source="polygon",
                 )
+                session.execute(
+                    statement.on_conflict_do_nothing(
+                        index_elements=[
+                            db.OptionChainSnapshot.snapshot_ts,
+                            db.OptionChainSnapshot.option_symbol,
+                        ]
+                    )
+                )
+                records_written += 1
+
+            last_updated_at = datetime.now(UTC)
+            if records_written == 0:
+                error_message = (
+                    f"Polygon returned no writable option rows for {request.underlying_symbol}"
+                )
                 IngestionService._record_ingestion_run(
-                    cur,
+                    session,
                     dataset_key=dataset_key,
-                    status="success",
-                    records_written=records_written,
+                    status="failed",
+                    records_written=0,
                     source="polygon",
                     started_at=started_at,
                     completed_at=last_updated_at,
+                    error_message=error_message,
                 )
-            conn.commit()
+                session.commit()
+                raise RuntimeError(error_message)
+
+            IngestionService._upsert_freshness(
+                session,
+                dataset_key=dataset_key,
+                last_updated_at=last_updated_at,
+                source="polygon",
+            )
+            IngestionService._record_ingestion_run(
+                session,
+                dataset_key=dataset_key,
+                status="success",
+                records_written=records_written,
+                source="polygon",
+                started_at=started_at,
+                completed_at=last_updated_at,
+            )
+            session.commit()
 
         return IngestionResponse(records_written=records_written, last_updated_at=last_updated_at)
 
     @staticmethod
     def ingest_market_context(request: MarketContextIngestionRequest) -> IngestionResponse:
         snapshot_ts = request.snapshot_ts or datetime.now(UTC)
+        last_updated_at = datetime.now(UTC)
+        dataset_key = f"market_context:{request.market}"
 
-        with IngestionService._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO market_context_snapshots (
-                        snapshot_ts, market, spy_return, qqq_return, iwm_return,
-                        smh_return, soxx_return, vix_change, usdjpy_change,
-                        dxy_change, us10y_change, nikkei_futures_change,
-                        topix_return, japan_bias, us_bias, risk_level, notes
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s, %s, %s
-                    )
-                    ON CONFLICT (market, snapshot_ts) DO UPDATE SET
-                        spy_return = EXCLUDED.spy_return,
-                        qqq_return = EXCLUDED.qqq_return,
-                        iwm_return = EXCLUDED.iwm_return,
-                        smh_return = EXCLUDED.smh_return,
-                        soxx_return = EXCLUDED.soxx_return,
-                        vix_change = EXCLUDED.vix_change,
-                        usdjpy_change = EXCLUDED.usdjpy_change,
-                        dxy_change = EXCLUDED.dxy_change,
-                        us10y_change = EXCLUDED.us10y_change,
-                        nikkei_futures_change = EXCLUDED.nikkei_futures_change,
-                        topix_return = EXCLUDED.topix_return,
-                        japan_bias = EXCLUDED.japan_bias,
-                        us_bias = EXCLUDED.us_bias,
-                        risk_level = EXCLUDED.risk_level,
-                        notes = EXCLUDED.notes
-                    """,
-                    (
-                        snapshot_ts,
-                        request.market,
-                        request.spy_return,
-                        request.qqq_return,
-                        request.iwm_return,
-                        request.smh_return,
-                        request.soxx_return,
-                        request.vix_change,
-                        request.usdjpy_change,
-                        request.dxy_change,
-                        request.us10y_change,
-                        request.nikkei_futures_change,
-                        request.topix_return,
-                        request.japan_bias,
-                        request.us_bias,
-                        request.risk_level,
-                        request.notes,
-                    ),
+        with SessionLocal() as session:
+            statement = insert(db.MarketContextSnapshot).values(
+                snapshot_ts=snapshot_ts,
+                market=request.market,
+                spy_return=request.spy_return,
+                qqq_return=request.qqq_return,
+                iwm_return=request.iwm_return,
+                smh_return=request.smh_return,
+                soxx_return=request.soxx_return,
+                vix_change=request.vix_change,
+                usdjpy_change=request.usdjpy_change,
+                dxy_change=request.dxy_change,
+                us10y_change=request.us10y_change,
+                nikkei_futures_change=request.nikkei_futures_change,
+                topix_return=request.topix_return,
+                japan_bias=request.japan_bias,
+                us_bias=request.us_bias,
+                risk_level=request.risk_level,
+                notes=request.notes,
+            )
+            session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[
+                        db.MarketContextSnapshot.market,
+                        db.MarketContextSnapshot.snapshot_ts,
+                    ],
+                    set_={
+                        "spy_return": statement.excluded.spy_return,
+                        "qqq_return": statement.excluded.qqq_return,
+                        "iwm_return": statement.excluded.iwm_return,
+                        "smh_return": statement.excluded.smh_return,
+                        "soxx_return": statement.excluded.soxx_return,
+                        "vix_change": statement.excluded.vix_change,
+                        "usdjpy_change": statement.excluded.usdjpy_change,
+                        "dxy_change": statement.excluded.dxy_change,
+                        "us10y_change": statement.excluded.us10y_change,
+                        "nikkei_futures_change": statement.excluded.nikkei_futures_change,
+                        "topix_return": statement.excluded.topix_return,
+                        "japan_bias": statement.excluded.japan_bias,
+                        "us_bias": statement.excluded.us_bias,
+                        "risk_level": statement.excluded.risk_level,
+                        "notes": statement.excluded.notes,
+                    },
                 )
-
-                last_updated_at = datetime.now(UTC)
-                IngestionService._upsert_freshness(
-                    cur,
-                    dataset_key=f"market_context:{request.market}",
-                    last_updated_at=last_updated_at,
-                    source="manual",
-                )
-                IngestionService._record_ingestion_run(
-                    cur,
-                    dataset_key=f"market_context:{request.market}",
-                    status="success",
-                    records_written=1,
-                    source="manual",
-                    started_at=snapshot_ts,
-                    completed_at=last_updated_at,
-                )
-            conn.commit()
+            )
+            IngestionService._upsert_freshness(
+                session,
+                dataset_key=dataset_key,
+                last_updated_at=last_updated_at,
+                source="manual",
+            )
+            IngestionService._record_ingestion_run(
+                session,
+                dataset_key=dataset_key,
+                status="success",
+                records_written=1,
+                source="manual",
+                started_at=snapshot_ts,
+                completed_at=last_updated_at,
+            )
+            session.commit()
 
         return IngestionResponse(
             records_written=1,
@@ -396,92 +377,64 @@ class IngestionService:
 
     @staticmethod
     def recent_bars(ticker: str, timeframe: str, limit: int) -> BarsQueryResponse:
-        from psycopg.rows import dict_row
-
-        with IngestionService._connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    SELECT ts, symbol_id, timeframe, open, high, low, close,
-                           volume, vwap, adjusted, source
-                    FROM bars
-                    WHERE symbol_id = %s AND timeframe = %s
-                    ORDER BY ts DESC
-                    LIMIT %s
-                    """,
-                    (ticker, timeframe, limit),
-                )
-                rows = list(cur.fetchall())
+        with SessionLocal() as session:
+            rows = session.scalars(
+                select(db.Bar)
+                .where(db.Bar.symbol_id == ticker, db.Bar.timeframe == timeframe)
+                .order_by(db.Bar.ts.desc())
+                .limit(limit)
+            ).all()
 
         rows.reverse()
         return BarsQueryResponse(
             ticker=ticker,
             timeframe=timeframe,
-            bars=[BarRecord(**row) for row in rows],
+            bars=[BarRecord.model_validate(row) for row in rows],
         )
 
     @staticmethod
     def latest_option_chain(underlying_symbol: str, limit: int) -> OptionChainSnapshotResponse:
-        from psycopg.rows import dict_row
-
-        with IngestionService._connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    SELECT snapshot_ts
-                    FROM options_chain_snapshots
-                    WHERE underlying_symbol = %s
-                    ORDER BY snapshot_ts DESC
-                    LIMIT 1
-                    """,
-                    (underlying_symbol,),
+        with SessionLocal() as session:
+            snapshot_ts = session.scalar(
+                select(db.OptionChainSnapshot.snapshot_ts)
+                .where(db.OptionChainSnapshot.underlying_symbol == underlying_symbol)
+                .order_by(db.OptionChainSnapshot.snapshot_ts.desc())
+                .limit(1)
+            )
+            if snapshot_ts is None:
+                return OptionChainSnapshotResponse(
+                    underlying_symbol=underlying_symbol,
+                    snapshot_ts=None,
+                    options=[],
                 )
-                latest = cur.fetchone()
-                if latest is None:
-                    return OptionChainSnapshotResponse(
-                        underlying_symbol=underlying_symbol,
-                        snapshot_ts=None,
-                        options=[],
-                    )
-
-                snapshot_ts = latest["snapshot_ts"]
-                cur.execute(
-                    """
-                    SELECT snapshot_ts, underlying_symbol, option_symbol, expiration,
-                           strike, option_type, bid, ask, mid, last, volume,
-                           open_interest, iv, delta, gamma, theta, vega,
-                           dte, spread_pct, source
-                    FROM options_chain_snapshots
-                    WHERE underlying_symbol = %s AND snapshot_ts = %s
-                    ORDER BY expiration, strike, option_type
-                    LIMIT %s
-                    """,
-                    (underlying_symbol, snapshot_ts, limit),
+            rows = session.scalars(
+                select(db.OptionChainSnapshot)
+                .where(
+                    db.OptionChainSnapshot.underlying_symbol == underlying_symbol,
+                    db.OptionChainSnapshot.snapshot_ts == snapshot_ts,
                 )
-                rows = list(cur.fetchall())
+                .order_by(
+                    db.OptionChainSnapshot.expiration,
+                    db.OptionChainSnapshot.strike,
+                    db.OptionChainSnapshot.option_type,
+                )
+                .limit(limit)
+            ).all()
 
         return OptionChainSnapshotResponse(
             underlying_symbol=underlying_symbol,
             snapshot_ts=snapshot_ts,
-            options=[OptionChainSnapshotRecord(**row) for row in rows],
+            options=[OptionChainSnapshotRecord.model_validate(row) for row in rows],
         )
 
     @staticmethod
     def data_freshness() -> DataFreshnessResponse:
-        from psycopg.rows import dict_row
+        with SessionLocal() as session:
+            rows = session.scalars(
+                select(db.DataFreshness).order_by(db.DataFreshness.dataset_key)
+            ).all()
 
-        with IngestionService._connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    SELECT dataset_key, last_updated_at, source, updated_at
-                    FROM data_freshness
-                    ORDER BY dataset_key
-                    """
-                )
-                rows = list(cur.fetchall())
-
-        return DataFreshnessResponse(data=[DataFreshnessRecord(**row) for row in rows])
+        return DataFreshnessResponse(data=[DataFreshnessRecord.model_validate(row) for row in rows])
 
     @staticmethod
     def _parse_date(value: str | None) -> date | None:

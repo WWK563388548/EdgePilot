@@ -75,11 +75,31 @@ POLYGON_BASE_URL=https://api.polygon.io
 INGESTION_ADMIN_TOKEN=<long random token>
 SSE_HEARTBEAT_SECONDS=15
 CORS_ALLOWED_ORIGINS=http://localhost:3000
+AUTH_ENABLED=true
+AUTH_ISSUER=https://<auth0-domain>/
+AUTH_AUDIENCE=<auth0-api-audience>
+AUTH_ALGORITHMS=RS256
+AUTH_ACCOUNT_CLAIM=https://edgepilot/account_id
+AUTH_ROLE_CLAIM=https://edgepilot/role
+AUTH_DEFAULT_ROLE=owner
 DATABASE_URL=${{ TimescaleDB.DATABASE_URL }}
 REDIS_URL=${{ Redis.REDIS_URL }}
 ```
 
 Do not expose `INGESTION_ADMIN_TOKEN` to frontend users.
+
+### Auth0 backend values
+
+For Auth0:
+
+- `AUTH_ISSUER` is usually `https://<tenant-domain>/`.
+- `AUTH_AUDIENCE` must match the API identifier configured in Auth0.
+- `AUTH_JWKS_URL` can be omitted unless the issuer cannot be used to derive `/.well-known/jwks.json`.
+- Custom claims can set account and role:
+  - `https://edgepilot/account_id`
+  - `https://edgepilot/role`
+
+If no account claim is present, the backend creates a personal account from the JWT subject. That is safer for beta usage because users do not share data accidentally.
 
 ### Where DATABASE_URL and REDIS_URL come from
 
@@ -156,6 +176,11 @@ For the quickest user-facing demo:
 NEXT_PUBLIC_API_BASE_URL=https://<backend-domain>
 NEXT_PUBLIC_SSE_URL=https://<backend-domain>/api/realtime/events/stream
 NEXT_PUBLIC_APP_NAME=EdgePilot
+NEXT_PUBLIC_AUTH_ENABLED=true
+NEXT_PUBLIC_AUTH0_DOMAIN=<auth0-domain>
+NEXT_PUBLIC_AUTH0_CLIENT_ID=<auth0-spa-client-id>
+NEXT_PUBLIC_AUTH0_AUDIENCE=<auth0-api-audience>
+NEXT_PUBLIC_AUTH0_REDIRECT_URI=https://<frontend-domain>
 ```
 
 5. Add the frontend domain to the backend service variable:

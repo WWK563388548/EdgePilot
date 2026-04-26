@@ -6,6 +6,21 @@ The project now has a deployable FastAPI backend, D1 ingestion hardening, D2 bus
 
 The current `INGESTION_ADMIN_TOKEN` is only suitable for internal jobs and admin-only write endpoints. It should not become the user authentication model.
 
+## Implementation Status
+
+- [x] SQLAlchemy 2.0 dependency, `Base`, engine, and session dependency.
+- [x] ORM models for auth, market data, business state, ingestion runs, freshness, and analytics core tables.
+- [x] Account ownership tables: `users`, `accounts`, `account_memberships`, `audit_logs`.
+- [x] Account scoping for `candidates`, `positions`, `exit_alerts`, and `trades_journal`.
+- [x] Alembic migration `0002_auth_orm_account_scope`.
+- [x] Business service migrated from raw psycopg SQL to SQLAlchemy ORM.
+- [x] Ingestion service migrated from raw psycopg SQL to SQLAlchemy Core/ORM session usage.
+- [x] JWT/OIDC bearer verification foundation for FastAPI.
+- [x] Role dependencies for viewer/trader/admin/owner.
+- [x] Business/dashboard API protection with authenticated account context.
+- [x] Auth0 React provider and frontend bearer token injection.
+- [x] Account isolation test for business service.
+
 ## Auth Decision
 
 ### Recommendation
@@ -99,7 +114,7 @@ Keep provider/global market-data tables shared unless later user-specific data p
 
 ### Recommendation
 
-Introduce SQLAlchemy 2.0 ORM now, but do it incrementally.
+Use SQLAlchemy 2.0 as the standard database layer across the backend.
 
 Use SQLAlchemy ORM for:
 
@@ -107,7 +122,7 @@ Use SQLAlchemy ORM for:
 - candidates/positions/exit alerts/journal;
 - future business workflows that need relationships, transactions, and account scoping.
 
-Keep raw SQL or SQLAlchemy Core acceptable for:
+Keep SQLAlchemy Core acceptable only where the database operation itself is clearer as SQL expression work:
 
 - high-volume ingestion upserts;
 - Timescale hypertable operations;
@@ -115,7 +130,7 @@ Keep raw SQL or SQLAlchemy Core acceptable for:
 
 ### Why ORM Now
 
-The current raw `psycopg` services were fine for D1/D2 velocity, but multi-user auth changes the complexity:
+The earlier raw `psycopg` services were fine for D1/D2 velocity, but multi-user auth changes the complexity:
 
 - every user-owned query must be scoped by `account_id`;
 - relationships between users, accounts, roles, positions, alerts, and journal entries matter;
@@ -134,6 +149,8 @@ SQLModel remains a reasonable option, but SQLAlchemy 2.0 is the safer choice for
 ## Immediate PR Sequence
 
 ### PR 5: ORM and Ownership Foundation
+
+Status: implemented in this branch.
 
 Goal: create the data model required for safe multi-user auth before exposing user data.
 
@@ -155,6 +172,8 @@ Acceptance:
 - Existing tests remain green.
 
 ### PR 6: Auth Integration
+
+Status: implemented as foundation in this branch. Still needs real Auth0 tenant values and an end-to-end deployed login test.
 
 Goal: replace the current frontend-open dashboard with authenticated sessions.
 

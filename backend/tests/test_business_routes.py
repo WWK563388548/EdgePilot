@@ -1,5 +1,7 @@
 from datetime import UTC, date, datetime
 
+from fastapi.testclient import TestClient
+
 from backend.app.api.routes.business import (
     create_candidate,
     create_exit_alert,
@@ -14,6 +16,9 @@ from backend.app.api.routes.business import (
     update_exit_alert,
     update_position,
 )
+from backend.app.core.auth import AuthPrincipal
+from backend.app.core.config import settings
+from backend.app.main import app
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
@@ -40,6 +45,15 @@ def _candidate() -> Candidate:
         strategy_name="breakout",
         decision="watch",
         created_at=datetime(2026, 4, 26, tzinfo=UTC),
+    )
+
+
+def _principal() -> AuthPrincipal:
+    return AuthPrincipal(
+        user_id="user_local",
+        account_id="acct_local",
+        role="owner",
+        external_subject="local-dev",
     )
 
 
@@ -82,17 +96,17 @@ def test_candidate_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "create_candidate",
-        lambda request: _candidate(),
+        lambda session, principal, request: _candidate(),
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_candidates",
-        lambda limit: [_candidate()],
+        lambda session, principal, limit: [_candidate()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "update_candidate",
-        lambda candidate_id, request: _candidate(),
+        lambda session, principal, candidate_id, request: _candidate(),
     )
 
     assert create_candidate(
@@ -100,10 +114,20 @@ def test_candidate_routes(monkeypatch) -> None:
             symbol_id="SPY",
             scan_date=date(2026, 4, 26),
             strategy_name="breakout",
-        )
+        ),
+        session=None,
+        principal=_principal(),
     ).candidate_id == "cand_1"
-    assert list_candidates(limit=10)[0].symbol_id == "SPY"
-    assert update_candidate("cand_1", CandidateUpdate(decision="candidate")).decision == "watch"
+    assert list_candidates(session=None, principal=_principal(), limit=10)[0].symbol_id == "SPY"
+    assert (
+        update_candidate(
+            "cand_1",
+            CandidateUpdate(decision="candidate"),
+            session=None,
+            principal=_principal(),
+        ).decision
+        == "watch"
+    )
 
 
 def test_position_routes(monkeypatch) -> None:
@@ -112,22 +136,42 @@ def test_position_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "create_position",
-        lambda request: _position(),
+        lambda session, principal, request: _position(),
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_positions",
-        lambda status, limit: [_position()],
+        lambda session, principal, status, limit: [_position()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "update_position",
-        lambda position_id, request: _position(),
+        lambda session, principal, position_id, request: _position(),
     )
 
-    assert create_position(PositionCreate(symbol_id="SPY", asset_type="etf")).position_id == "pos_1"
-    assert list_positions(status_filter="open", limit=10)[0].status == "open"
-    assert update_position("pos_1", PositionUpdate(current_stop=420)).symbol_id == "SPY"
+    assert (
+        create_position(
+            PositionCreate(symbol_id="SPY", asset_type="etf"),
+            session=None,
+            principal=_principal(),
+        ).position_id
+        == "pos_1"
+    )
+    assert list_positions(
+        session=None,
+        principal=_principal(),
+        status_filter="open",
+        limit=10,
+    )[0].status == "open"
+    assert (
+        update_position(
+            "pos_1",
+            PositionUpdate(current_stop=420),
+            session=None,
+            principal=_principal(),
+        ).symbol_id
+        == "SPY"
+    )
 
 
 def test_exit_alert_routes(monkeypatch) -> None:
@@ -136,22 +180,42 @@ def test_exit_alert_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "create_exit_alert",
-        lambda request: _alert(),
+        lambda session, principal, request: _alert(),
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_exit_alerts",
-        lambda acknowledged, limit: [_alert()],
+        lambda session, principal, acknowledged, limit: [_alert()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "update_exit_alert",
-        lambda alert_id, request: _alert(),
+        lambda session, principal, alert_id, request: _alert(),
     )
 
-    assert create_exit_alert(ExitAlertCreate(position_id="pos_1")).alert_id == "alert_1"
-    assert list_exit_alerts(acknowledged=False, limit=10)[0].level == 2
-    assert update_exit_alert("alert_1", ExitAlertUpdate(acknowledged=True)).position_id == "pos_1"
+    assert (
+        create_exit_alert(
+            ExitAlertCreate(position_id="pos_1"),
+            session=None,
+            principal=_principal(),
+        ).alert_id
+        == "alert_1"
+    )
+    assert list_exit_alerts(
+        session=None,
+        principal=_principal(),
+        acknowledged=False,
+        limit=10,
+    )[0].level == 2
+    assert (
+        update_exit_alert(
+            "alert_1",
+            ExitAlertUpdate(acknowledged=True),
+            session=None,
+            principal=_principal(),
+        ).position_id
+        == "pos_1"
+    )
 
 
 def test_journal_routes(monkeypatch) -> None:
@@ -160,16 +224,23 @@ def test_journal_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "create_journal_trade",
-        lambda request: _trade(),
+        lambda session, principal, request: _trade(),
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_journal_trades",
-        lambda limit: [_trade()],
+        lambda session, principal, limit: [_trade()],
     )
 
-    assert create_journal_trade(JournalTradeCreate(symbol_id="SPY")).trade_id == "trade_1"
-    assert list_journal_trades(limit=10)[0].net_pnl == 120.0
+    assert (
+        create_journal_trade(
+            JournalTradeCreate(symbol_id="SPY"),
+            session=None,
+            principal=_principal(),
+        ).trade_id
+        == "trade_1"
+    )
+    assert list_journal_trades(session=None, principal=_principal(), limit=10)[0].net_pnl == 120.0
 
 
 def test_dashboard_summary_route(monkeypatch) -> None:
@@ -178,7 +249,7 @@ def test_dashboard_summary_route(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "dashboard_summary",
-        lambda: DashboardSummary(
+        lambda session, principal: DashboardSummary(
             market_context=MarketContextSummary(
                 snapshot_ts=datetime(2026, 4, 26, tzinfo=UTC),
                 risk_level="normal",
@@ -198,7 +269,17 @@ def test_dashboard_summary_route(monkeypatch) -> None:
         ),
     )
 
-    response = get_dashboard_summary()
+    response = get_dashboard_summary(session=None, principal=_principal())
 
     assert response.risk_mode == "normal"
     assert response.candidate_count == 3
+
+
+def test_business_routes_require_bearer_token_when_auth_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "auth_enabled", True)
+    client = TestClient(app)
+
+    response = client.get("/api/candidates")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing bearer token"

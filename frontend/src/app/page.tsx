@@ -10,14 +10,18 @@ import {
   CircleDot,
   Database,
   ListChecks,
+  LogIn,
+  LogOut,
   PlugZap,
   RefreshCcw,
   Settings,
-  ShieldCheck
+  ShieldCheck,
+  UserCircle
 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { Candidate, ExitAlert, JournalTrade, Position } from "@/lib/api";
 import { useWorkspaceStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store";
@@ -76,15 +80,45 @@ function DataState({ isLoading, isError }: { isLoading: boolean; isError: boolea
 }
 
 export default function Home() {
+  const auth = useAuth();
   const { view, setView } = useWorkspaceStore();
-  const dashboard = useQuery({ queryKey: ["dashboard"], queryFn: api.dashboard });
-  const candidates = useQuery({ queryKey: ["candidates"], queryFn: api.candidates });
-  const positions = useQuery({ queryKey: ["positions"], queryFn: api.positions });
-  const alerts = useQuery({ queryKey: ["alerts"], queryFn: api.alerts });
-  const journal = useQuery({ queryKey: ["journal"], queryFn: api.journal });
+  const queriesEnabled = auth.ready && auth.isAuthenticated;
+  const dashboard = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: api.dashboard,
+    enabled: queriesEnabled
+  });
+  const candidates = useQuery({
+    queryKey: ["candidates"],
+    queryFn: api.candidates,
+    enabled: queriesEnabled
+  });
+  const positions = useQuery({
+    queryKey: ["positions"],
+    queryFn: api.positions,
+    enabled: queriesEnabled
+  });
+  const alerts = useQuery({
+    queryKey: ["alerts"],
+    queryFn: api.alerts,
+    enabled: queriesEnabled
+  });
+  const journal = useQuery({
+    queryKey: ["journal"],
+    queryFn: api.journal,
+    enabled: queriesEnabled
+  });
 
   const summary = dashboard.data;
   const riskTone = summary?.risk_mode === "normal" ? "good" : summary?.risk_mode === "shock" ? "bad" : "warn";
+
+  if (auth.enabled && !auth.ready) {
+    return <AuthScreen status="Checking session..." />;
+  }
+
+  if (auth.enabled && !auth.isAuthenticated) {
+    return <AuthScreen action={auth.login} status="Sign in required" />;
+  }
 
   return (
     <main className="min-h-screen bg-[#eef2f5]">
@@ -103,6 +137,7 @@ export default function Home() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill label={summary?.risk_mode ?? "unknown"} tone={riskTone} />
+            <AuthButton />
             <div className="inline-flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-slate-700">
               <RefreshCcw size={16} />
               30s refresh
@@ -192,6 +227,58 @@ export default function Home() {
   );
 }
 
+function AuthScreen({ status, action }: { status: string; action?: () => Promise<void> }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#eef2f5] px-4">
+      <section className="w-full max-w-sm rounded-md border border-line bg-white p-5">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-ink text-white">
+            <BarChart3 size={22} />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-ink">EdgePilot</h1>
+            <p className="text-sm text-slate-600">{status}</p>
+          </div>
+        </div>
+        {action ? (
+          <button
+            className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            onClick={() => void action()}
+            type="button"
+          >
+            <LogIn size={16} />
+            Sign in
+          </button>
+        ) : (
+          <div className="h-2 rounded-md bg-panel" />
+        )}
+      </section>
+    </main>
+  );
+}
+
+function AuthButton() {
+  const auth = useAuth();
+  if (!auth.enabled) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-slate-700">
+        <UserCircle size={16} />
+        Local Dev
+      </div>
+    );
+  }
+  return (
+    <button
+      className="focus-ring inline-flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-slate-700 hover:border-slate-400"
+      onClick={() => auth.logout()}
+      type="button"
+    >
+      <LogOut size={16} />
+      {auth.userLabel}
+    </button>
+  );
+}
+
 function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string | number }) {
   return (
     <div className="rounded-md border border-line bg-white p-4">
@@ -240,6 +327,7 @@ function TableShell({
 }
 
 function SettingsPanel() {
+  const auth = useAuth();
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
   const sseUrl =
     process.env.NEXT_PUBLIC_SSE_URL ?? "http://localhost:8000/api/realtime/events/stream";
@@ -256,6 +344,8 @@ function SettingsPanel() {
           <Field label="App" value={appName} />
           <Field label="API Base URL" value={apiBaseUrl} />
           <Field label="SSE URL" value={sseUrl} />
+          <Field label="Auth" value={auth.enabled ? "enabled" : "local dev"} />
+          <Field label="User" value={auth.userLabel} />
         </dl>
       </div>
 

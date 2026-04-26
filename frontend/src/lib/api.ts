@@ -1,5 +1,22 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+type AccessTokenProvider = () => Promise<string | null>;
+
+let accessTokenProvider: AccessTokenProvider | null = null;
+
+export function setAccessTokenProvider(provider: AccessTokenProvider | null) {
+  accessTokenProvider = provider;
+}
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super(`Request failed: ${status}`);
+    this.status = status;
+  }
+}
+
 export type DashboardSummary = {
   market_context: {
     snapshot_ts: string | null;
@@ -71,15 +88,21 @@ export type JournalTrade = {
 };
 
 async function getJson<T>(path: string): Promise<T> {
+  const token = accessTokenProvider ? await accessTokenProvider() : null;
+  const headers: Record<string, string> = {
+    Accept: "application/json"
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: "application/json"
-    },
+    headers,
     cache: "no-store"
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw new ApiError(response.status);
   }
 
   return response.json() as Promise<T>;

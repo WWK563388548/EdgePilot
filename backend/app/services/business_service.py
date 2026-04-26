@@ -1,8 +1,10 @@
 from uuid import uuid4
 
-from psycopg.rows import dict_row
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
-from backend.app.core.database import connect
+from backend.app import models as db
+from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
@@ -23,355 +25,324 @@ from backend.app.schemas.business import (
 
 class BusinessService:
     @staticmethod
-    def create_candidate(request: CandidateCreate) -> Candidate:
-        candidate_id = request.candidate_id or f"cand_{uuid4().hex}"
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    INSERT INTO candidates (
-                        candidate_id, symbol_id, scan_date, strategy_name, setup_type,
-                        score_total, entry_trigger, initial_stop, decision,
-                        option_suitability, ai_review_json
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING *
-                    """,
-                    (
-                        candidate_id,
-                        request.symbol_id,
-                        request.scan_date,
-                        request.strategy_name,
-                        request.setup_type,
-                        request.score_total,
-                        request.entry_trigger,
-                        request.initial_stop,
-                        request.decision,
-                        request.option_suitability,
-                        request.ai_review_json,
-                    ),
-                )
-                row = cur.fetchone()
-            conn.commit()
-        return Candidate(**row)
+    def _audit(
+        session: Session,
+        principal: AuthPrincipal,
+        action: str,
+        entity_type: str,
+        entity_id: str | None,
+    ) -> None:
+        session.add(
+            db.AuditLog(
+                audit_id=AuthService.audit_id(),
+                account_id=principal.account_id,
+                actor_user_id=principal.user_id,
+                action=action,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+        )
 
     @staticmethod
-    def list_candidates(limit: int = 100) -> list[Candidate]:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    SELECT *
-                    FROM candidates
-                    ORDER BY scan_date DESC, created_at DESC
-                    LIMIT %s
-                    """,
-                    (limit,),
-                )
-                rows = list(cur.fetchall())
-        return [Candidate(**row) for row in rows]
+    def create_candidate(
+        session: Session,
+        principal: AuthPrincipal,
+        request: CandidateCreate,
+    ) -> Candidate:
+        candidate = db.Candidate(
+            candidate_id=request.candidate_id or f"cand_{uuid4().hex}",
+            account_id=principal.account_id,
+            symbol_id=request.symbol_id,
+            scan_date=request.scan_date,
+            strategy_name=request.strategy_name,
+            setup_type=request.setup_type,
+            score_total=request.score_total,
+            entry_trigger=request.entry_trigger,
+            initial_stop=request.initial_stop,
+            decision=request.decision,
+            option_suitability=request.option_suitability,
+            ai_review_json=request.ai_review_json,
+        )
+        session.add(candidate)
+        BusinessService._audit(session, principal, "candidate.create", "candidate", candidate.candidate_id)
+        session.commit()
+        session.refresh(candidate)
+        return Candidate.model_validate(candidate)
 
     @staticmethod
-    def update_candidate(candidate_id: str, request: CandidateUpdate) -> Candidate:
+    def list_candidates(
+        session: Session,
+        principal: AuthPrincipal,
+        limit: int = 100,
+    ) -> list[Candidate]:
+        rows = session.scalars(
+            select(db.Candidate)
+            .where(db.Candidate.account_id == principal.account_id)
+            .order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc())
+            .limit(limit)
+        ).all()
+        return [Candidate.model_validate(row) for row in rows]
+
+    @staticmethod
+    def update_candidate(
+        session: Session,
+        principal: AuthPrincipal,
+        candidate_id: str,
+        request: CandidateUpdate,
+    ) -> Candidate:
+        candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
         payload = request.model_dump(exclude_unset=True)
-        if not payload:
-            return BusinessService.get_candidate(candidate_id)
+        for key, value in payload.items():
+            setattr(candidate, key, value)
+        if payload:
+            BusinessService._audit(session, principal, "candidate.update", "candidate", candidate_id)
+            session.commit()
+            session.refresh(candidate)
+        return Candidate.model_validate(candidate)
 
-        assignments = ", ".join(f"{key} = %s" for key in payload)
-        values = list(payload.values())
-        values.append(candidate_id)
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    f"UPDATE candidates SET {assignments} WHERE candidate_id = %s RETURNING *",
-                    values,
-                )
-                row = cur.fetchone()
-            conn.commit()
-        if row is None:
+    @staticmethod
+    def _get_candidate_model(
+        session: Session,
+        principal: AuthPrincipal,
+        candidate_id: str,
+    ) -> db.Candidate:
+        candidate = session.scalar(
+            select(db.Candidate).where(
+                db.Candidate.candidate_id == candidate_id,
+                db.Candidate.account_id == principal.account_id,
+            )
+        )
+        if candidate is None:
             raise ValueError(f"Candidate not found: {candidate_id}")
-        return Candidate(**row)
+        return candidate
 
     @staticmethod
-    def get_candidate(candidate_id: str) -> Candidate:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("SELECT * FROM candidates WHERE candidate_id = %s", (candidate_id,))
-                row = cur.fetchone()
-        if row is None:
-            raise ValueError(f"Candidate not found: {candidate_id}")
-        return Candidate(**row)
+    def create_position(
+        session: Session,
+        principal: AuthPrincipal,
+        request: PositionCreate,
+    ) -> Position:
+        position = db.Position(
+            position_id=request.position_id or f"pos_{uuid4().hex}",
+            account_id=principal.account_id,
+            symbol_id=request.symbol_id,
+            asset_type=request.asset_type,
+            strategy_name=request.strategy_name,
+            entry_date=request.entry_date,
+            entry_price=request.entry_price,
+            quantity=request.quantity,
+            initial_stop=request.initial_stop,
+            current_stop=request.current_stop,
+            status=request.status,
+            current_r=request.current_r,
+            realized_pnl=request.realized_pnl,
+            unrealized_pnl=request.unrealized_pnl,
+        )
+        session.add(position)
+        BusinessService._audit(session, principal, "position.create", "position", position.position_id)
+        session.commit()
+        session.refresh(position)
+        return Position.model_validate(position)
 
     @staticmethod
-    def create_position(request: PositionCreate) -> Position:
-        position_id = request.position_id or f"pos_{uuid4().hex}"
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    INSERT INTO positions (
-                        position_id, symbol_id, asset_type, strategy_name, entry_date,
-                        entry_price, quantity, initial_stop, current_stop, status,
-                        current_r, realized_pnl, unrealized_pnl
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING *
-                    """,
-                    (
-                        position_id,
-                        request.symbol_id,
-                        request.asset_type,
-                        request.strategy_name,
-                        request.entry_date,
-                        request.entry_price,
-                        request.quantity,
-                        request.initial_stop,
-                        request.current_stop,
-                        request.status,
-                        request.current_r,
-                        request.realized_pnl,
-                        request.unrealized_pnl,
-                    ),
-                )
-                row = cur.fetchone()
-            conn.commit()
-        return Position(**row)
+    def list_positions(
+        session: Session,
+        principal: AuthPrincipal,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[Position]:
+        statement = select(db.Position).where(db.Position.account_id == principal.account_id)
+        if status:
+            statement = statement.where(db.Position.status == status)
+        rows = session.scalars(statement.order_by(db.Position.updated_at.desc()).limit(limit)).all()
+        return [Position.model_validate(row) for row in rows]
 
     @staticmethod
-    def list_positions(status: str | None = None, limit: int = 100) -> list[Position]:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                if status:
-                    cur.execute(
-                        """
-                        SELECT *
-                        FROM positions
-                        WHERE status = %s
-                        ORDER BY updated_at DESC
-                        LIMIT %s
-                        """,
-                        (status, limit),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT * FROM positions ORDER BY updated_at DESC LIMIT %s",
-                        (limit,),
-                    )
-                rows = list(cur.fetchall())
-        return [Position(**row) for row in rows]
-
-    @staticmethod
-    def update_position(position_id: str, request: PositionUpdate) -> Position:
+    def update_position(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+        request: PositionUpdate,
+    ) -> Position:
+        position = BusinessService._get_position_model(session, principal, position_id)
         payload = request.model_dump(exclude_unset=True)
-        if not payload:
-            return BusinessService.get_position(position_id)
+        for key, value in payload.items():
+            setattr(position, key, value)
+        if payload:
+            BusinessService._audit(session, principal, "position.update", "position", position_id)
+            session.commit()
+            session.refresh(position)
+        return Position.model_validate(position)
 
-        assignments = ", ".join(f"{key} = %s" for key in payload)
-        values = list(payload.values())
-        values.append(position_id)
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    f"""
-                    UPDATE positions
-                    SET {assignments}, updated_at = now()
-                    WHERE position_id = %s
-                    RETURNING *
-                    """,
-                    values,
-                )
-                row = cur.fetchone()
-            conn.commit()
-        if row is None:
+    @staticmethod
+    def _get_position_model(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+    ) -> db.Position:
+        position = session.scalar(
+            select(db.Position).where(
+                db.Position.position_id == position_id,
+                db.Position.account_id == principal.account_id,
+            )
+        )
+        if position is None:
             raise ValueError(f"Position not found: {position_id}")
-        return Position(**row)
+        return position
 
     @staticmethod
-    def get_position(position_id: str) -> Position:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("SELECT * FROM positions WHERE position_id = %s", (position_id,))
-                row = cur.fetchone()
-        if row is None:
-            raise ValueError(f"Position not found: {position_id}")
-        return Position(**row)
+    def create_exit_alert(
+        session: Session,
+        principal: AuthPrincipal,
+        request: ExitAlertCreate,
+    ) -> ExitAlert:
+        BusinessService._get_position_model(session, principal, request.position_id)
+        alert = db.ExitAlert(
+            alert_id=request.alert_id or f"alert_{uuid4().hex}",
+            account_id=principal.account_id,
+            position_id=request.position_id,
+            level=request.level,
+            action=request.action,
+            reason=request.reason,
+            new_stop=request.new_stop,
+            triggered_rules=request.triggered_rules,
+            acknowledged=request.acknowledged,
+        )
+        session.add(alert)
+        BusinessService._audit(session, principal, "exit_alert.create", "exit_alert", alert.alert_id)
+        session.commit()
+        session.refresh(alert)
+        return ExitAlert.model_validate(alert)
 
     @staticmethod
-    def create_exit_alert(request: ExitAlertCreate) -> ExitAlert:
-        alert_id = request.alert_id or f"alert_{uuid4().hex}"
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    INSERT INTO exit_alerts (
-                        alert_id, position_id, level, action, reason, new_stop,
-                        triggered_rules, acknowledged
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING *
-                    """,
-                    (
-                        alert_id,
-                        request.position_id,
-                        request.level,
-                        request.action,
-                        request.reason,
-                        request.new_stop,
-                        request.triggered_rules,
-                        request.acknowledged,
-                    ),
-                )
-                row = cur.fetchone()
-            conn.commit()
-        return ExitAlert(**row)
+    def list_exit_alerts(
+        session: Session,
+        principal: AuthPrincipal,
+        acknowledged: bool | None = None,
+        limit: int = 100,
+    ) -> list[ExitAlert]:
+        statement = select(db.ExitAlert).where(db.ExitAlert.account_id == principal.account_id)
+        if acknowledged is not None:
+            statement = statement.where(db.ExitAlert.acknowledged == acknowledged)
+        rows = session.scalars(statement.order_by(db.ExitAlert.alert_ts.desc()).limit(limit)).all()
+        return [ExitAlert.model_validate(row) for row in rows]
 
     @staticmethod
-    def list_exit_alerts(acknowledged: bool | None = None, limit: int = 100) -> list[ExitAlert]:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                if acknowledged is None:
-                    cur.execute(
-                        "SELECT * FROM exit_alerts ORDER BY alert_ts DESC LIMIT %s",
-                        (limit,),
-                    )
-                else:
-                    cur.execute(
-                        """
-                        SELECT *
-                        FROM exit_alerts
-                        WHERE acknowledged = %s
-                        ORDER BY alert_ts DESC
-                        LIMIT %s
-                        """,
-                        (acknowledged, limit),
-                    )
-                rows = list(cur.fetchall())
-        return [ExitAlert(**row) for row in rows]
-
-    @staticmethod
-    def update_exit_alert(alert_id: str, request: ExitAlertUpdate) -> ExitAlert:
+    def update_exit_alert(
+        session: Session,
+        principal: AuthPrincipal,
+        alert_id: str,
+        request: ExitAlertUpdate,
+    ) -> ExitAlert:
+        alert = BusinessService._get_exit_alert_model(session, principal, alert_id)
         payload = request.model_dump(exclude_unset=True)
-        if not payload:
-            return BusinessService.get_exit_alert(alert_id)
+        for key, value in payload.items():
+            setattr(alert, key, value)
+        if payload:
+            BusinessService._audit(session, principal, "exit_alert.update", "exit_alert", alert_id)
+            session.commit()
+            session.refresh(alert)
+        return ExitAlert.model_validate(alert)
 
-        assignments = ", ".join(f"{key} = %s" for key in payload)
-        values = list(payload.values())
-        values.append(alert_id)
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    f"UPDATE exit_alerts SET {assignments} WHERE alert_id = %s RETURNING *",
-                    values,
-                )
-                row = cur.fetchone()
-            conn.commit()
-        if row is None:
+    @staticmethod
+    def _get_exit_alert_model(
+        session: Session,
+        principal: AuthPrincipal,
+        alert_id: str,
+    ) -> db.ExitAlert:
+        alert = session.scalar(
+            select(db.ExitAlert).where(
+                db.ExitAlert.alert_id == alert_id,
+                db.ExitAlert.account_id == principal.account_id,
+            )
+        )
+        if alert is None:
             raise ValueError(f"Exit alert not found: {alert_id}")
-        return ExitAlert(**row)
+        return alert
 
     @staticmethod
-    def get_exit_alert(alert_id: str) -> ExitAlert:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("SELECT * FROM exit_alerts WHERE alert_id = %s", (alert_id,))
-                row = cur.fetchone()
-        if row is None:
-            raise ValueError(f"Exit alert not found: {alert_id}")
-        return ExitAlert(**row)
+    def create_journal_trade(
+        session: Session,
+        principal: AuthPrincipal,
+        request: JournalTradeCreate,
+    ) -> JournalTrade:
+        if request.position_id:
+            BusinessService._get_position_model(session, principal, request.position_id)
+        trade = db.TradeJournal(
+            trade_id=request.trade_id or f"trade_{uuid4().hex}",
+            account_id=principal.account_id,
+            position_id=request.position_id,
+            symbol_id=request.symbol_id,
+            entry_ts=request.entry_ts,
+            exit_ts=request.exit_ts,
+            entry_price=request.entry_price,
+            exit_price=request.exit_price,
+            quantity=request.quantity,
+            gross_pnl=request.gross_pnl,
+            net_pnl=request.net_pnl,
+            r_multiple=request.r_multiple,
+            setup_type=request.setup_type,
+            exit_reason=request.exit_reason,
+            mistake_tags=request.mistake_tags,
+            notes=request.notes,
+        )
+        session.add(trade)
+        BusinessService._audit(session, principal, "journal_trade.create", "journal_trade", trade.trade_id)
+        session.commit()
+        session.refresh(trade)
+        return JournalTrade.model_validate(trade)
 
     @staticmethod
-    def create_journal_trade(request: JournalTradeCreate) -> JournalTrade:
-        trade_id = request.trade_id or f"trade_{uuid4().hex}"
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    """
-                    INSERT INTO trades_journal (
-                        trade_id, position_id, symbol_id, entry_ts, exit_ts,
-                        entry_price, exit_price, quantity, gross_pnl, net_pnl,
-                        r_multiple, setup_type, exit_reason, mistake_tags, notes
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING *
-                    """,
-                    (
-                        trade_id,
-                        request.position_id,
-                        request.symbol_id,
-                        request.entry_ts,
-                        request.exit_ts,
-                        request.entry_price,
-                        request.exit_price,
-                        request.quantity,
-                        request.gross_pnl,
-                        request.net_pnl,
-                        request.r_multiple,
-                        request.setup_type,
-                        request.exit_reason,
-                        request.mistake_tags,
-                        request.notes,
-                    ),
-                )
-                row = cur.fetchone()
-            conn.commit()
-        return JournalTrade(**row)
+    def list_journal_trades(
+        session: Session,
+        principal: AuthPrincipal,
+        limit: int = 100,
+    ) -> list[JournalTrade]:
+        rows = session.scalars(
+            select(db.TradeJournal)
+            .where(db.TradeJournal.account_id == principal.account_id)
+            .order_by(db.TradeJournal.entry_ts.desc().nulls_last())
+            .limit(limit)
+        ).all()
+        return [JournalTrade.model_validate(row) for row in rows]
 
     @staticmethod
-    def list_journal_trades(limit: int = 100) -> list[JournalTrade]:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(
-                    "SELECT * FROM trades_journal ORDER BY entry_ts DESC NULLS LAST LIMIT %s",
-                    (limit,),
-                )
-                rows = list(cur.fetchall())
-        return [JournalTrade(**row) for row in rows]
-
-    @staticmethod
-    def dashboard_summary() -> DashboardSummary:
-        with connect() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute("SELECT count(*) AS count FROM candidates")
-                candidate_count = cur.fetchone()["count"]
-                cur.execute("SELECT count(*) AS count FROM positions WHERE status = 'open'")
-                open_position_count = cur.fetchone()["count"]
-                cur.execute(
-                    """
-                    SELECT count(*) AS count, max(level) AS highest_level
-                    FROM exit_alerts
-                    WHERE acknowledged = false
-                    """
-                )
-                alert_summary = cur.fetchone()
-                cur.execute(
-                    """
-                    SELECT snapshot_ts, risk_level, us_bias, japan_bias, notes
-                    FROM market_context_snapshots
-                    ORDER BY snapshot_ts DESC
-                    LIMIT 1
-                    """
-                )
-                market_context = cur.fetchone()
-                cur.execute(
-                    """
-                    SELECT dataset_key, last_updated_at, source
-                    FROM data_freshness
-                    ORDER BY dataset_key
-                    """
-                )
-                freshness_rows = list(cur.fetchall())
+    def dashboard_summary(session: Session, principal: AuthPrincipal) -> DashboardSummary:
+        candidate_count = session.scalar(
+            select(func.count()).select_from(db.Candidate).where(
+                db.Candidate.account_id == principal.account_id
+            )
+        )
+        open_position_count = session.scalar(
+            select(func.count()).select_from(db.Position).where(
+                db.Position.account_id == principal.account_id,
+                db.Position.status == "open",
+            )
+        )
+        alert_count, highest_level = session.execute(
+            select(func.count(), func.max(db.ExitAlert.level)).where(
+                db.ExitAlert.account_id == principal.account_id,
+                db.ExitAlert.acknowledged.is_(False),
+            )
+        ).one()
+        market_context = session.scalar(
+            select(db.MarketContextSnapshot).order_by(db.MarketContextSnapshot.snapshot_ts.desc()).limit(1)
+        )
+        freshness_rows = session.scalars(
+            select(db.DataFreshness).order_by(db.DataFreshness.dataset_key)
+        ).all()
 
         context = (
-            MarketContextSummary(**market_context)
+            MarketContextSummary.model_validate(market_context)
             if market_context
             else MarketContextSummary(risk_level="unknown")
         )
         return DashboardSummary(
             market_context=context,
             risk_mode=context.risk_level or "unknown",
-            candidate_count=candidate_count,
-            open_position_count=open_position_count,
-            exit_alert_count=alert_summary["count"],
-            highest_exit_level=alert_summary["highest_level"],
-            data_freshness=[DataFreshnessSummary(**row) for row in freshness_rows],
+            candidate_count=candidate_count or 0,
+            open_position_count=open_position_count or 0,
+            exit_alert_count=alert_count or 0,
+            highest_exit_level=highest_level,
+            data_freshness=[DataFreshnessSummary.model_validate(row) for row in freshness_rows],
         )
