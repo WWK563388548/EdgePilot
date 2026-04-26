@@ -18,19 +18,15 @@
 - [x] SSE 占位：`/api/realtime/events/stream`
 - [x] 环境变量模板（root/backend/frontend）
 
+## 已完成（D1 PR）
+
+- [x] Polygon US ETF 日线抓取并写入 `bars`
+- [x] selected underlying options chain 抓取并写入 `options_chain_snapshots`
+- [x] market context snapshot 写入 `market_context_snapshots`
+- [x] 数据新鲜度写入与查询：`data_freshness`
+- [x] 最近 N 根 bar 与最新 options snapshot 查询 API
+
 ## 下一步开发计划
-
-## Phase D1（行情写入）
-
-- 新增 `ingestion` 模块：
-  - Polygon US ETF 日线抓取
-  - selected underlying options chain 抓取
-  - 写入 `bars` 与 `options_chain_snapshots`
-- 新增数据新鲜度表（`data_freshness`）
-- 验收：
-  - 能看到最近 N 根 bar
-  - 能看到 options 快照
-  - API 返回 `last_updated_at`
 
 ## Phase D2（业务状态）
 

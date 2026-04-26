@@ -8,6 +8,7 @@ dependencies = [
   "fastapi>=0.116.0",
   "uvicorn>=0.35.0",
   "pydantic-settings>=2.10.0",
+  "psycopg[binary]>=3.2.0",
 ]
 
 [project.optional-dependencies]
@@ -18,10 +19,13 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["backend"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

@@ -10,8 +10,11 @@ class Settings(BaseSettings):
     app_port: int = 8000
     log_level: str = "INFO"
 
-    database_url: str = "postgresql+psycopg://edgepilot:edgepilot@localhost:5432/edgepilot"
+    database_url: str = "postgresql://edgepilot:edgepilot@localhost:5432/edgepilot"
     redis_url: str = "redis://localhost:6379/0"
+
+    polygon_api_key: str = ""
+    polygon_base_url: str = "https://api.polygon.io"
 
     sse_heartbeat_seconds: int = 15
 

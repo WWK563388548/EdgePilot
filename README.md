@@ -2,9 +2,9 @@
 
 基于 `docs/trading_assistant_prd_tdd_implementation_plan_v0_3_db_frontend_analytics (1).md` 的首版落地骨架。
 
-## 当前已落地（D0 + F0 启动）
+## 当前已落地（D0 + D1 + F0 启动）
 
-- Backend FastAPI 基础服务（health、analytics API、realtime SSE 事件流占位）。
+- Backend FastAPI 基础服务（health、analytics API、realtime SSE 事件流占位、D1 ingestion API）。
 - PostgreSQL + TimescaleDB + Redis 的 `docker-compose` 本地开发环境。
 - 时序表和核心业务表 SQL 初始化脚本（D0/D2/D3 核心子集）。
 - 环境变量模板：
@@ -31,8 +31,18 @@ uvicorn backend.app.main:app --reload --port 8000
 - `GET /health`
 - `GET /api/analytics/overview?from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `GET /api/realtime/events/stream` (SSE mock stream)
+- `POST /api/ingestion/bars`
+- `POST /api/ingestion/options-chain`
+- `POST /api/ingestion/market-context`
+- `GET /api/ingestion/bars/{ticker}?timeframe=1d&limit=200`
+- `GET /api/ingestion/options-chain/{underlying_symbol}?limit=250`
+- `GET /api/ingestion/freshness`
 
 ## 规划阶段
 
 详见：`docs/v0_3_execution_roadmap.md`
 
+## D1 Ingestion 环境变量
+
+- `POLYGON_API_KEY`（必填）
+- `POLYGON_BASE_URL`（默认 `https://api.polygon.io`）

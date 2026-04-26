@@ -57,6 +57,29 @@ CREATE TABLE IF NOT EXISTS options_chain_snapshots (
 );
 SELECT create_hypertable('options_chain_snapshots', 'snapshot_ts', if_not_exists => TRUE);
 
+CREATE TABLE IF NOT EXISTS market_context_snapshots (
+    snapshot_ts TIMESTAMPTZ NOT NULL,
+    market TEXT NOT NULL DEFAULT 'global',
+    spy_return DOUBLE PRECISION,
+    qqq_return DOUBLE PRECISION,
+    iwm_return DOUBLE PRECISION,
+    smh_return DOUBLE PRECISION,
+    soxx_return DOUBLE PRECISION,
+    vix_change DOUBLE PRECISION,
+    usdjpy_change DOUBLE PRECISION,
+    dxy_change DOUBLE PRECISION,
+    us10y_change DOUBLE PRECISION,
+    nikkei_futures_change DOUBLE PRECISION,
+    topix_return DOUBLE PRECISION,
+    japan_bias TEXT,
+    us_bias TEXT,
+    risk_level TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (market, snapshot_ts)
+);
+SELECT create_hypertable('market_context_snapshots', 'snapshot_ts', if_not_exists => TRUE);
+
 CREATE TABLE IF NOT EXISTS candidates (
     candidate_id TEXT PRIMARY KEY,
     symbol_id TEXT NOT NULL,
@@ -159,4 +182,11 @@ CREATE TABLE IF NOT EXISTS analytics_daily (
     option_exposure_pct DOUBLE PRECISION,
     created_at TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (date, account_id)
+);
+
+CREATE TABLE IF NOT EXISTS data_freshness (
+    dataset_key TEXT PRIMARY KEY,
+    last_updated_at TIMESTAMPTZ NOT NULL,
+    source TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
