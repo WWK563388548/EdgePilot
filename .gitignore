@@ -3,6 +3,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.pyc
+edgepilot.egg-info/
+uv.lock
+node_modules/
+.next/
+frontend/node_modules/
+frontend/.next/
 .env
 backend/.env
 frontend/.env.local

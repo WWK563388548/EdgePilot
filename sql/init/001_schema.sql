@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS bars (
     PRIMARY KEY (symbol_id, timeframe, ts)
 );
 SELECT create_hypertable('bars', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS idx_bars_symbol_tf_ts
+ON bars (symbol_id, timeframe, ts DESC);
 
 CREATE TABLE IF NOT EXISTS options_chain_snapshots (
     snapshot_ts TIMESTAMPTZ NOT NULL,
@@ -56,6 +58,12 @@ CREATE TABLE IF NOT EXISTS options_chain_snapshots (
     PRIMARY KEY (snapshot_ts, option_symbol)
 );
 SELECT create_hypertable('options_chain_snapshots', 'snapshot_ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS idx_options_underlying_snapshot
+ON options_chain_snapshots (underlying_symbol, snapshot_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_options_contract_snapshot
+ON options_chain_snapshots (option_symbol, snapshot_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_options_exp_delta
+ON options_chain_snapshots (underlying_symbol, expiration, option_type, delta);
 
 CREATE TABLE IF NOT EXISTS market_context_snapshots (
     snapshot_ts TIMESTAMPTZ NOT NULL,
@@ -94,6 +102,10 @@ CREATE TABLE IF NOT EXISTS candidates (
     ai_review_json TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_candidates_scan_date
+ON candidates (scan_date DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_candidates_decision
+ON candidates (decision);
 
 CREATE TABLE IF NOT EXISTS positions (
     position_id TEXT PRIMARY KEY,
@@ -112,6 +124,10 @@ CREATE TABLE IF NOT EXISTS positions (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_positions_status
+ON positions (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_positions_symbol_status
+ON positions (symbol_id, status);
 
 CREATE TABLE IF NOT EXISTS exit_alerts (
     alert_id TEXT PRIMARY KEY,
@@ -124,6 +140,10 @@ CREATE TABLE IF NOT EXISTS exit_alerts (
     triggered_rules TEXT,
     acknowledged BOOLEAN DEFAULT FALSE
 );
+CREATE INDEX IF NOT EXISTS idx_exit_alerts_ack_level
+ON exit_alerts (acknowledged, level DESC, alert_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_exit_alerts_position
+ON exit_alerts (position_id, alert_ts DESC);
 
 CREATE TABLE IF NOT EXISTS trades_journal (
     trade_id TEXT PRIMARY KEY,
@@ -142,6 +162,10 @@ CREATE TABLE IF NOT EXISTS trades_journal (
     mistake_tags TEXT,
     notes TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_trades_journal_entry_ts
+ON trades_journal (entry_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_journal_symbol
+ON trades_journal (symbol_id);
 
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
     ts TIMESTAMPTZ NOT NULL,
@@ -190,3 +214,16 @@ CREATE TABLE IF NOT EXISTS data_freshness (
     source TEXT,
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS ingestion_runs (
+    run_id TEXT PRIMARY KEY,
+    dataset_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    records_written INTEGER NOT NULL DEFAULT 0,
+    source TEXT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ingestion_runs_dataset_started
+ON ingestion_runs (dataset_key, started_at DESC);

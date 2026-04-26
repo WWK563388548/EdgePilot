@@ -12,9 +12,11 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://edgepilot:edgepilot@localhost:5432/edgepilot"
     redis_url: str = "redis://localhost:6379/0"
+    cors_allowed_origins: str = "http://localhost:3000"
 
     polygon_api_key: str = ""
     polygon_base_url: str = "https://api.polygon.io"
+    ingestion_admin_token: str = ""
 
     sse_heartbeat_seconds: int = 15
 

@@ -1,5 +1,9 @@
 from datetime import UTC, datetime
 
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
 from backend.app.api.routes.ingestion import (
     get_data_freshness,
     get_latest_options_chain,
@@ -8,6 +12,8 @@ from backend.app.api.routes.ingestion import (
     ingest_market_context,
     ingest_options_chain,
 )
+from backend.app.core.config import settings
+from backend.app.main import app
 from backend.app.schemas.ingestion import (
     BarRecord,
     BarsIngestionRequest,
@@ -38,6 +44,15 @@ def test_ingest_bars_route(monkeypatch) -> None:
     )
 
     assert response.records_written == 3
+
+
+def test_bars_request_rejects_non_daily_timeframe() -> None:
+    with pytest.raises(ValidationError):
+        BarsIngestionRequest(
+            ticker="SPY",
+            timeframe="1h",
+            **{"from": "2026-04-01", "to": "2026-04-26"},
+        )
 
 
 def test_ingest_options_chain_route(monkeypatch) -> None:
@@ -81,6 +96,44 @@ def test_ingest_market_context_route(monkeypatch) -> None:
 
     assert response.records_written == 1
     assert response.source == "manual"
+
+
+def test_ingestion_post_requires_admin_token(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "ingestion_admin_token", "secret")
+    client = TestClient(app)
+
+    response = client.post("/api/ingestion/market-context", json={"spy_return": 0.01})
+
+    assert response.status_code == 401
+
+
+def test_ingestion_post_accepts_admin_token(monkeypatch) -> None:
+    from backend.app.api.routes import ingestion as ingestion_route
+
+    monkeypatch.setattr(settings, "ingestion_admin_token", "secret")
+
+    def _fake_ingest_market_context(request):
+        return IngestionResponse(
+            records_written=1,
+            last_updated_at=datetime(2026, 4, 26, tzinfo=UTC),
+            source="manual",
+        )
+
+    monkeypatch.setattr(
+        ingestion_route.IngestionService,
+        "ingest_market_context",
+        _fake_ingest_market_context,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/ingestion/market-context",
+        headers={"X-Ingestion-Admin-Token": "secret"},
+        json={"spy_return": 0.01},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["records_written"] == 1
 
 
 def test_recent_bars_route(monkeypatch) -> None:

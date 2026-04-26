@@ -26,16 +26,24 @@
 - [x] 数据新鲜度写入与查询：`data_freshness`
 - [x] 最近 N 根 bar 与最新 options snapshot 查询 API
 
+## 已完成（D2 + F0/F1 PR）
+
+- [x] CRUD/API for `candidates`
+- [x] CRUD/API for `positions`
+- [x] CRUD/API for `exit_alerts`
+- [x] CRUD/API for `trades_journal`
+- [x] Dashboard summary API：market context、counts、open alerts、freshness
+- [x] Next.js + Tailwind + shadcn-compatible UI scaffold + TanStack Query + Zustand
+- [x] Dashboard/Candidates/Positions/Exit Alerts/Journal/Settings 基础页面
+- [x] 前端 API client 与 SSE client wrapper
+
 ## 下一步开发计划
 
-## Phase D2（业务状态）
+## Phase D2 后续加强
 
-- Scanner 结果写入 `candidates`
-- 手动持仓写入 `positions`
-- Exit Engine 写入 `exit_alerts`
-- Journal 落库 `trades_journal`
-- 验收：
-  - 前端可以读取 candidates/positions/alerts
+- 候选/持仓/警报的真实业务流转动作，例如 create planned position、acknowledge alert。
+- DB integration tests with Postgres/Timescale.
+- 更细的权限模型，替代当前单一 admin token。
 
 ## Phase D3（统计）
 
