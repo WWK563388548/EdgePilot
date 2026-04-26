@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: edgepilot-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edgepilot}
+      POSTGRES_USER: ${POSTGRES_USER:-edgepilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edgepilot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - edgepilot_pgdata:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-edgepilot} -d ${POSTGRES_DB:-edgepilot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: edgepilot-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - edgepilot_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  edgepilot_pgdata:
+  edgepilot_redisdata:
