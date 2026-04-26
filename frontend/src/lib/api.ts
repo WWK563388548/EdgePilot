@@ -1,0 +1,94 @@
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+export type DashboardSummary = {
+  market_context: {
+    snapshot_ts: string | null;
+    risk_level: string | null;
+    us_bias: string | null;
+    japan_bias: string | null;
+    notes: string | null;
+  };
+  risk_mode: string;
+  candidate_count: number;
+  open_position_count: number;
+  exit_alert_count: number;
+  highest_exit_level: number | null;
+  data_freshness: Array<{
+    dataset_key: string;
+    last_updated_at: string;
+    source: string | null;
+  }>;
+};
+
+export type Candidate = {
+  candidate_id: string;
+  symbol_id: string;
+  scan_date: string;
+  strategy_name: string;
+  setup_type: string | null;
+  score_total: number | null;
+  entry_trigger: number | null;
+  initial_stop: number | null;
+  decision: string | null;
+  option_suitability: string | null;
+  created_at: string | null;
+};
+
+export type Position = {
+  position_id: string;
+  symbol_id: string;
+  asset_type: string;
+  strategy_name: string | null;
+  entry_price: number | null;
+  quantity: number | null;
+  current_stop: number | null;
+  status: string | null;
+  current_r: number | null;
+  unrealized_pnl: number | null;
+  updated_at: string | null;
+};
+
+export type ExitAlert = {
+  alert_id: string;
+  position_id: string;
+  level: number | null;
+  action: string | null;
+  reason: string | null;
+  new_stop: number | null;
+  acknowledged: boolean;
+  alert_ts: string | null;
+};
+
+export type JournalTrade = {
+  trade_id: string;
+  symbol_id: string | null;
+  entry_ts: string | null;
+  exit_ts: string | null;
+  net_pnl: number | null;
+  r_multiple: number | null;
+  exit_reason: string | null;
+  notes: string | null;
+};
+
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      Accept: "application/json"
+    },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export const api = {
+  dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
+  candidates: () => getJson<Candidate[]>("/api/candidates?limit=100"),
+  positions: () => getJson<Position[]>("/api/positions?limit=100"),
+  alerts: () => getJson<ExitAlert[]>("/api/exit-alerts?acknowledged=false&limit=100"),
+  journal: () => getJson<JournalTrade[]>("/api/journal/trades?limit=100")
+};

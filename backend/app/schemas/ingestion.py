@@ -39,7 +39,7 @@ class MarketContextIngestionRequest(BaseModel):
     topix_return: float | None = None
     japan_bias: str | None = None
     us_bias: str | None = None
-    risk_level: str | None = None
+    risk_level: Literal["normal", "watch", "shock"] | None = None
     notes: str | None = None
 
 

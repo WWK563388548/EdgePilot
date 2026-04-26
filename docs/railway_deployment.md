@@ -2,15 +2,16 @@
 
 ## What This Deploys
 
-This deployment publishes the FastAPI backend. It can show API health and Swagger docs, but it is not yet an end-user product UI. General users should wait for the frontend milestone.
+This deployment publishes the FastAPI backend and can be paired with the Next.js frontend in `frontend/`.
 
-After deployment you can show technical users:
+After backend deployment you can show technical users:
 
 - `/health`
 - `/docs`
 - read-only ingestion query endpoints
+- the Next.js dashboard once the frontend is deployed and pointed at the backend URL
 
-Keep write endpoints protected with `INGESTION_ADMIN_TOKEN`.
+Keep all write endpoints protected with `INGESTION_ADMIN_TOKEN`.
 
 ## Services
 
@@ -73,6 +74,7 @@ POLYGON_API_KEY=<Polygon/Massive API key>
 POLYGON_BASE_URL=https://api.polygon.io
 INGESTION_ADMIN_TOKEN=<long random token>
 SSE_HEARTBEAT_SECONDS=15
+CORS_ALLOWED_ORIGINS=http://localhost:3000
 DATABASE_URL=${{ TimescaleDB.DATABASE_URL }}
 REDIS_URL=${{ Redis.REDIS_URL }}
 ```
@@ -139,6 +141,33 @@ X-Ingestion-Admin-Token: <INGESTION_ADMIN_TOKEN>
 9. Visit `https://<domain>/health`.
 10. Visit `https://<domain>/docs` for Swagger.
 
+## Frontend Deployment
+
+The frontend is a separate Next.js app in `frontend/`.
+
+For the quickest user-facing demo:
+
+1. Deploy the backend on Railway first.
+2. Copy the backend public domain, for example `https://edgepilot-backend.up.railway.app`.
+3. Deploy the frontend to Vercel, or create a second Railway service from the same GitHub repo with root directory `frontend`.
+4. Set these frontend variables:
+
+```text
+NEXT_PUBLIC_API_BASE_URL=https://<backend-domain>
+NEXT_PUBLIC_SSE_URL=https://<backend-domain>/api/realtime/events/stream
+NEXT_PUBLIC_APP_NAME=EdgePilot
+```
+
+5. Add the frontend domain to the backend service variable:
+
+```text
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://<frontend-domain>
+```
+
+6. Redeploy the backend after changing `CORS_ALLOWED_ORIGINS`.
+
+Do not put `INGESTION_ADMIN_TOKEN` in frontend variables. The current frontend only reads data.
+
 ## Smoke Test
 
 Read-only:
@@ -161,7 +190,7 @@ curl -X POST https://<domain>/api/ingestion/market-context \
 
 For internal or technical users: yes, after `/health` and `/docs` work and the write token is configured.
 
-For normal end users: not yet. The current app is an API backend. A user-facing demo still needs the frontend milestone: dashboard, candidates, positions, exit alerts, and freshness/status UI.
+For normal end users: yes for a small beta demo after the frontend is deployed and the backend has real or seed data. Treat it as an internal beta, not public production, because auth is still a single admin token and the app does not yet have per-user accounts.
 
 Recommended demo order:
 
@@ -169,4 +198,17 @@ Recommended demo order:
 2. Show `/docs` as API proof.
 3. Trigger a protected market-context write.
 4. Show freshness/read endpoints.
-5. Build the Next.js frontend before sharing with non-technical users.
+5. Open the Next.js dashboard and check Overview, Candidates, Positions, Exit Alerts, Journal, and Settings.
+
+## Railway vs Tiger Data
+
+You can stay on Railway for the MVP. Railway is the right default for the current stage because it keeps backend, database, Redis, environment variables, and deploys in one small operational surface.
+
+Tiger Data/Tiger Cloud is a future option, not a mandatory next step. Revisit it when the workload becomes database-heavy enough that managed time-series features matter more than platform simplicity:
+
+- large bars/options history and heavier analytics queries;
+- compression, retention, hypertable tuning, continuous aggregates, and time-series observability become daily concerns;
+- stronger database operations are needed, such as high availability, point-in-time recovery, cross-region posture, and specialist support;
+- you want the app platform and database lifecycle separated.
+
+Railway also has volume backups, so this is not an urgent migration. The practical plan is: ship the MVP on Railway, measure data volume/cost/query latency, and only move the database to Tiger if those numbers justify it.

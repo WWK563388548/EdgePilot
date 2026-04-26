@@ -102,6 +102,10 @@ CREATE TABLE IF NOT EXISTS candidates (
     ai_review_json TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_candidates_scan_date
+ON candidates (scan_date DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_candidates_decision
+ON candidates (decision);
 
 CREATE TABLE IF NOT EXISTS positions (
     position_id TEXT PRIMARY KEY,
@@ -120,6 +124,10 @@ CREATE TABLE IF NOT EXISTS positions (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_positions_status
+ON positions (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_positions_symbol_status
+ON positions (symbol_id, status);
 
 CREATE TABLE IF NOT EXISTS exit_alerts (
     alert_id TEXT PRIMARY KEY,
@@ -132,6 +140,10 @@ CREATE TABLE IF NOT EXISTS exit_alerts (
     triggered_rules TEXT,
     acknowledged BOOLEAN DEFAULT FALSE
 );
+CREATE INDEX IF NOT EXISTS idx_exit_alerts_ack_level
+ON exit_alerts (acknowledged, level DESC, alert_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_exit_alerts_position
+ON exit_alerts (position_id, alert_ts DESC);
 
 CREATE TABLE IF NOT EXISTS trades_journal (
     trade_id TEXT PRIMARY KEY,
@@ -150,6 +162,10 @@ CREATE TABLE IF NOT EXISTS trades_journal (
     mistake_tags TEXT,
     notes TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_trades_journal_entry_ts
+ON trades_journal (entry_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_journal_symbol
+ON trades_journal (symbol_id);
 
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
     ts TIMESTAMPTZ NOT NULL,

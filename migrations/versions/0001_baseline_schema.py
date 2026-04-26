@@ -151,6 +151,11 @@ def upgrade() -> None:
         """
     )
     op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_candidates_scan_date "
+        "ON candidates (scan_date DESC, created_at DESC)"
+    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_candidates_decision ON candidates (decision)")
+    op.execute(
         """
         CREATE TABLE IF NOT EXISTS positions (
             position_id TEXT PRIMARY KEY,
@@ -172,6 +177,13 @@ def upgrade() -> None:
         """
     )
     op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_positions_status "
+        "ON positions (status, updated_at DESC)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_positions_symbol_status ON positions (symbol_id, status)"
+    )
+    op.execute(
         """
         CREATE TABLE IF NOT EXISTS exit_alerts (
             alert_id TEXT PRIMARY KEY,
@@ -185,6 +197,14 @@ def upgrade() -> None:
             acknowledged BOOLEAN DEFAULT FALSE
         )
         """
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_exit_alerts_ack_level "
+        "ON exit_alerts (acknowledged, level DESC, alert_ts DESC)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_exit_alerts_position "
+        "ON exit_alerts (position_id, alert_ts DESC)"
     )
     op.execute(
         """
@@ -207,6 +227,11 @@ def upgrade() -> None:
         )
         """
     )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trades_journal_entry_ts "
+        "ON trades_journal (entry_ts DESC)"
+    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_trades_journal_symbol ON trades_journal (symbol_id)")
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS portfolio_snapshots (

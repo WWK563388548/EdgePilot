@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from backend.app.core.config import settings
+from backend.app.core.database import connect
 from backend.app.schemas.ingestion import (
     BarRecord,
     BarsIngestionRequest,
@@ -30,12 +31,7 @@ class IngestionService:
 
     @staticmethod
     def _connect():
-        try:
-            import psycopg
-        except ModuleNotFoundError as exc:
-            raise RuntimeError("psycopg is required for ingestion") from exc
-
-        return psycopg.connect(IngestionService._database_url())
+        return connect()
 
     @staticmethod
     def _upsert_freshness(cur, dataset_key: str, last_updated_at: datetime, source: str) -> None:

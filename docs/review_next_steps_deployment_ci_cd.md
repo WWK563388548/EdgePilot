@@ -16,6 +16,9 @@ This review covers the current `main` state after D1 market-data ingestion was m
 - [x] Polygon option-chain pagination.
 - [x] `timeframe` restricted to `1d` until intraday mapping is implemented.
 - [x] Empty provider responses no longer update `data_freshness`.
+- [x] Backend D2 API for candidates, positions, exit alerts, trades journal, and dashboard summary.
+- [x] Next.js frontend foundation with Tailwind, shadcn-compatible scaffold, TanStack Query, Zustand, API client, and SSE client wrapper.
+- [x] Frontend CI build job.
 
 ## Correctness Review
 
@@ -98,17 +101,19 @@ This review covers the current `main` state after D1 market-data ingestion was m
 
 ### PR 3: Backend D2 business state
 
-- Implement CRUD/API for `candidates`, `positions`, `exit_alerts`, and `trades_journal`.
-- Add service-layer validation for strategy/status enums.
-- Add tests covering create/update/read flows and edge cases.
-- Add dashboard summary API that combines market context, counts, alerts, and freshness.
+- Status: implemented in this branch.
+- Implemented CRUD/API for `candidates`, `positions`, `exit_alerts`, and `trades_journal`.
+- Added request validation for PRD state enums such as candidate decision and position status.
+- Added route-level tests for create/update/read delegation and dashboard summary.
+- Added dashboard summary API that combines market context, counts, alerts, and freshness.
 
 ### PR 4: Frontend foundation
 
-- Scaffold Next.js app with Tailwind, shadcn/ui, TanStack Query, and Zustand.
-- Add API client and SSE client wrappers.
-- Implement Dashboard, Candidates, Positions, Exit Alerts, and basic Settings views.
-- Use freshness and health endpoints for visible operational status.
+- Status: implemented in this branch.
+- Scaffolded Next.js app with Tailwind, shadcn-compatible config/components, TanStack Query, and Zustand.
+- Added API client and SSE client wrappers.
+- Implemented Dashboard, Candidates, Positions, Exit Alerts, Journal, and Settings views.
+- Uses dashboard summary and freshness data for visible operational status.
 
 ## Deployment Plan
 
