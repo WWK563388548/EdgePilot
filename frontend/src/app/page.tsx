@@ -15,8 +15,7 @@ import {
   PlugZap,
   RefreshCcw,
   Settings,
-  ShieldCheck,
-  UserCircle
+  ShieldCheck
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -82,7 +81,7 @@ function DataState({ isLoading, isError }: { isLoading: boolean; isError: boolea
 export default function Home() {
   const auth = useAuth();
   const { view, setView } = useWorkspaceStore();
-  const queriesEnabled = auth.ready && auth.isAuthenticated;
+  const queriesEnabled = auth.ready && auth.isAuthenticated && auth.emailVerified;
   const dashboard = useQuery({
     queryKey: ["dashboard"],
     queryFn: api.dashboard,
@@ -112,12 +111,27 @@ export default function Home() {
   const summary = dashboard.data;
   const riskTone = summary?.risk_mode === "normal" ? "good" : summary?.risk_mode === "shock" ? "bad" : "warn";
 
-  if (auth.enabled && !auth.ready) {
+  if (!auth.configured) {
+    return <AuthScreen status="Auth is not configured" />;
+  }
+
+  if (!auth.ready) {
     return <AuthScreen status="Checking session..." />;
   }
 
-  if (auth.enabled && !auth.isAuthenticated) {
+  if (!auth.isAuthenticated) {
     return <AuthScreen action={auth.login} status="Sign in required" />;
+  }
+
+  if (!auth.emailVerified) {
+    return (
+      <AuthScreen
+        action={auth.resendVerificationEmail}
+        secondaryAction={auth.refreshSession}
+        secondaryLabel="I verified my email"
+        status="Verify your email to continue"
+      />
+    );
   }
 
   return (
@@ -227,7 +241,17 @@ export default function Home() {
   );
 }
 
-function AuthScreen({ status, action }: { status: string; action?: () => Promise<void> }) {
+function AuthScreen({
+  status,
+  action,
+  secondaryAction,
+  secondaryLabel
+}: {
+  status: string;
+  action?: () => Promise<void>;
+  secondaryAction?: () => void;
+  secondaryLabel?: string;
+}) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#eef2f5] px-4">
       <section className="w-full max-w-sm rounded-md border border-line bg-white p-5">
@@ -241,14 +265,25 @@ function AuthScreen({ status, action }: { status: string; action?: () => Promise
           </div>
         </div>
         {action ? (
-          <button
-            className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            onClick={() => void action()}
-            type="button"
-          >
-            <LogIn size={16} />
-            Sign in
-          </button>
+          <div className="grid gap-2">
+            <button
+              className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-md bg-ink px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              onClick={() => void action()}
+              type="button"
+            >
+              <LogIn size={16} />
+              {secondaryAction ? "Resend verification email" : "Sign in"}
+            </button>
+            {secondaryAction ? (
+              <button
+                className="focus-ring inline-flex w-full items-center justify-center rounded-md border border-line bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400"
+                onClick={secondaryAction}
+                type="button"
+              >
+                {secondaryLabel}
+              </button>
+            ) : null}
+          </div>
         ) : (
           <div className="h-2 rounded-md bg-panel" />
         )}
@@ -259,14 +294,6 @@ function AuthScreen({ status, action }: { status: string; action?: () => Promise
 
 function AuthButton() {
   const auth = useAuth();
-  if (!auth.enabled) {
-    return (
-      <div className="inline-flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-slate-700">
-        <UserCircle size={16} />
-        Local Dev
-      </div>
-    );
-  }
   return (
     <button
       className="focus-ring inline-flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-slate-700 hover:border-slate-400"
@@ -344,8 +371,9 @@ function SettingsPanel() {
           <Field label="App" value={appName} />
           <Field label="API Base URL" value={apiBaseUrl} />
           <Field label="SSE URL" value={sseUrl} />
-          <Field label="Auth" value={auth.enabled ? "enabled" : "local dev"} />
+          <Field label="Auth" value="required" />
           <Field label="User" value={auth.userLabel} />
+          <Field label="Email" value={auth.emailVerified ? "verified" : "pending"} />
         </dl>
       </div>
 

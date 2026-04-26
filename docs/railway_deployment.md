@@ -75,13 +75,15 @@ POLYGON_BASE_URL=https://api.polygon.io
 INGESTION_ADMIN_TOKEN=<long random token>
 SSE_HEARTBEAT_SECONDS=15
 CORS_ALLOWED_ORIGINS=http://localhost:3000
-AUTH_ENABLED=true
 AUTH_ISSUER=https://<auth0-domain>/
 AUTH_AUDIENCE=<auth0-api-audience>
 AUTH_ALGORITHMS=RS256
 AUTH_ACCOUNT_CLAIM=https://edgepilot/account_id
 AUTH_ROLE_CLAIM=https://edgepilot/role
 AUTH_DEFAULT_ROLE=owner
+AUTH0_MANAGEMENT_CLIENT_ID=<auth0-m2m-client-id>
+AUTH0_MANAGEMENT_CLIENT_SECRET=<auth0-m2m-client-secret>
+AUTH0_MANAGEMENT_AUDIENCE=https://<auth0-domain>/api/v2/
 DATABASE_URL=${{ TimescaleDB.DATABASE_URL }}
 REDIS_URL=${{ Redis.REDIS_URL }}
 ```
@@ -100,6 +102,15 @@ For Auth0:
   - `https://edgepilot/role`
 
 If no account claim is present, the backend creates a personal account from the JWT subject. That is safer for beta usage because users do not share data accidentally.
+
+Token lifetime requirements live in Auth0, not Railway:
+
+- Set the API access token lifetime to `1800` seconds.
+- Enable Refresh Token Rotation for the SPA.
+- Set refresh token absolute lifetime to `86400` seconds.
+- Enable email passwordless OTP login if you want one-time email codes.
+
+See `docs/auth0_setup.md` for the full Auth0 checklist.
 
 ### Where DATABASE_URL and REDIS_URL come from
 
@@ -176,11 +187,11 @@ For the quickest user-facing demo:
 NEXT_PUBLIC_API_BASE_URL=https://<backend-domain>
 NEXT_PUBLIC_SSE_URL=https://<backend-domain>/api/realtime/events/stream
 NEXT_PUBLIC_APP_NAME=EdgePilot
-NEXT_PUBLIC_AUTH_ENABLED=true
 NEXT_PUBLIC_AUTH0_DOMAIN=<auth0-domain>
 NEXT_PUBLIC_AUTH0_CLIENT_ID=<auth0-spa-client-id>
 NEXT_PUBLIC_AUTH0_AUDIENCE=<auth0-api-audience>
 NEXT_PUBLIC_AUTH0_REDIRECT_URI=https://<frontend-domain>
+NEXT_PUBLIC_AUTH0_CONNECTION=email
 ```
 
 5. Add the frontend domain to the backend service variable:

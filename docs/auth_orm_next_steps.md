@@ -16,6 +16,11 @@ The current `INGESTION_ADMIN_TOKEN` is only suitable for internal jobs and admin
 - [x] Business service migrated from raw psycopg SQL to SQLAlchemy ORM.
 - [x] Ingestion service migrated from raw psycopg SQL to SQLAlchemy Core/ORM session usage.
 - [x] JWT/OIDC bearer verification foundation for FastAPI.
+- [x] Auth is mandatory in every environment; there is no env-var bypass.
+- [x] Email verification is required before business/dashboard access.
+- [x] Backend endpoint for resending Auth0 verification emails.
+- [x] Frontend Auth0 refresh-token rotation support.
+- [x] Frontend email-verification gate.
 - [x] Role dependencies for viewer/trader/admin/owner.
 - [x] Business/dashboard API protection with authenticated account context.
 - [x] Auth0 React provider and frontend bearer token injection.
@@ -180,6 +185,8 @@ Goal: replace the current frontend-open dashboard with authenticated sessions.
 Tasks:
 
 - Add Auth0 environment variables and backend JWT verification.
+- Configure Auth0 access token lifetime to 1800 seconds and refresh-token lifetime to 86400 seconds.
+- Configure Auth0 email passwordless OTP and verification-email templates.
 - Add `current_user`, `current_account`, and role dependencies.
 - Protect business read/write endpoints.
 - Keep ingestion writes behind `INGESTION_ADMIN_TOKEN`.

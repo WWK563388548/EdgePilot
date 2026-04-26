@@ -9,34 +9,40 @@ import {
   useMemo
 } from "react";
 
-import { setAccessTokenProvider } from "@/lib/api";
+import { api, setAccessTokenProvider } from "@/lib/api";
 
 type AppAuthState = {
-  enabled: boolean;
+  configured: boolean;
   ready: boolean;
   isAuthenticated: boolean;
+  emailVerified: boolean;
   userLabel: string;
   login: () => Promise<void>;
   logout: () => void;
+  resendVerificationEmail: () => Promise<void>;
+  refreshSession: () => void;
 };
 
-const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === "true";
 const auth0Domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? "";
 const auth0ClientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID ?? "";
 const auth0Audience = process.env.NEXT_PUBLIC_AUTH0_AUDIENCE ?? "";
 const auth0RedirectUri =
   process.env.NEXT_PUBLIC_AUTH0_REDIRECT_URI ?? "http://localhost:3000";
+const auth0Connection = process.env.NEXT_PUBLIC_AUTH0_CONNECTION ?? "";
 
-const disabledAuthState: AppAuthState = {
-  enabled: false,
+const unavailableAuthState: AppAuthState = {
+  configured: false,
   ready: true,
-  isAuthenticated: true,
-  userLabel: "Local Dev",
+  isAuthenticated: false,
+  emailVerified: false,
+  userLabel: "Auth not configured",
   login: async () => undefined,
-  logout: () => undefined
+  logout: () => undefined,
+  resendVerificationEmail: async () => undefined,
+  refreshSession: () => undefined
 };
 
-const AuthContext = createContext<AppAuthState>(disabledAuthState);
+const AuthContext = createContext<AppAuthState>(unavailableAuthState);
 
 function Auth0StateBridge({ children }: { children: ReactNode }) {
   const auth0 = useAuth0();
@@ -46,23 +52,40 @@ function Auth0StateBridge({ children }: { children: ReactNode }) {
       setAccessTokenProvider(null);
       return;
     }
-    setAccessTokenProvider(async () => auth0.getAccessTokenSilently());
+    setAccessTokenProvider(async () => {
+      try {
+        return await auth0.getAccessTokenSilently();
+      } catch {
+        await auth0.loginWithRedirect({
+          appState: { returnTo: window.location.pathname }
+        });
+        return null;
+      }
+    });
     return () => setAccessTokenProvider(null);
   }, [auth0]);
 
   const value = useMemo<AppAuthState>(
     () => ({
-      enabled: true,
+      configured: true,
       ready: !auth0.isLoading,
       isAuthenticated: auth0.isAuthenticated,
+      emailVerified: Boolean(auth0.user?.email_verified),
       userLabel: auth0.user?.email ?? auth0.user?.name ?? "Authenticated",
-      login: () => auth0.loginWithRedirect(),
+      login: () =>
+        auth0.loginWithRedirect({
+          appState: { returnTo: window.location.pathname }
+        }),
       logout: () =>
         auth0.logout({
           logoutParams: {
             returnTo: auth0RedirectUri
           }
-        })
+        }),
+      resendVerificationEmail: async () => {
+        await api.resendVerificationEmail();
+      },
+      refreshSession: () => window.location.reload()
     }),
     [auth0]
   );
@@ -71,31 +94,22 @@ function Auth0StateBridge({ children }: { children: ReactNode }) {
 }
 
 export function AppAuthProvider({ children }: { children: ReactNode }) {
-  if (!authEnabled) {
-    return <AuthContext.Provider value={disabledAuthState}>{children}</AuthContext.Provider>;
-  }
-
   if (!auth0Domain || !auth0ClientId || !auth0Audience) {
-    const misconfiguredState: AppAuthState = {
-      enabled: true,
-      ready: true,
-      isAuthenticated: false,
-      userLabel: "Auth not configured",
-      login: async () => undefined,
-      logout: () => undefined
-    };
-    return <AuthContext.Provider value={misconfiguredState}>{children}</AuthContext.Provider>;
+    return <AuthContext.Provider value={unavailableAuthState}>{children}</AuthContext.Provider>;
   }
 
   return (
     <Auth0Provider
       authorizationParams={{
         audience: auth0Audience,
-        redirect_uri: auth0RedirectUri
+        connection: auth0Connection || undefined,
+        redirect_uri: auth0RedirectUri,
+        scope: "openid profile email offline_access"
       }}
-      cacheLocation="memory"
+      cacheLocation="localstorage"
       clientId={auth0ClientId}
       domain={auth0Domain}
+      useRefreshTokens
     >
       <Auth0StateBridge>{children}</Auth0StateBridge>
     </Auth0Provider>

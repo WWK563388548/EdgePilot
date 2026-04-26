@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
-from backend.app.api.dependencies import CurrentPrincipal, DbSession, TraderPrincipal
+from backend.app.api.dependencies import DbSession, TraderPrincipal, VerifiedPrincipal
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["business"])
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummary)
-def get_dashboard_summary(session: DbSession, principal: CurrentPrincipal) -> DashboardSummary:
+def get_dashboard_summary(session: DbSession, principal: VerifiedPrincipal) -> DashboardSummary:
     return BusinessService.dashboard_summary(session=session, principal=principal)
 
 
@@ -38,7 +38,7 @@ def create_candidate(
 @router.get("/candidates", response_model=list[Candidate])
 def list_candidates(
     session: DbSession,
-    principal: CurrentPrincipal,
+    principal: VerifiedPrincipal,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[Candidate]:
     return BusinessService.list_candidates(session=session, principal=principal, limit=limit)
@@ -74,7 +74,7 @@ def create_position(
 @router.get("/positions", response_model=list[Position])
 def list_positions(
     session: DbSession,
-    principal: CurrentPrincipal,
+    principal: VerifiedPrincipal,
     status_filter: PositionStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[Position]:
@@ -119,7 +119,7 @@ def create_exit_alert(
 @router.get("/exit-alerts", response_model=list[ExitAlert])
 def list_exit_alerts(
     session: DbSession,
-    principal: CurrentPrincipal,
+    principal: VerifiedPrincipal,
     acknowledged: bool | None = None,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[ExitAlert]:
@@ -164,7 +164,7 @@ def create_journal_trade(
 @router.get("/journal/trades", response_model=list[JournalTrade])
 def list_journal_trades(
     session: DbSession,
-    principal: CurrentPrincipal,
+    principal: VerifiedPrincipal,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[JournalTrade]:
     return BusinessService.list_journal_trades(session=session, principal=principal, limit=limit)

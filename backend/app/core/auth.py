@@ -3,6 +3,7 @@ from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
+import httpx
 import jwt
 from jwt import PyJWKClient
 from sqlalchemy import select
@@ -27,6 +28,7 @@ class AuthPrincipal:
     external_subject: str
     email: str | None = None
     display_name: str | None = None
+    email_verified: bool = False
 
 
 _jwks_client: PyJWKClient | None = None
@@ -82,6 +84,7 @@ class AuthService:
             role = "viewer"
 
         email = claims.get("email")
+        email_verified = bool(claims.get("email_verified"))
         display_name = claims.get("name") or claims.get("nickname") or email
         user_id = _stable_id("user", subject)
 
@@ -93,18 +96,7 @@ class AuthService:
             role=role,
             email=email,
             display_name=display_name,
-        )
-
-    @staticmethod
-    def dev_principal(session: Session) -> AuthPrincipal:
-        return AuthService.upsert_principal(
-            session=session,
-            user_id="user_local",
-            external_subject="local-dev",
-            account_id="acct_local",
-            role="owner",
-            email="local@edgepilot.dev",
-            display_name="Local Dev",
+            email_verified=email_verified,
         )
 
     @staticmethod
@@ -116,6 +108,7 @@ class AuthService:
         role: str,
         email: str | None,
         display_name: str | None,
+        email_verified: bool,
     ) -> AuthPrincipal:
         account = session.get(Account, account_id)
         if account is None:
@@ -152,8 +145,43 @@ class AuthService:
             external_subject=external_subject,
             email=user.email,
             display_name=user.display_name,
+            email_verified=email_verified,
         )
 
     @staticmethod
     def audit_id() -> str:
         return f"audit_{uuid4().hex}"
+
+    @staticmethod
+    def resend_verification_email(external_subject: str) -> dict[str, Any]:
+        token_url = f"{settings.auth_issuer.rstrip('/')}/oauth/token"
+        audience = settings.auth0_management_audience or (
+            f"{settings.auth_issuer.rstrip('/')}/api/v2/"
+        )
+        if not (
+            settings.auth_issuer
+            and settings.auth0_management_client_id
+            and settings.auth0_management_client_secret
+        ):
+            raise ValueError("Auth0 Management API credentials are not configured")
+
+        with httpx.Client(timeout=10) as client:
+            token_response = client.post(
+                token_url,
+                json={
+                    "grant_type": "client_credentials",
+                    "client_id": settings.auth0_management_client_id,
+                    "client_secret": settings.auth0_management_client_secret,
+                    "audience": audience,
+                },
+            )
+            token_response.raise_for_status()
+            management_token = token_response.json()["access_token"]
+
+            job_response = client.post(
+                f"{audience.rstrip('/')}/jobs/verification-email",
+                headers={"Authorization": f"Bearer {management_token}"},
+                json={"user_id": external_subject},
+            )
+            job_response.raise_for_status()
+            return dict(job_response.json())

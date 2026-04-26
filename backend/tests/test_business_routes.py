@@ -16,8 +16,8 @@ from backend.app.api.routes.business import (
     update_exit_alert,
     update_position,
 )
+from backend.app.api.dependencies import require_verified_user
 from backend.app.core.auth import AuthPrincipal
-from backend.app.core.config import settings
 from backend.app.main import app
 from backend.app.schemas.business import (
     Candidate,
@@ -54,6 +54,7 @@ def _principal() -> AuthPrincipal:
         account_id="acct_local",
         role="owner",
         external_subject="local-dev",
+        email_verified=True,
     )
 
 
@@ -275,11 +276,31 @@ def test_dashboard_summary_route(monkeypatch) -> None:
     assert response.candidate_count == 3
 
 
-def test_business_routes_require_bearer_token_when_auth_enabled(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "auth_enabled", True)
+def test_business_routes_require_bearer_token() -> None:
     client = TestClient(app)
 
     response = client.get("/api/candidates")
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Missing bearer token"
+
+
+def test_unverified_email_is_rejected() -> None:
+    from fastapi import HTTPException
+
+    principal = _principal()
+    principal = AuthPrincipal(
+        user_id=principal.user_id,
+        account_id=principal.account_id,
+        role=principal.role,
+        external_subject=principal.external_subject,
+        email_verified=False,
+    )
+
+    try:
+        require_verified_user(principal)
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        assert exc.detail == "Email verification required"
+    else:
+        raise AssertionError("Expected unverified principal to be rejected")

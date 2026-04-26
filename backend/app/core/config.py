@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     cors_allowed_origins: str = "http://localhost:3000"
 
-    auth_enabled: bool = False
     auth_issuer: str = ""
     auth_audience: str = ""
     auth_jwks_url: str = ""
@@ -22,6 +21,9 @@ class Settings(BaseSettings):
     auth_account_claim: str = "https://edgepilot/account_id"
     auth_role_claim: str = "https://edgepilot/role"
     auth_default_role: str = "owner"
+    auth0_management_client_id: str = ""
+    auth0_management_client_secret: str = ""
+    auth0_management_audience: str = ""
 
     polygon_api_key: str = ""
     polygon_base_url: str = "https://api.polygon.io"

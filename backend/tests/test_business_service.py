@@ -17,6 +17,7 @@ def _principal(user_id: str, account_id: str) -> AuthPrincipal:
         account_id=account_id,
         role="owner",
         external_subject=user_id,
+        email_verified=True,
     )
 
 

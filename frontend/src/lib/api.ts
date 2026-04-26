@@ -87,6 +87,20 @@ export type JournalTrade = {
   notes: string | null;
 };
 
+export type AuthMe = {
+  user_id: string;
+  account_id: string;
+  role: string;
+  email: string | null;
+  display_name: string | null;
+  email_verified: boolean;
+};
+
+export type VerificationEmailResponse = {
+  status: string;
+  job_id: string | null;
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const token = accessTokenProvider ? await accessTokenProvider() : null;
   const headers: Record<string, string> = {
@@ -108,7 +122,32 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function postJson<T>(path: string): Promise<T> {
+  const token = accessTokenProvider ? await accessTokenProvider() : null;
+  const headers: Record<string, string> = {
+    Accept: "application/json"
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers,
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export const api = {
+  me: () => getJson<AuthMe>("/api/auth/me"),
+  resendVerificationEmail: () =>
+    postJson<VerificationEmailResponse>("/api/auth/resend-verification"),
   dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
   candidates: () => getJson<Candidate[]>("/api/candidates?limit=100"),
   positions: () => getJson<Position[]>("/api/positions?limit=100"),

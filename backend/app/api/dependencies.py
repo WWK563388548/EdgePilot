@@ -31,9 +31,6 @@ def require_authenticated_user(
     session: DbSession,
     authorization: str | None = Header(default=None),
 ) -> AuthPrincipal:
-    if not settings.auth_enabled:
-        return AuthService.dev_principal(session)
-
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -56,19 +53,31 @@ def require_authenticated_user(
 CurrentPrincipal = Annotated[AuthPrincipal, Depends(require_authenticated_user)]
 
 
-def require_trader(principal: CurrentPrincipal) -> AuthPrincipal:
+def require_verified_user(principal: CurrentPrincipal) -> AuthPrincipal:
+    if not principal.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required",
+        )
+    return principal
+
+
+VerifiedPrincipal = Annotated[AuthPrincipal, Depends(require_verified_user)]
+
+
+def require_trader(principal: VerifiedPrincipal) -> AuthPrincipal:
     if not role_allows(principal.role, "trader"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Trader role required")
     return principal
 
 
-def require_admin(principal: CurrentPrincipal) -> AuthPrincipal:
+def require_admin(principal: VerifiedPrincipal) -> AuthPrincipal:
     if not role_allows(principal.role, "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     return principal
 
 
-def require_owner(principal: CurrentPrincipal) -> AuthPrincipal:
+def require_owner(principal: VerifiedPrincipal) -> AuthPrincipal:
     if not role_allows(principal.role, "owner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner role required")
     return principal

@@ -69,7 +69,7 @@ All backend write endpoints require the admin header:
 X-Ingestion-Admin-Token: <INGESTION_ADMIN_TOKEN>
 ```
 
-When `AUTH_ENABLED=true`, business/dashboard endpoints also require:
+Business/dashboard endpoints also require:
 
 ```text
 Authorization: Bearer <OIDC access token>
@@ -85,24 +85,27 @@ Authorization: Bearer <OIDC access token>
 - `POLYGON_BASE_URL`（默认 `https://api.polygon.io`）
 - `INGESTION_ADMIN_TOKEN`（写入接口必填 header：`X-Ingestion-Admin-Token`）
 - `CORS_ALLOWED_ORIGINS`（默认 `http://localhost:3000`；部署前端后加入正式域名）
-- `AUTH_ENABLED`（本地默认 `false`；多人 beta/生产应设为 `true`）
 - `AUTH_ISSUER`
 - `AUTH_AUDIENCE`
 - `AUTH_JWKS_URL`（可选；默认从 issuer 推导 `/.well-known/jwks.json`）
 - `AUTH_ACCOUNT_CLAIM`（默认 `https://edgepilot/account_id`）
 - `AUTH_ROLE_CLAIM`（默认 `https://edgepilot/role`）
+- `AUTH0_MANAGEMENT_CLIENT_ID`（用于重发验证邮件）
+- `AUTH0_MANAGEMENT_CLIENT_SECRET`
+- `AUTH0_MANAGEMENT_AUDIENCE`
 
 ## Frontend Auth 环境变量
 
-- `NEXT_PUBLIC_AUTH_ENABLED`
 - `NEXT_PUBLIC_AUTH0_DOMAIN`
 - `NEXT_PUBLIC_AUTH0_CLIENT_ID`
 - `NEXT_PUBLIC_AUTH0_AUDIENCE`
 - `NEXT_PUBLIC_AUTH0_REDIRECT_URI`
+- `NEXT_PUBLIC_AUTH0_CONNECTION`（启用 Auth0 email passwordless 时用 `email`）
 
 ## 部署
 
 - Railway 部署说明：`docs/railway_deployment.md`
+- Auth0 设置说明：`docs/auth0_setup.md`
 - 后端镜像：根目录 `Dockerfile`
 - Railway 配置：根目录 `railway.toml`
 - CI：`.github/workflows/ci.yml`
