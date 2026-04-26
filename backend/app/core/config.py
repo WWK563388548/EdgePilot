@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     polygon_api_key: str = ""
     polygon_base_url: str = "https://api.polygon.io"
+    ingestion_admin_token: str = ""
 
     sse_heartbeat_seconds: int = 15
 

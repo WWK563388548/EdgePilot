@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Query
+from typing import Annotated
 
+from fastapi import APIRouter, Depends, Query
+
+from backend.app.api.dependencies import require_ingestion_admin
 from backend.app.schemas.ingestion import (
     BarsIngestionRequest,
     BarsQueryResponse,
@@ -12,20 +15,27 @@ from backend.app.schemas.ingestion import (
 from backend.app.services.ingestion_service import IngestionService
 
 router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
+IngestionAdmin = Annotated[None, Depends(require_ingestion_admin)]
 
 
 @router.post("/bars", response_model=IngestionResponse)
-def ingest_bars(request: BarsIngestionRequest) -> IngestionResponse:
+def ingest_bars(request: BarsIngestionRequest, _admin: IngestionAdmin = None) -> IngestionResponse:
     return IngestionService.ingest_bars(request=request)
 
 
 @router.post("/options-chain", response_model=IngestionResponse)
-def ingest_options_chain(request: OptionChainIngestionRequest) -> IngestionResponse:
+def ingest_options_chain(
+    request: OptionChainIngestionRequest,
+    _admin: IngestionAdmin = None,
+) -> IngestionResponse:
     return IngestionService.ingest_option_chain(request=request)
 
 
 @router.post("/market-context", response_model=IngestionResponse)
-def ingest_market_context(request: MarketContextIngestionRequest) -> IngestionResponse:
+def ingest_market_context(
+    request: MarketContextIngestionRequest,
+    _admin: IngestionAdmin = None,
+) -> IngestionResponse:
     return IngestionService.ingest_market_context(request=request)
 
 

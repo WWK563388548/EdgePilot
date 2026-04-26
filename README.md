@@ -23,6 +23,7 @@ docker compose up -d
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
+alembic upgrade head
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
@@ -46,3 +47,11 @@ uvicorn backend.app.main:app --reload --port 8000
 
 - `POLYGON_API_KEY`（必填）
 - `POLYGON_BASE_URL`（默认 `https://api.polygon.io`）
+- `INGESTION_ADMIN_TOKEN`（POST 写入接口必填 header：`X-Ingestion-Admin-Token`）
+
+## 部署
+
+- Railway 部署说明：`docs/railway_deployment.md`
+- 后端镜像：根目录 `Dockerfile`
+- Railway 配置：根目录 `railway.toml`
+- CI：`.github/workflows/ci.yml`

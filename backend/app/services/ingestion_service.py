@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from uuid import uuid4
 
 from backend.app.core.config import settings
 from backend.app.schemas.ingestion import (
@@ -51,16 +52,79 @@ class IngestionService:
         )
 
     @staticmethod
-    def ingest_bars(request: BarsIngestionRequest) -> IngestionResponse:
-        rows = IngestionService._client().list_daily_bars(
-            ticker=request.ticker,
-            from_date=request.from_date,
-            to_date=request.to_date,
+    def _record_ingestion_run(
+        cur,
+        *,
+        dataset_key: str,
+        status: str,
+        records_written: int,
+        source: str,
+        started_at: datetime,
+        completed_at: datetime,
+        error_message: str | None = None,
+    ) -> None:
+        cur.execute(
+            """
+            INSERT INTO ingestion_runs (
+                run_id, dataset_key, status, records_written, source,
+                started_at, completed_at, error_message
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                str(uuid4()),
+                dataset_key,
+                status,
+                records_written,
+                source,
+                started_at,
+                completed_at,
+                error_message,
+            ),
         )
+
+    @staticmethod
+    def _record_failed_run(dataset_key: str, started_at: datetime, error_message: str) -> None:
+        completed_at = datetime.now(UTC)
+        with IngestionService._connect() as conn:
+            with conn.cursor() as cur:
+                IngestionService._record_ingestion_run(
+                    cur,
+                    dataset_key=dataset_key,
+                    status="failed",
+                    records_written=0,
+                    source="polygon",
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    error_message=error_message,
+                )
+            conn.commit()
+
+    @staticmethod
+    def ingest_bars(request: BarsIngestionRequest) -> IngestionResponse:
+        dataset_key = f"bars:{request.ticker}:{request.timeframe}"
+        started_at = datetime.now(UTC)
+        try:
+            rows = IngestionService._client().list_daily_bars(
+                ticker=request.ticker,
+                from_date=request.from_date,
+                to_date=request.to_date,
+            )
+        except Exception as exc:
+            IngestionService._record_failed_run(dataset_key, started_at, str(exc))
+            raise
+
+        if not rows:
+            error_message = f"Polygon returned no bars for {request.ticker}"
+            IngestionService._record_failed_run(dataset_key, started_at, error_message)
+            raise RuntimeError(error_message)
 
         with IngestionService._connect() as conn:
             with conn.cursor() as cur:
+                records_written = 0
                 for row in rows:
+                    if "t" not in row:
+                        continue
                     ts = datetime.fromtimestamp(row["t"] / 1000, tz=UTC)
                     cur.execute(
                         """
@@ -93,29 +157,66 @@ class IngestionService:
                             "polygon",
                         ),
                     )
+                    records_written += 1
 
                 last_updated_at = datetime.now(UTC)
+                if records_written == 0:
+                    error_message = f"Polygon returned no writable bars for {request.ticker}"
+                    IngestionService._record_ingestion_run(
+                        cur,
+                        dataset_key=dataset_key,
+                        status="failed",
+                        records_written=0,
+                        source="polygon",
+                        started_at=started_at,
+                        completed_at=last_updated_at,
+                        error_message=error_message,
+                    )
+                    conn.commit()
+                    raise RuntimeError(error_message)
+
                 IngestionService._upsert_freshness(
                     cur,
-                    dataset_key=f"bars:{request.ticker}:{request.timeframe}",
+                    dataset_key=dataset_key,
                     last_updated_at=last_updated_at,
                     source="polygon",
                 )
+                IngestionService._record_ingestion_run(
+                    cur,
+                    dataset_key=dataset_key,
+                    status="success",
+                    records_written=records_written,
+                    source="polygon",
+                    started_at=started_at,
+                    completed_at=last_updated_at,
+                )
             conn.commit()
 
-        return IngestionResponse(records_written=len(rows), last_updated_at=last_updated_at)
+        return IngestionResponse(records_written=records_written, last_updated_at=last_updated_at)
 
     @staticmethod
     def ingest_option_chain(request: OptionChainIngestionRequest) -> IngestionResponse:
-        rows = IngestionService._client().option_chain_snapshot(
-            underlying_symbol=request.underlying_symbol,
-        )
+        dataset_key = f"options:{request.underlying_symbol}"
+        started_at = datetime.now(UTC)
+        try:
+            rows = IngestionService._client().option_chain_snapshot(
+                underlying_symbol=request.underlying_symbol,
+            )
+        except Exception as exc:
+            IngestionService._record_failed_run(dataset_key, started_at, str(exc))
+            raise
+
+        if not rows:
+            error_message = f"Polygon returned no option chain rows for {request.underlying_symbol}"
+            IngestionService._record_failed_run(dataset_key, started_at, error_message)
+            raise RuntimeError(error_message)
 
         snapshot_ts = datetime.now(UTC)
         snapshot_date = snapshot_ts.date()
 
         with IngestionService._connect() as conn:
             with conn.cursor() as cur:
+                records_written = 0
                 for row in rows:
                     details = row.get("details", {})
                     greeks = row.get("greeks", {})
@@ -131,6 +232,12 @@ class IngestionService:
                     )
                     expiration = IngestionService._parse_date(details.get("expiration_date"))
                     dte = (expiration - snapshot_date).days if expiration else None
+                    option_symbol = details.get("ticker")
+                    strike = details.get("strike_price")
+                    option_type = details.get("contract_type")
+                    if not (option_symbol and expiration and strike is not None and option_type):
+                        continue
+
                     cur.execute(
                         """
                         INSERT INTO options_chain_snapshots (
@@ -150,10 +257,10 @@ class IngestionService:
                         (
                             snapshot_ts,
                             request.underlying_symbol,
-                            details.get("ticker"),
+                            option_symbol,
                             expiration,
-                            details.get("strike_price"),
-                            details.get("contract_type"),
+                            strike,
+                            option_type,
                             bid,
                             ask,
                             mid,
@@ -170,17 +277,44 @@ class IngestionService:
                             "polygon",
                         ),
                     )
+                    records_written += 1
 
                 last_updated_at = datetime.now(UTC)
+                if records_written == 0:
+                    error_message = (
+                        f"Polygon returned no writable option rows for {request.underlying_symbol}"
+                    )
+                    IngestionService._record_ingestion_run(
+                        cur,
+                        dataset_key=dataset_key,
+                        status="failed",
+                        records_written=0,
+                        source="polygon",
+                        started_at=started_at,
+                        completed_at=last_updated_at,
+                        error_message=error_message,
+                    )
+                    conn.commit()
+                    raise RuntimeError(error_message)
+
                 IngestionService._upsert_freshness(
                     cur,
-                    dataset_key=f"options:{request.underlying_symbol}",
+                    dataset_key=dataset_key,
                     last_updated_at=last_updated_at,
                     source="polygon",
                 )
+                IngestionService._record_ingestion_run(
+                    cur,
+                    dataset_key=dataset_key,
+                    status="success",
+                    records_written=records_written,
+                    source="polygon",
+                    started_at=started_at,
+                    completed_at=last_updated_at,
+                )
             conn.commit()
 
-        return IngestionResponse(records_written=len(rows), last_updated_at=last_updated_at)
+        return IngestionResponse(records_written=records_written, last_updated_at=last_updated_at)
 
     @staticmethod
     def ingest_market_context(request: MarketContextIngestionRequest) -> IngestionResponse:
@@ -246,6 +380,15 @@ class IngestionService:
                     dataset_key=f"market_context:{request.market}",
                     last_updated_at=last_updated_at,
                     source="manual",
+                )
+                IngestionService._record_ingestion_run(
+                    cur,
+                    dataset_key=f"market_context:{request.market}",
+                    status="success",
+                    records_written=1,
+                    source="manual",
+                    started_at=snapshot_ts,
+                    completed_at=last_updated_at,
                 )
             conn.commit()
 

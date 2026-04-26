@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -9,7 +10,7 @@ class BarsIngestionRequest(BaseModel):
     ticker: str = Field(..., min_length=1)
     from_date: date = Field(..., alias="from")
     to_date: date = Field(..., alias="to")
-    timeframe: str = "1d"
+    timeframe: Literal["1d"] = "1d"
 
     @model_validator(mode="after")
     def validate_date_range(self) -> "BarsIngestionRequest":

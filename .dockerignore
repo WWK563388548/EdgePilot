@@ -1,0 +1,14 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+backend/.env
+frontend/.env.local
+edgepilot.egg-info
+uv.lock

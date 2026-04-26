@@ -4,16 +4,31 @@
 
 This review covers the current `main` state after D1 market-data ingestion was merged. It focuses on implementation correctness, the next backend/frontend milestones, and a pragmatic deployment plus CI/CD path.
 
+## Implementation Status
+
+- [x] GitHub Actions CI for lint, tests, compile, and Docker build.
+- [x] Backend Dockerfile.
+- [x] Railway deployment config.
+- [x] Alembic baseline migration.
+- [x] Missing market-data indexes.
+- [x] `ingestion_runs` table.
+- [x] Admin token protection for ingestion write endpoints.
+- [x] Polygon option-chain pagination.
+- [x] `timeframe` restricted to `1d` until intraday mapping is implemented.
+- [x] Empty provider responses no longer update `data_freshness`.
+
 ## Correctness Review
 
 ### P0 / release blockers
 
 1. Ingestion write APIs are unauthenticated.
+   - Status: resolved in this branch with `INGESTION_ADMIN_TOKEN` and `X-Ingestion-Admin-Token`.
    - Files: `backend/app/api/routes/ingestion.py`
    - Risk: once the backend is reachable outside local development, anyone can trigger Polygon requests, burn quota, and write arbitrary market context snapshots.
    - Recommendation: add an internal admin token or signed job trigger before exposing these endpoints. Keep read endpoints separate from write endpoints.
 
 2. No migration system exists for already-created databases.
+   - Status: resolved in this branch with Alembic baseline migration.
    - Files: `sql/init/001_schema.sql`
    - Risk: `docker-entrypoint-initdb.d` only runs on a fresh Postgres volume. Existing dev/staging/prod databases will not receive D1 tables or future D2/D3 schema changes.
    - Recommendation: add Alembic as the next infrastructure PR, keep `sql/init` for bootstrap only, and make CI run migration checks.
@@ -21,21 +36,25 @@ This review covers the current `main` state after D1 market-data ingestion was m
 ### P1 / high priority
 
 1. Polygon option chain ingestion only stores the first page.
+   - Status: resolved in this branch with `next_url` pagination and a max-page guard.
    - Files: `backend/app/services/polygon_client.py`, `backend/app/services/ingestion_service.py`
    - Risk: `limit=250` is not enough for liquid underlyings such as SPY/QQQ. The API can return paginated responses; current freshness can report success while the chain is partial.
    - Recommendation: follow `next_url` until complete, with max-page and rate-limit guards.
 
 2. Failed or empty provider responses can still mark data as fresh.
+   - Status: resolved in this branch for empty provider responses; broader provider status mapping remains future work.
    - Files: `backend/app/services/ingestion_service.py`
    - Risk: empty `results`, API errors, entitlement errors, and malformed payloads currently collapse into `records_written=0` but still update `data_freshness`.
    - Recommendation: introduce ingestion run status (`success`, `partial`, `failed`), provider error capture, and only update dataset freshness for successful writes.
 
 3. Bar timeframe is accepted as arbitrary input but always fetches daily bars.
+   - Status: resolved in this branch by restricting ingestion requests to `1d`.
    - Files: `backend/app/schemas/ingestion.py`, `backend/app/services/ingestion_service.py`
    - Risk: a caller can request `timeframe="1h"` and the service writes daily Polygon bars labeled as hourly.
    - Recommendation: either restrict D1 to `1d` with validation or implement multiplier/timespan mapping.
 
 4. Tests only cover route delegation.
+   - Status: improved in this branch with auth and request validation coverage; DB integration tests remain future work.
    - Files: `backend/tests/test_ingestion_routes.py`
    - Risk: SQL statements, provider parsing, pagination, empty/error payload handling, and freshness semantics are untested.
    - Recommendation: add unit tests for Polygon parsing and service tests with fake DB cursors, then add an integration test profile with Postgres/Timescale.
@@ -43,6 +62,7 @@ This review covers the current `main` state after D1 market-data ingestion was m
 ### P2 / medium priority
 
 1. Query performance indexes from the PRD are missing.
+   - Status: resolved in this branch for D1 query paths.
    - Files: `sql/init/001_schema.sql`
    - Risk: options lookup by underlying and snapshot time will degrade as snapshots accumulate.
    - Recommendation: add indexes for bars by `(symbol_id, timeframe, ts DESC)`, options by `(underlying_symbol, snapshot_ts DESC)`, `(option_symbol, snapshot_ts DESC)`, and `(underlying_symbol, expiration, option_type, delta)`.
@@ -53,6 +73,7 @@ This review covers the current `main` state after D1 market-data ingestion was m
    - Recommendation: switch to a small HTTP client wrapper with timeouts, retries for transient failures, and normalized provider exceptions.
 
 3. Backend is not containerized yet.
+   - Status: resolved in this branch with `Dockerfile`, `railway.toml`, and `scripts/start_backend.sh`.
    - Files: repository root
    - Risk: deployment cannot be reproduced consistently.
    - Recommendation: add a backend Dockerfile and a production compose or platform-specific deployment manifest.
