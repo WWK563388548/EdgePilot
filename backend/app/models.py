@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -8,13 +9,17 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     PrimaryKeyConstraint,
     Text,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.core.database import Base
+
+PA_JSON = JSON().with_variant(JSONB, "postgresql")
 
 
 class User(Base):
@@ -185,6 +190,105 @@ class Candidate(Base):
     option_suitability: Mapped[str | None] = mapped_column(Text)
     ai_review_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class PAFact(Base):
+    __tablename__ = "pa_facts"
+    __table_args__ = (Index("idx_pa_facts_symbol_tf_ts", "symbol_id", "timeframe", "ts"),)
+
+    fact_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    symbol_id: Mapped[str] = mapped_column(Text)
+    timeframe: Mapped[str] = mapped_column(Text)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    facts: Mapped[dict[str, Any]] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class PAStructure(Base):
+    __tablename__ = "pa_structures"
+    __table_args__ = (
+        Index("idx_pa_structures_symbol_tf_ts", "symbol_id", "timeframe", "ts"),
+        Index("idx_pa_structures_type", "structure_type"),
+    )
+
+    structure_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    symbol_id: Mapped[str] = mapped_column(Text)
+    timeframe: Mapped[str] = mapped_column(Text)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    structure_type: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class PASetup(Base):
+    __tablename__ = "pa_setups"
+    __table_args__ = (
+        Index("idx_pa_setups_symbol_tf_detected", "symbol_id", "timeframe", "detected_ts"),
+        Index("idx_pa_setups_filters", "setup_type", "status", "validation_status"),
+    )
+
+    setup_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    symbol_id: Mapped[str] = mapped_column(Text)
+    timeframe: Mapped[str] = mapped_column(Text)
+    detected_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    setup_type: Mapped[str] = mapped_column(Text)
+    setup_grade: Mapped[str | None] = mapped_column(Text)
+    pa_quality_score: Mapped[float | None] = mapped_column(Float)
+    structure_score: Mapped[float | None] = mapped_column(Float)
+    location_score: Mapped[float | None] = mapped_column(Float)
+    volume_score: Mapped[float | None] = mapped_column(Float)
+    trend_rs_score: Mapped[float | None] = mapped_column(Float)
+    context_score: Mapped[float | None] = mapped_column(Float)
+    risk_stop_score: Mapped[float | None] = mapped_column(Float)
+    followthrough_score: Mapped[float | None] = mapped_column(Float)
+    entry_plan: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    exit_plan: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    invalidation: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    status: Mapped[str | None] = mapped_column(Text)
+    validation_status: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class PACalibrationStat(Base):
+    __tablename__ = "pa_calibration_stats"
+    __table_args__ = (
+        Index(
+            "idx_pa_calibration_filters",
+            "setup_type",
+            "market_regime",
+            "sector_context",
+            "timeframe",
+        ),
+    )
+
+    stat_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    setup_type: Mapped[str] = mapped_column(Text)
+    market_regime: Mapped[str | None] = mapped_column(Text)
+    sector_context: Mapped[str | None] = mapped_column(Text)
+    timeframe: Mapped[str | None] = mapped_column(Text)
+    sample_size: Mapped[int | None] = mapped_column(Integer)
+    win_rate: Mapped[float | None] = mapped_column(Float)
+    average_r: Mapped[float | None] = mapped_column(Float)
+    median_r: Mapped[float | None] = mapped_column(Float)
+    profit_factor: Mapped[float | None] = mapped_column(Float)
+    false_breakout_rate: Mapped[float | None] = mapped_column(Float)
+    avg_mfe_r: Mapped[float | None] = mapped_column(Float)
+    avg_mae_r: Mapped[float | None] = mapped_column(Float)
+    max_drawdown_pct: Mapped[float | None] = mapped_column(Float)
+    confidence_level: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
 

@@ -1,17 +1,20 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.app.api.dependencies import require_ingestion_admin
 from backend.app.schemas.ingestion import (
     BarsIngestionRequest,
     BarsQueryResponse,
     DataFreshnessResponse,
+    ETFUniverseSeedRequest,
+    ETFUniverseSeedResponse,
     IngestionResponse,
     MarketContextIngestionRequest,
     OptionChainSnapshotResponse,
     OptionChainIngestionRequest,
 )
+from backend.app.services.etf_seed_service import ETFSeedService
 from backend.app.services.ingestion_service import IngestionService
 
 router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
@@ -37,6 +40,17 @@ def ingest_market_context(
     _admin: IngestionAdmin = None,
 ) -> IngestionResponse:
     return IngestionService.ingest_market_context(request=request)
+
+
+@router.post("/us-etf-universe/seed", response_model=ETFUniverseSeedResponse)
+def seed_us_etf_universe(
+    request: ETFUniverseSeedRequest | None = None,
+    _admin: IngestionAdmin = None,
+) -> ETFUniverseSeedResponse:
+    try:
+        return ETFSeedService.seed_us_etf_universe(request or ETFUniverseSeedRequest())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/bars/{ticker}", response_model=BarsQueryResponse)
