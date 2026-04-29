@@ -20,7 +20,7 @@ import {
   ShieldCheck,
   X
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -427,11 +427,18 @@ function SettingsPanel() {
 
 function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading: boolean; error: boolean }) {
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const activeCandidateId = selectedCandidateId ?? data[0]?.candidate_id ?? null;
   const detail = useQuery({
-    queryKey: ["candidate-detail", selectedCandidateId],
-    queryFn: () => api.candidateDetail(selectedCandidateId as string),
-    enabled: Boolean(selectedCandidateId)
+    queryKey: ["candidate-detail", activeCandidateId],
+    queryFn: () => api.candidateDetail(activeCandidateId as string),
+    enabled: Boolean(activeCandidateId)
   });
+
+  useEffect(() => {
+    if (selectedCandidateId && !data.some((row) => row.candidate_id === selectedCandidateId)) {
+      setSelectedCandidateId(null);
+    }
+  }, [data, selectedCandidateId]);
 
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -455,7 +462,7 @@ function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading:
             {data.map((row) => (
               <tr
                 key={row.candidate_id}
-                className={`border-t border-line ${selectedCandidateId === row.candidate_id ? "bg-teal-50/50" : ""}`}
+                className={`border-t border-line ${activeCandidateId === row.candidate_id ? "bg-teal-50/50" : ""}`}
               >
                 <td className="px-4 py-3 font-medium text-ink">{row.symbol_id}</td>
                 <td className="truncate px-4 py-3" title={row.setup_type ?? row.strategy_name}>
@@ -496,7 +503,7 @@ function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading:
         error={detail.isError}
         loading={detail.isLoading}
         onClose={() => setSelectedCandidateId(null)}
-        selected={Boolean(selectedCandidateId)}
+        selected={Boolean(activeCandidateId)}
       />
     </section>
   );
