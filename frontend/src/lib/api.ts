@@ -79,6 +79,14 @@ export type PASetup = {
   updated_at: string | null;
 };
 
+export type PASetupFilters = {
+  symbol?: string;
+  setupType?: string;
+  validationStatus?: string;
+  status?: string;
+  limit?: number;
+};
+
 export type CandidateDetail = {
   candidate: Candidate;
   pa_setup: PASetup | null;
@@ -138,6 +146,17 @@ export type VerificationEmailResponse = {
   job_id: string | null;
 };
 
+function queryString(params: Record<string, string | number | undefined>) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
+  const query = searchParams.toString();
+  return query ? `?${query}` : "";
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const token = accessTokenProvider ? await accessTokenProvider() : null;
   const headers: Record<string, string> = {
@@ -189,6 +208,17 @@ export const api = {
   candidates: () => getJson<Candidate[]>("/api/candidates?limit=100"),
   candidateDetail: (candidateId: string) =>
     getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
+  paSetups: (filters: PASetupFilters = {}) =>
+    getJson<PASetup[]>(
+      `/api/pa/setups${queryString({
+        symbol: filters.symbol,
+        setup_type: filters.setupType,
+        validation_status: filters.validationStatus,
+        status: filters.status,
+        timeframe: "1d",
+        limit: filters.limit ?? 100
+      })}`
+    ),
   positions: () => getJson<Position[]>("/api/positions?limit=100"),
   alerts: () => getJson<ExitAlert[]>("/api/exit-alerts?acknowledged=false&limit=100"),
   journal: () => getJson<JournalTrade[]>("/api/journal/trades?limit=100")

@@ -14,6 +14,7 @@
 - US ETF PA facts calculator 与第一版 O'Neil-core scanner，可从已有 ETF 日线 `bars` 生成 shadow-only PA setups 和第一批 candidates。
 - US ETF universe seed 流程：可批量拉 Polygon 日线、计算 PA facts、运行 scanner 并写入 candidates。
 - Candidate + PA setup bridge：`candidates.pa_setup_id` 直接关联 `pa_setups`，候选详情 API 可返回 score breakdown、entry/exit/invalidation。
+- PA Lab 前端视图：可筛选 PA setups 并检查 score breakdown、entry/exit/invalidation。
 - Next.js + Tailwind + shadcn-compatible UI scaffold + TanStack Query + Zustand 前端工作台。
 - 环境变量模板：
   - 根目录 `.env.example`
@@ -114,6 +115,7 @@ curl -X POST http://localhost:8000/api/ingestion/us-etf-universe/seed \
 ```
 
 这个流程会依次写入 `bars`、`pa_facts`、`pa_setups`，并将高分 shadow-only setups 映射到 `candidates`。
+随后可以在前端的 Candidates 和 PA Lab 视图检查候选与 setup 详情。
 
 ## 规划阶段
 

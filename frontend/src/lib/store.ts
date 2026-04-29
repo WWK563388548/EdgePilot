@@ -3,6 +3,7 @@ import { create } from "zustand";
 export type WorkspaceView =
   | "overview"
   | "candidates"
+  | "pa_lab"
   | "positions"
   | "alerts"
   | "journal"

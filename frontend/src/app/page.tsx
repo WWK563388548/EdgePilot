@@ -10,6 +10,7 @@ import {
   CircleDot,
   Database,
   Eye,
+  Filter,
   ListChecks,
   LogIn,
   LogOut,
@@ -23,13 +24,14 @@ import { useState, type ReactNode } from "react";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { Candidate, CandidateDetail, ExitAlert, JournalTrade, Position } from "@/lib/api";
+import type { Candidate, CandidateDetail, ExitAlert, JournalTrade, PASetup, Position } from "@/lib/api";
 import { useWorkspaceStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store";
 
 const views: Array<{ id: WorkspaceView; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "candidates", label: "Candidates" },
+  { id: "pa_lab", label: "PA Lab" },
   { id: "positions", label: "Positions" },
   { id: "alerts", label: "Exit Alerts" },
   { id: "journal", label: "Journal" },
@@ -257,6 +259,7 @@ export default function Home() {
         )}
 
         {view === "candidates" && <CandidatesTable data={candidates.data ?? []} loading={candidates.isLoading} error={candidates.isError} />}
+        {view === "pa_lab" && <PALab />}
         {view === "positions" && <PositionsTable data={positions.data ?? []} loading={positions.isLoading} error={positions.isError} />}
         {view === "alerts" && <AlertsTable data={alerts.data ?? []} loading={alerts.isLoading} error={alerts.isError} />}
         {view === "journal" && <JournalTable data={journal.data ?? []} loading={journal.isLoading} error={journal.isError} />}
@@ -583,6 +586,175 @@ function DetailBlock({ title, data }: { title: string; data: Record<string, unkn
       )}
     </section>
   );
+}
+
+function PALab() {
+  const [symbol, setSymbol] = useState("");
+  const [setupType, setSetupType] = useState("");
+  const [validationStatus, setValidationStatus] = useState("");
+  const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null);
+  const filters = {
+    symbol: symbol.trim().toUpperCase() || undefined,
+    setupType: setupType || undefined,
+    validationStatus: validationStatus || undefined,
+    limit: 200
+  };
+  const setups = useQuery({
+    queryKey: ["pa-setups", filters],
+    queryFn: () => api.paSetups(filters)
+  });
+  const selectedSetup =
+    setups.data?.find((setup) => setup.setup_id === selectedSetupId) ?? setups.data?.[0] ?? null;
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <section className="rounded-md border border-line bg-white">
+        <div className="border-b border-line px-4 py-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Filter size={18} className="text-teal" />
+              <h2 className="text-base font-semibold text-ink">PA Setup Explorer</h2>
+            </div>
+            <DataState isLoading={setups.isLoading} isError={setups.isError} />
+          </div>
+          <div className="grid gap-2 md:grid-cols-[minmax(120px,180px)_minmax(160px,220px)_minmax(160px,220px)]">
+            <input
+              className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+              onChange={(event) => setSymbol(event.target.value)}
+              placeholder="Symbol"
+              value={symbol}
+            />
+            <select
+              className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+              onChange={(event) => setSetupType(event.target.value)}
+              value={setupType}
+            >
+              <option value="">All setups</option>
+              <option value="breakout">Breakout</option>
+              <option value="pullback_to_20ma">Pullback to 20MA</option>
+              <option value="failed_breakdown_reclaim">Failed breakdown reclaim</option>
+              <option value="oneil_leader_watch">O'Neil leader watch</option>
+            </select>
+            <select
+              className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+              onChange={(event) => setValidationStatus(event.target.value)}
+              value={validationStatus}
+            >
+              <option value="">All validation</option>
+              <option value="shadow_only">Shadow only</option>
+              <option value="paper_allowed">Paper allowed</option>
+              <option value="live_allowed">Live allowed</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed text-left text-sm">
+            <thead className="bg-panel text-xs uppercase text-slate-500">
+              <tr>
+                <th className="w-24 px-4 py-3">Symbol</th>
+                <th className="w-48 px-4 py-3">Setup</th>
+                <th className="w-20 px-4 py-3">Grade</th>
+                <th className="w-24 px-4 py-3">Score</th>
+                <th className="w-32 px-4 py-3">Validation</th>
+                <th className="w-28 px-4 py-3">Status</th>
+                <th className="w-40 px-4 py-3">Detected</th>
+                <th className="w-20 px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {(setups.data ?? []).map((setup) => (
+                <tr
+                  key={setup.setup_id}
+                  className={`border-t border-line ${selectedSetup?.setup_id === setup.setup_id ? "bg-teal-50/50" : ""}`}
+                >
+                  <td className="px-4 py-3 font-medium text-ink">{setup.symbol_id}</td>
+                  <td className="truncate px-4 py-3" title={setup.setup_type}>
+                    {setup.setup_type}
+                  </td>
+                  <td className="px-4 py-3">{formatValue(setup.setup_grade)}</td>
+                  <td className="px-4 py-3">{formatNumber(setup.pa_quality_score)}</td>
+                  <td className="px-4 py-3">
+                    <StatusPill
+                      label={setup.validation_status ?? "unknown"}
+                      tone={decisionTone(setup.validation_status)}
+                    />
+                  </td>
+                  <td className="px-4 py-3">{formatValue(setup.status)}</td>
+                  <td className="px-4 py-3">{formatDate(setup.detected_ts)}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
+                      onClick={() => setSelectedSetupId(setup.setup_id)}
+                      title="Open setup detail"
+                      type="button"
+                    >
+                      <Eye size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <PASetupDetailPanel setup={selectedSetup} />
+    </section>
+  );
+}
+
+function PASetupDetailPanel({ setup }: { setup: PASetup | null }) {
+  const scoreBreakdown = nestedRecord(setup?.entry_plan, "score_breakdown");
+  return (
+    <aside className="rounded-md border border-line bg-white">
+      <div className="border-b border-line px-4 py-3">
+        <h2 className="text-base font-semibold text-ink">
+          {setup ? `${setup.symbol_id} Setup Detail` : "Setup Detail"}
+        </h2>
+        <p className="text-xs text-slate-500">{setup?.setup_id ?? "No setup selected"}</p>
+      </div>
+      <div className="space-y-4 p-4">
+        {setup ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Setup" value={setup.setup_type} />
+              <Field label="Grade" value={setup.setup_grade} />
+              <Field label="Quality" value={formatNumber(setup.pa_quality_score)} />
+              <Field label="Timeframe" value={setup.timeframe} />
+              <Field label="Validation" value={setup.validation_status} />
+              <Field label="Status" value={setup.status} />
+            </div>
+            <div className="grid grid-cols-2 gap-3 border-t border-line pt-3">
+              <Field label="Structure" value={formatNumber(setup.structure_score)} />
+              <Field label="Location" value={formatNumber(setup.location_score)} />
+              <Field label="Volume" value={formatNumber(setup.volume_score)} />
+              <Field label="Trend RS" value={formatNumber(setup.trend_rs_score)} />
+              <Field label="Context" value={formatNumber(setup.context_score)} />
+              <Field label="Risk Stop" value={formatNumber(setup.risk_stop_score)} />
+            </div>
+            <DetailBlock title="Score Breakdown" data={scoreBreakdown} />
+            <DetailBlock title="Entry Plan" data={setup.entry_plan} />
+            <DetailBlock title="Exit Plan" data={setup.exit_plan} />
+            <DetailBlock title="Invalidation" data={setup.invalidation} />
+          </>
+        ) : (
+          <p className="text-sm text-slate-600">No PA setups found.</p>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function nestedRecord(
+  data: Record<string, unknown> | null | undefined,
+  key: string
+): Record<string, unknown> | null {
+  const value = data?.[key];
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
 }
 
 function formatDetailValue(value: unknown) {
