@@ -47,17 +47,25 @@ const AuthContext = createContext<AppAuthState>(unavailableAuthState);
 
 function Auth0StateBridge({ children }: { children: ReactNode }) {
   const auth0 = useAuth0();
+  const [tokenProviderReady, setTokenProviderReady] = useState(false);
   const [verifiedOverride, setVerifiedOverride] = useState(false);
 
   useEffect(() => {
     if (!auth0.isAuthenticated) {
       setAccessTokenProvider(null);
+      setTokenProviderReady(false);
       setVerifiedOverride(false);
       return;
     }
     setAccessTokenProvider(async () => {
       try {
-        return await auth0.getAccessTokenSilently();
+        return await auth0.getAccessTokenSilently({
+          authorizationParams: {
+            audience: auth0Audience,
+            redirect_uri: auth0RedirectUri,
+            scope: "openid profile email offline_access"
+          }
+        });
       } catch {
         await auth0.loginWithRedirect({
           appState: { returnTo: window.location.pathname }
@@ -65,13 +73,17 @@ function Auth0StateBridge({ children }: { children: ReactNode }) {
         return null;
       }
     });
-    return () => setAccessTokenProvider(null);
-  }, [auth0]);
+    setTokenProviderReady(true);
+    return () => {
+      setAccessTokenProvider(null);
+      setTokenProviderReady(false);
+    };
+  }, [auth0.getAccessTokenSilently, auth0.isAuthenticated, auth0.loginWithRedirect]);
 
   const value = useMemo<AppAuthState>(
     () => ({
       configured: true,
-      ready: !auth0.isLoading,
+      ready: !auth0.isLoading && (!auth0.isAuthenticated || tokenProviderReady),
       isAuthenticated: auth0.isAuthenticated,
       emailVerified: verifiedOverride || Boolean(auth0.user?.email_verified),
       userLabel: auth0.user?.email ?? auth0.user?.name ?? "Authenticated",
@@ -118,7 +130,7 @@ function Auth0StateBridge({ children }: { children: ReactNode }) {
         });
       }
     }),
-    [auth0, verifiedOverride]
+    [auth0, tokenProviderReady, verifiedOverride]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
