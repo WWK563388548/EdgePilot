@@ -249,7 +249,7 @@ function AuthScreen({
 }: {
   status: string;
   action?: () => Promise<void>;
-  secondaryAction?: () => void;
+  secondaryAction?: () => Promise<void>;
   secondaryLabel?: string;
 }) {
   return (
@@ -277,7 +277,7 @@ function AuthScreen({
             {secondaryAction ? (
               <button
                 className="focus-ring inline-flex w-full items-center justify-center rounded-md border border-line bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400"
-                onClick={secondaryAction}
+                onClick={() => void secondaryAction()}
                 type="button"
               >
                 {secondaryLabel}

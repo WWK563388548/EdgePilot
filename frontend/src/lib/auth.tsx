@@ -6,7 +6,8 @@ import {
   type ReactNode,
   useContext,
   useEffect,
-  useMemo
+  useMemo,
+  useState
 } from "react";
 
 import { api, setAccessTokenProvider } from "@/lib/api";
@@ -20,7 +21,7 @@ type AppAuthState = {
   login: () => Promise<void>;
   logout: () => void;
   resendVerificationEmail: () => Promise<void>;
-  refreshSession: () => void;
+  refreshSession: () => Promise<void>;
 };
 
 const auth0Domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? "";
@@ -39,17 +40,19 @@ const unavailableAuthState: AppAuthState = {
   login: async () => undefined,
   logout: () => undefined,
   resendVerificationEmail: async () => undefined,
-  refreshSession: () => undefined
+  refreshSession: async () => undefined
 };
 
 const AuthContext = createContext<AppAuthState>(unavailableAuthState);
 
 function Auth0StateBridge({ children }: { children: ReactNode }) {
   const auth0 = useAuth0();
+  const [verifiedOverride, setVerifiedOverride] = useState(false);
 
   useEffect(() => {
     if (!auth0.isAuthenticated) {
       setAccessTokenProvider(null);
+      setVerifiedOverride(false);
       return;
     }
     setAccessTokenProvider(async () => {
@@ -70,7 +73,7 @@ function Auth0StateBridge({ children }: { children: ReactNode }) {
       configured: true,
       ready: !auth0.isLoading,
       isAuthenticated: auth0.isAuthenticated,
-      emailVerified: Boolean(auth0.user?.email_verified),
+      emailVerified: verifiedOverride || Boolean(auth0.user?.email_verified),
       userLabel: auth0.user?.email ?? auth0.user?.name ?? "Authenticated",
       login: () =>
         auth0.loginWithRedirect({
@@ -85,9 +88,37 @@ function Auth0StateBridge({ children }: { children: ReactNode }) {
       resendVerificationEmail: async () => {
         await api.resendVerificationEmail();
       },
-      refreshSession: () => window.location.reload()
+      refreshSession: async () => {
+        try {
+          await auth0.getAccessTokenSilently({
+            cacheMode: "off",
+            authorizationParams: {
+              audience: auth0Audience,
+              redirect_uri: auth0RedirectUri,
+              scope: "openid profile email offline_access"
+            }
+          });
+          const claims = await auth0.getIdTokenClaims();
+          if (claims?.email_verified) {
+            setVerifiedOverride(true);
+            return;
+          }
+        } catch {
+          // Fall through to an interactive login so Auth0 can issue fresh claims.
+        }
+
+        await auth0.loginWithRedirect({
+          appState: { returnTo: window.location.pathname },
+          authorizationParams: {
+            audience: auth0Audience,
+            prompt: "login",
+            redirect_uri: auth0RedirectUri,
+            scope: "openid profile email offline_access"
+          }
+        });
+      }
     }),
-    [auth0]
+    [auth0, verifiedOverride]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
