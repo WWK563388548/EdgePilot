@@ -88,8 +88,57 @@ CREATE TABLE IF NOT EXISTS market_context_snapshots (
 );
 SELECT create_hypertable('market_context_snapshots', 'snapshot_ts', if_not_exists => TRUE);
 
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    external_subject TEXT NOT NULL UNIQUE,
+    email TEXT,
+    display_name TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    last_login_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS ix_users_external_subject
+ON users (external_subject);
+
+CREATE TABLE IF NOT EXISTS accounts (
+    account_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS account_memberships (
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
+    user_id TEXT NOT NULL REFERENCES users(user_id),
+    role TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (account_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    audit_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
+    actor_user_id TEXT REFERENCES users(user_id),
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    metadata_json TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_audit_logs_account_id
+ON audit_logs (account_id);
+
+INSERT INTO accounts (account_id, name)
+VALUES ('acct_local', 'Local Dev')
+ON CONFLICT (account_id) DO NOTHING;
+INSERT INTO users (user_id, external_subject, email, display_name)
+VALUES ('user_local', 'local-dev', 'local@edgepilot.dev', 'Local Dev')
+ON CONFLICT (user_id) DO NOTHING;
+INSERT INTO account_memberships (account_id, user_id, role)
+VALUES ('acct_local', 'user_local', 'owner')
+ON CONFLICT (account_id, user_id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS candidates (
     candidate_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
     symbol_id TEXT NOT NULL,
     scan_date DATE NOT NULL,
     strategy_name TEXT NOT NULL,
@@ -102,13 +151,14 @@ CREATE TABLE IF NOT EXISTS candidates (
     ai_review_json TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_candidates_scan_date
-ON candidates (scan_date DESC, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_candidates_decision
-ON candidates (decision);
+CREATE INDEX IF NOT EXISTS idx_candidates_account_scan_date
+ON candidates (account_id, scan_date DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_candidates_account_decision
+ON candidates (account_id, decision);
 
 CREATE TABLE IF NOT EXISTS positions (
     position_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
     symbol_id TEXT NOT NULL,
     asset_type TEXT NOT NULL,
     strategy_name TEXT,
@@ -124,13 +174,14 @@ CREATE TABLE IF NOT EXISTS positions (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_positions_status
-ON positions (status, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_positions_symbol_status
-ON positions (symbol_id, status);
+CREATE INDEX IF NOT EXISTS idx_positions_account_status
+ON positions (account_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_positions_account_symbol_status
+ON positions (account_id, symbol_id, status);
 
 CREATE TABLE IF NOT EXISTS exit_alerts (
     alert_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
     position_id TEXT NOT NULL,
     alert_ts TIMESTAMPTZ DEFAULT now(),
     level INTEGER,
@@ -140,13 +191,14 @@ CREATE TABLE IF NOT EXISTS exit_alerts (
     triggered_rules TEXT,
     acknowledged BOOLEAN DEFAULT FALSE
 );
-CREATE INDEX IF NOT EXISTS idx_exit_alerts_ack_level
-ON exit_alerts (acknowledged, level DESC, alert_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_exit_alerts_position
-ON exit_alerts (position_id, alert_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_exit_alerts_account_ack_level
+ON exit_alerts (account_id, acknowledged, level DESC, alert_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_exit_alerts_account_position
+ON exit_alerts (account_id, position_id, alert_ts DESC);
 
 CREATE TABLE IF NOT EXISTS trades_journal (
     trade_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
     position_id TEXT,
     symbol_id TEXT,
     entry_ts TIMESTAMPTZ,
@@ -162,10 +214,10 @@ CREATE TABLE IF NOT EXISTS trades_journal (
     mistake_tags TEXT,
     notes TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_trades_journal_entry_ts
-ON trades_journal (entry_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_trades_journal_symbol
-ON trades_journal (symbol_id);
+CREATE INDEX IF NOT EXISTS idx_trades_journal_account_entry_ts
+ON trades_journal (account_id, entry_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_trades_journal_account_symbol
+ON trades_journal (account_id, symbol_id);
 
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
     ts TIMESTAMPTZ NOT NULL,

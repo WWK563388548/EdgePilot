@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 CandidateDecision = Literal["candidate", "watch", "avoid"]
 PositionStatus = Literal["open", "reduce", "exit_pending", "closed"]
@@ -35,6 +35,8 @@ class CandidateUpdate(BaseModel):
 
 
 class Candidate(CandidateBase):
+    model_config = ConfigDict(from_attributes=True)
+
     candidate_id: str
     created_at: datetime | None = None
 
@@ -68,6 +70,8 @@ class PositionUpdate(BaseModel):
 
 
 class Position(PositionBase):
+    model_config = ConfigDict(from_attributes=True)
+
     position_id: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -97,6 +101,8 @@ class ExitAlertUpdate(BaseModel):
 
 
 class ExitAlert(ExitAlertBase):
+    model_config = ConfigDict(from_attributes=True)
+
     alert_id: str
     alert_ts: datetime | None = None
 
@@ -123,16 +129,22 @@ class JournalTradeCreate(JournalTradeBase):
 
 
 class JournalTrade(JournalTradeBase):
+    model_config = ConfigDict(from_attributes=True)
+
     trade_id: str
 
 
 class DataFreshnessSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     dataset_key: str
     last_updated_at: datetime
     source: str | None = None
 
 
 class MarketContextSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     snapshot_ts: datetime | None = None
     risk_level: str | None = None
     us_bias: str | None = None

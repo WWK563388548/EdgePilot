@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.routes.analytics import router as analytics_router
+from backend.app.api.routes.auth import router as auth_router
 from backend.app.api.routes.business import router as business_router
 from backend.app.api.routes.health import router as health_router
 from backend.app.api.routes.ingestion import router as ingestion_router
@@ -23,6 +24,7 @@ if cors_origins:
     )
 
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(analytics_router)
 app.include_router(realtime_router)
 app.include_router(ingestion_router)

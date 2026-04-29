@@ -1,0 +1,339 @@
+from datetime import date, datetime
+
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    PrimaryKeyConstraint,
+    Text,
+    text,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from backend.app.core.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    external_subject: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(Text)
+    display_name: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    account_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class AccountMembership(Base):
+    __tablename__ = "account_memberships"
+
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
+    role: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    audit_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"), index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"))
+    action: Mapped[str] = mapped_column(Text)
+    entity_type: Mapped[str] = mapped_column(Text)
+    entity_id: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class Symbol(Base):
+    __tablename__ = "symbols"
+
+    symbol_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    ticker: Mapped[str] = mapped_column(Text)
+    market: Mapped[str] = mapped_column(Text)
+    asset_type: Mapped[str] = mapped_column(Text)
+    exchange: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
+    sector: Mapped[str | None] = mapped_column(Text)
+    industry: Mapped[str | None] = mapped_column(Text)
+    currency: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool | None] = mapped_column(Boolean, server_default=text("true"))
+    source: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class Bar(Base):
+    __tablename__ = "bars"
+    __table_args__ = (
+        PrimaryKeyConstraint("symbol_id", "timeframe", "ts"),
+        Index("idx_bars_symbol_tf_ts", "symbol_id", "timeframe", "ts"),
+    )
+
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    symbol_id: Mapped[str] = mapped_column(Text)
+    timeframe: Mapped[str] = mapped_column(Text)
+    open: Mapped[float | None] = mapped_column(Float)
+    high: Mapped[float | None] = mapped_column(Float)
+    low: Mapped[float | None] = mapped_column(Float)
+    close: Mapped[float | None] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float)
+    vwap: Mapped[float | None] = mapped_column(Float)
+    adjusted: Mapped[bool | None] = mapped_column(Boolean, server_default=text("false"))
+    source: Mapped[str | None] = mapped_column(Text)
+
+
+class OptionChainSnapshot(Base):
+    __tablename__ = "options_chain_snapshots"
+    __table_args__ = (
+        PrimaryKeyConstraint("snapshot_ts", "option_symbol"),
+        Index("idx_options_underlying_snapshot", "underlying_symbol", "snapshot_ts"),
+        Index("idx_options_contract_snapshot", "option_symbol", "snapshot_ts"),
+        Index("idx_options_exp_delta", "underlying_symbol", "expiration", "option_type", "delta"),
+    )
+
+    snapshot_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    underlying_symbol: Mapped[str] = mapped_column(Text)
+    option_symbol: Mapped[str] = mapped_column(Text)
+    expiration: Mapped[date] = mapped_column(Date)
+    strike: Mapped[float] = mapped_column(Float)
+    option_type: Mapped[str] = mapped_column(Text)
+    bid: Mapped[float | None] = mapped_column(Float)
+    ask: Mapped[float | None] = mapped_column(Float)
+    mid: Mapped[float | None] = mapped_column(Float)
+    last: Mapped[float | None] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float)
+    open_interest: Mapped[float | None] = mapped_column(Float)
+    iv: Mapped[float | None] = mapped_column(Float)
+    delta: Mapped[float | None] = mapped_column(Float)
+    gamma: Mapped[float | None] = mapped_column(Float)
+    theta: Mapped[float | None] = mapped_column(Float)
+    vega: Mapped[float | None] = mapped_column(Float)
+    dte: Mapped[int | None] = mapped_column(Integer)
+    spread_pct: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str | None] = mapped_column(Text)
+
+
+class MarketContextSnapshot(Base):
+    __tablename__ = "market_context_snapshots"
+    __table_args__ = (PrimaryKeyConstraint("market", "snapshot_ts"),)
+
+    snapshot_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    market: Mapped[str] = mapped_column(Text, server_default=text("'global'"))
+    spy_return: Mapped[float | None] = mapped_column(Float)
+    qqq_return: Mapped[float | None] = mapped_column(Float)
+    iwm_return: Mapped[float | None] = mapped_column(Float)
+    smh_return: Mapped[float | None] = mapped_column(Float)
+    soxx_return: Mapped[float | None] = mapped_column(Float)
+    vix_change: Mapped[float | None] = mapped_column(Float)
+    usdjpy_change: Mapped[float | None] = mapped_column(Float)
+    dxy_change: Mapped[float | None] = mapped_column(Float)
+    us10y_change: Mapped[float | None] = mapped_column(Float)
+    nikkei_futures_change: Mapped[float | None] = mapped_column(Float)
+    topix_return: Mapped[float | None] = mapped_column(Float)
+    japan_bias: Mapped[str | None] = mapped_column(Text)
+    us_bias: Mapped[str | None] = mapped_column(Text)
+    risk_level: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class Candidate(Base):
+    __tablename__ = "candidates"
+    __table_args__ = (
+        Index("idx_candidates_account_scan_date", "account_id", "scan_date", "created_at"),
+        Index("idx_candidates_account_decision", "account_id", "decision"),
+    )
+
+    candidate_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    symbol_id: Mapped[str] = mapped_column(Text)
+    scan_date: Mapped[date] = mapped_column(Date)
+    strategy_name: Mapped[str] = mapped_column(Text)
+    setup_type: Mapped[str | None] = mapped_column(Text)
+    score_total: Mapped[float | None] = mapped_column(Float)
+    entry_trigger: Mapped[float | None] = mapped_column(Float)
+    initial_stop: Mapped[float | None] = mapped_column(Float)
+    decision: Mapped[str | None] = mapped_column(Text)
+    option_suitability: Mapped[str | None] = mapped_column(Text)
+    ai_review_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class Position(Base):
+    __tablename__ = "positions"
+    __table_args__ = (
+        Index("idx_positions_account_status", "account_id", "status", "updated_at"),
+        Index("idx_positions_account_symbol_status", "account_id", "symbol_id", "status"),
+    )
+
+    position_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    symbol_id: Mapped[str] = mapped_column(Text)
+    asset_type: Mapped[str] = mapped_column(Text)
+    strategy_name: Mapped[str | None] = mapped_column(Text)
+    entry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entry_price: Mapped[float | None] = mapped_column(Float)
+    quantity: Mapped[float | None] = mapped_column(Float)
+    initial_stop: Mapped[float | None] = mapped_column(Float)
+    current_stop: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str | None] = mapped_column(Text)
+    current_r: Mapped[float | None] = mapped_column(Float)
+    realized_pnl: Mapped[float | None] = mapped_column(Float)
+    unrealized_pnl: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class ExitAlert(Base):
+    __tablename__ = "exit_alerts"
+    __table_args__ = (
+        Index("idx_exit_alerts_account_ack_level", "account_id", "acknowledged", "level", "alert_ts"),
+        Index("idx_exit_alerts_account_position", "account_id", "position_id", "alert_ts"),
+    )
+
+    alert_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    position_id: Mapped[str] = mapped_column(Text)
+    alert_ts: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    level: Mapped[int | None] = mapped_column(Integer)
+    action: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    new_stop: Mapped[float | None] = mapped_column(Float)
+    triggered_rules: Mapped[str | None] = mapped_column(Text)
+    acknowledged: Mapped[bool | None] = mapped_column(Boolean, server_default=text("false"))
+
+
+class TradeJournal(Base):
+    __tablename__ = "trades_journal"
+    __table_args__ = (
+        Index("idx_trades_journal_account_entry_ts", "account_id", "entry_ts"),
+        Index("idx_trades_journal_account_symbol", "account_id", "symbol_id"),
+    )
+
+    trade_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    position_id: Mapped[str | None] = mapped_column(Text)
+    symbol_id: Mapped[str | None] = mapped_column(Text)
+    entry_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exit_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entry_price: Mapped[float | None] = mapped_column(Float)
+    exit_price: Mapped[float | None] = mapped_column(Float)
+    quantity: Mapped[float | None] = mapped_column(Float)
+    gross_pnl: Mapped[float | None] = mapped_column(Float)
+    net_pnl: Mapped[float | None] = mapped_column(Float)
+    r_multiple: Mapped[float | None] = mapped_column(Float)
+    setup_type: Mapped[str | None] = mapped_column(Text)
+    exit_reason: Mapped[str | None] = mapped_column(Text)
+    mistake_tags: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class PortfolioSnapshot(Base):
+    __tablename__ = "portfolio_snapshots"
+    __table_args__ = (PrimaryKeyConstraint("account_id", "ts"),)
+
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    account_id: Mapped[str] = mapped_column(Text)
+    equity: Mapped[float] = mapped_column(Float)
+    cash: Mapped[float | None] = mapped_column(Float)
+    gross_exposure: Mapped[float | None] = mapped_column(Float)
+    net_exposure: Mapped[float | None] = mapped_column(Float)
+    open_risk_amount: Mapped[float | None] = mapped_column(Float)
+    open_risk_pct: Mapped[float | None] = mapped_column(Float)
+    daily_pnl: Mapped[float | None] = mapped_column(Float)
+    realized_pnl: Mapped[float | None] = mapped_column(Float)
+    unrealized_pnl: Mapped[float | None] = mapped_column(Float)
+    drawdown_pct: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class AnalyticsDaily(Base):
+    __tablename__ = "analytics_daily"
+    __table_args__ = (PrimaryKeyConstraint("date", "account_id"),)
+
+    date: Mapped[date] = mapped_column(Date)
+    account_id: Mapped[str] = mapped_column(Text)
+    equity: Mapped[float | None] = mapped_column(Float)
+    daily_pnl: Mapped[float | None] = mapped_column(Float)
+    daily_pnl_pct: Mapped[float | None] = mapped_column(Float)
+    realized_pnl: Mapped[float | None] = mapped_column(Float)
+    unrealized_pnl: Mapped[float | None] = mapped_column(Float)
+    trades_count: Mapped[int | None] = mapped_column(Integer)
+    wins_count: Mapped[int | None] = mapped_column(Integer)
+    losses_count: Mapped[int | None] = mapped_column(Integer)
+    win_rate: Mapped[float | None] = mapped_column(Float)
+    avg_win: Mapped[float | None] = mapped_column(Float)
+    avg_loss: Mapped[float | None] = mapped_column(Float)
+    profit_factor: Mapped[float | None] = mapped_column(Float)
+    expectancy_r: Mapped[float | None] = mapped_column(Float)
+    max_drawdown_pct: Mapped[float | None] = mapped_column(Float)
+    open_positions_count: Mapped[int | None] = mapped_column(Integer)
+    option_exposure_pct: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class DataFreshness(Base):
+    __tablename__ = "data_freshness"
+
+    dataset_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class IngestionRun(Base):
+    __tablename__ = "ingestion_runs"
+    __table_args__ = (Index("idx_ingestion_runs_dataset_started", "dataset_key", "started_at"),)
+
+    run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    dataset_key: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    records_written: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    source: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)

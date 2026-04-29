@@ -1,8 +1,6 @@
-from typing import Annotated
+from fastapi import APIRouter, HTTPException, Query, status
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-
-from backend.app.api.dependencies import require_ingestion_admin
+from backend.app.api.dependencies import DbSession, TraderPrincipal, VerifiedPrincipal
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
@@ -21,91 +19,152 @@ from backend.app.schemas.business import (
 from backend.app.services.business_service import BusinessService
 
 router = APIRouter(prefix="/api", tags=["business"])
-AdminToken = Annotated[None, Depends(require_ingestion_admin)]
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummary)
-def get_dashboard_summary() -> DashboardSummary:
-    return BusinessService.dashboard_summary()
+def get_dashboard_summary(session: DbSession, principal: VerifiedPrincipal) -> DashboardSummary:
+    return BusinessService.dashboard_summary(session=session, principal=principal)
 
 
 @router.post("/candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)
-def create_candidate(request: CandidateCreate, _admin: AdminToken = None) -> Candidate:
-    return BusinessService.create_candidate(request)
+def create_candidate(
+    request: CandidateCreate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> Candidate:
+    return BusinessService.create_candidate(session=session, principal=principal, request=request)
 
 
 @router.get("/candidates", response_model=list[Candidate])
-def list_candidates(limit: int = Query(default=100, ge=1, le=500)) -> list[Candidate]:
-    return BusinessService.list_candidates(limit=limit)
+def list_candidates(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[Candidate]:
+    return BusinessService.list_candidates(session=session, principal=principal, limit=limit)
 
 
 @router.patch("/candidates/{candidate_id}", response_model=Candidate)
 def update_candidate(
     candidate_id: str,
     request: CandidateUpdate,
-    _admin: AdminToken = None,
+    session: DbSession,
+    principal: TraderPrincipal,
 ) -> Candidate:
     try:
-        return BusinessService.update_candidate(candidate_id, request)
+        return BusinessService.update_candidate(
+            session=session,
+            principal=principal,
+            candidate_id=candidate_id,
+            request=request,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/positions", response_model=Position, status_code=status.HTTP_201_CREATED)
-def create_position(request: PositionCreate, _admin: AdminToken = None) -> Position:
-    return BusinessService.create_position(request)
+def create_position(
+    request: PositionCreate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> Position:
+    return BusinessService.create_position(session=session, principal=principal, request=request)
 
 
 @router.get("/positions", response_model=list[Position])
 def list_positions(
+    session: DbSession,
+    principal: VerifiedPrincipal,
     status_filter: PositionStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[Position]:
-    return BusinessService.list_positions(status=status_filter, limit=limit)
+    return BusinessService.list_positions(
+        session=session,
+        principal=principal,
+        status=status_filter,
+        limit=limit,
+    )
 
 
 @router.patch("/positions/{position_id}", response_model=Position)
 def update_position(
     position_id: str,
     request: PositionUpdate,
-    _admin: AdminToken = None,
+    session: DbSession,
+    principal: TraderPrincipal,
 ) -> Position:
     try:
-        return BusinessService.update_position(position_id, request)
+        return BusinessService.update_position(
+            session=session,
+            principal=principal,
+            position_id=position_id,
+            request=request,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/exit-alerts", response_model=ExitAlert, status_code=status.HTTP_201_CREATED)
-def create_exit_alert(request: ExitAlertCreate, _admin: AdminToken = None) -> ExitAlert:
-    return BusinessService.create_exit_alert(request)
+def create_exit_alert(
+    request: ExitAlertCreate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> ExitAlert:
+    try:
+        return BusinessService.create_exit_alert(session=session, principal=principal, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/exit-alerts", response_model=list[ExitAlert])
 def list_exit_alerts(
+    session: DbSession,
+    principal: VerifiedPrincipal,
     acknowledged: bool | None = None,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[ExitAlert]:
-    return BusinessService.list_exit_alerts(acknowledged=acknowledged, limit=limit)
+    return BusinessService.list_exit_alerts(
+        session=session,
+        principal=principal,
+        acknowledged=acknowledged,
+        limit=limit,
+    )
 
 
 @router.patch("/exit-alerts/{alert_id}", response_model=ExitAlert)
 def update_exit_alert(
     alert_id: str,
     request: ExitAlertUpdate,
-    _admin: AdminToken = None,
+    session: DbSession,
+    principal: TraderPrincipal,
 ) -> ExitAlert:
     try:
-        return BusinessService.update_exit_alert(alert_id, request)
+        return BusinessService.update_exit_alert(
+            session=session,
+            principal=principal,
+            alert_id=alert_id,
+            request=request,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/journal/trades", response_model=JournalTrade, status_code=status.HTTP_201_CREATED)
-def create_journal_trade(request: JournalTradeCreate, _admin: AdminToken = None) -> JournalTrade:
-    return BusinessService.create_journal_trade(request)
+def create_journal_trade(
+    request: JournalTradeCreate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> JournalTrade:
+    try:
+        return BusinessService.create_journal_trade(session=session, principal=principal, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/journal/trades", response_model=list[JournalTrade])
-def list_journal_trades(limit: int = Query(default=100, ge=1, le=500)) -> list[JournalTrade]:
-    return BusinessService.list_journal_trades(limit=limit)
+def list_journal_trades(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[JournalTrade]:
+    return BusinessService.list_journal_trades(session=session, principal=principal, limit=limit)

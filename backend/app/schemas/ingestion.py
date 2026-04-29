@@ -50,6 +50,8 @@ class IngestionResponse(BaseModel):
 
 
 class BarRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     ts: datetime
     symbol_id: str
     timeframe: str
@@ -70,6 +72,8 @@ class BarsQueryResponse(BaseModel):
 
 
 class OptionChainSnapshotRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     snapshot_ts: datetime
     underlying_symbol: str
     option_symbol: str
@@ -99,6 +103,8 @@ class OptionChainSnapshotResponse(BaseModel):
 
 
 class DataFreshnessRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     dataset_key: str
     last_updated_at: datetime
     source: str | None
