@@ -110,6 +110,34 @@ token_lifetime_for_web cannot be larger than token_lifetime
 
 保存。
 
+还要授权前端应用访问这个 API，否则登录时会报：
+
+```text
+Client "<client_id>" is not authorized to access resource server "https://edgepilot-api"
+```
+
+左侧菜单：
+
+```text
+Applications -> APIs -> EdgePilot API -> Application Access
+```
+
+先看 `User Access`。第一版最省心的设置是：
+
+```text
+User Access Policy: Allow
+```
+
+保存。
+
+如果你的 Auth0 页面没有 `Allow`，只有 `Allow via client-grant`，就找到 `EdgePilot Frontend`，把它的 `User Access` 授权打开：
+
+```text
+EdgePilot Frontend: Authorized / All
+```
+
+保存。
+
 ## 3. 创建前端应用
 
 左侧菜单：
@@ -490,6 +518,30 @@ NEXT_PUBLIC_AUTH0_AUDIENCE
 ```
 
 这两个必须完全一样。
+
+还要检查前端 App 是否被授权访问 API：
+
+```text
+Applications -> APIs -> EdgePilot API -> Application Access
+```
+
+推荐：
+
+```text
+User Access Policy: Allow
+```
+
+或者授权：
+
+```text
+EdgePilot Frontend: Authorized / All
+```
+
+如果没有这一步，Auth0 登录会跳回前端，并带上：
+
+```text
+Client "<client_id>" is not authorized to access resource server "https://edgepilot-api"
+```
 
 ### API 报 issuer 错误
 
