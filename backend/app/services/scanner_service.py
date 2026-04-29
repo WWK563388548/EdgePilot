@@ -98,6 +98,7 @@ class ETFScannerService:
         candidates: list[Candidate] = []
         for scored in selected_setups:
             setup = _upsert_pa_setup(session, scored)
+            session.flush()
             candidate = _upsert_candidate(
                 session=session,
                 account_id=request.account_id,
