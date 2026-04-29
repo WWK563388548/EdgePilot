@@ -83,6 +83,67 @@ def test_candidate_queries_are_scoped_by_account(session) -> None:
         )
 
 
+def test_candidate_queries_can_filter_by_decision(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_ready",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_watch",
+            symbol_id="QQQ",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="watch",
+        ),
+    )
+
+    assert [
+        row.candidate_id
+        for row in BusinessService.list_candidates(session, principal, decision="candidate")
+    ] == ["cand_ready"]
+
+
+def test_dashboard_candidate_count_only_counts_candidates(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_ready",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_watch",
+            symbol_id="QQQ",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="watch",
+        ),
+    )
+
+    assert BusinessService.dashboard_summary(session, principal).candidate_count == 1
+
+
 def test_candidate_detail_includes_linked_pa_setup(session) -> None:
     principal = _principal("user_a", "acct_a")
     session.add(

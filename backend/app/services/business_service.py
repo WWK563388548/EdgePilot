@@ -77,13 +77,15 @@ class BusinessService:
     def list_candidates(
         session: Session,
         principal: AuthPrincipal,
+        decision: str | None = None,
         limit: int = 100,
     ) -> list[Candidate]:
+        statement = select(db.Candidate).where(db.Candidate.account_id == principal.account_id)
+        if decision:
+            statement = statement.where(db.Candidate.decision == decision)
+
         rows = session.scalars(
-            select(db.Candidate)
-            .where(db.Candidate.account_id == principal.account_id)
-            .order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc())
-            .limit(limit)
+            statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc()).limit(limit)
         ).all()
         return [BusinessService._candidate_response(session, row) for row in rows]
 
@@ -363,7 +365,8 @@ class BusinessService:
     def dashboard_summary(session: Session, principal: AuthPrincipal) -> DashboardSummary:
         candidate_count = session.scalar(
             select(func.count()).select_from(db.Candidate).where(
-                db.Candidate.account_id == principal.account_id
+                db.Candidate.account_id == principal.account_id,
+                db.Candidate.decision == "candidate",
             )
         )
         open_position_count = session.scalar(

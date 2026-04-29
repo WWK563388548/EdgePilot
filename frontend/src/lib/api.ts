@@ -87,6 +87,11 @@ export type PASetupFilters = {
   limit?: number;
 };
 
+export type CandidateFilters = {
+  decision?: string;
+  limit?: number;
+};
+
 export type CandidateDetail = {
   candidate: Candidate;
   pa_setup: PASetup | null;
@@ -205,7 +210,13 @@ export const api = {
   resendVerificationEmail: () =>
     postJson<VerificationEmailResponse>("/api/auth/resend-verification"),
   dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
-  candidates: () => getJson<Candidate[]>("/api/candidates?limit=100"),
+  candidates: (filters: CandidateFilters = {}) =>
+    getJson<Candidate[]>(
+      `/api/candidates${queryString({
+        decision: filters.decision,
+        limit: filters.limit ?? 100
+      })}`
+    ),
   candidateDetail: (candidateId: string) =>
     getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
   paSetups: (filters: PASetupFilters = {}) =>

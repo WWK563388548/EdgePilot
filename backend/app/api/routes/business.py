@@ -40,9 +40,15 @@ def create_candidate(
 def list_candidates(
     session: DbSession,
     principal: VerifiedPrincipal,
+    decision: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[Candidate]:
-    return BusinessService.list_candidates(session=session, principal=principal, limit=limit)
+    return BusinessService.list_candidates(
+        session=session,
+        principal=principal,
+        decision=decision,
+        limit=limit,
+    )
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateDetail)

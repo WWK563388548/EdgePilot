@@ -51,8 +51,8 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     enabled: queriesEnabled
   });
   const candidates = useQuery({
-    queryKey: ["candidates"],
-    queryFn: api.candidates,
+    queryKey: ["candidates", "candidate"],
+    queryFn: () => api.candidates({ decision: "candidate", limit: 100 }),
     enabled: queriesEnabled
   });
   const positions = useQuery({

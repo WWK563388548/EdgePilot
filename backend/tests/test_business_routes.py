@@ -105,7 +105,7 @@ def test_candidate_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_candidates",
-        lambda session, principal, limit: [_candidate()],
+        lambda session, principal, decision, limit: [_candidate()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
@@ -138,7 +138,7 @@ def test_candidate_routes(monkeypatch) -> None:
         session=None,
         principal=_principal(),
     ).candidate_id == "cand_1"
-    assert list_candidates(session=None, principal=_principal(), limit=10)[0].symbol_id == "SPY"
+    assert list_candidates(session=None, principal=_principal(), decision="candidate", limit=10)[0].symbol_id == "SPY"
     assert (
         get_candidate_detail("cand_1", session=None, principal=_principal()).pa_setup.setup_id
         == "pasetup_1"
