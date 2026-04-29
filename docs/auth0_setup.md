@@ -239,7 +239,21 @@ Applications -> EdgePilot Frontend: On
 
 还需要让 Universal Login 支持这个登录方式。
 
-先确认没有打开 custom login page。
+先确认使用的是 New Universal Login，并且没有打开 custom login page。
+
+左侧菜单：
+
+```text
+Branding -> Universal Login -> Settings
+```
+
+如果看到 `Universal Login Experience` 或类似选项，选择：
+
+```text
+New
+```
+
+保存。
 
 左侧菜单：
 
@@ -254,6 +268,14 @@ Customize Login Page: Off
 ```
 
 保存。我们第一版不需要自定义 Auth0 登录页，直接用 Auth0 托管的 New Universal Login。
+
+注意：如果这个页面顶部写着：
+
+```text
+Enable, disable, or configure Classic Login options
+```
+
+这只是 Classic Login 的配置页。把 `Customize Login Page` 关掉还不够，还要回到 `Settings` tab 确认体验是 `New`。
 
 左侧菜单：
 
@@ -275,13 +297,19 @@ Identifier First
 You cannot use a custom login page with Identifier First
 ```
 
-说明 custom login page 还开着。回到：
+说明 Auth0 仍然认为当前在使用 Classic/custom login。按这个顺序重新检查：
+
+1. 回到 `Branding -> Universal Login -> Settings`，确认体验是 `New` 并保存。
+2. 再去 `Branding -> Universal Login -> Advanced Options -> Login`，确认 `Customize Login Page` 是 `Off`。
+3. 回到 `Authentication -> Authentication Profile`，强制刷新页面。
+
+如果你只是在这个页面看到：
 
 ```text
 Branding -> Universal Login -> Advanced Options -> Login
 ```
 
-把 `Customize Login Page` 关掉，保存后再回来刷新这个页面。
+且页面标题下面写着 `Classic Login options`，说明你还需要回到 `Settings` tab 先切 New Universal Login。
 
 这样用户点击登录后，会跳到 Auth0 页面，输入邮箱，收到一次性验证码，再输入验证码登录。
 
@@ -542,13 +570,21 @@ Idle Refresh Token Lifetime: 82800
 You cannot use a custom login page with Identifier First
 ```
 
-说明 Auth0 当前启用了 custom login page。回到：
+说明 Auth0 当前还在使用 Classic/custom login。先去：
+
+```text
+Branding -> Universal Login -> Settings
+```
+
+确认 `Universal Login Experience` 是 `New`，保存。
+
+再去：
 
 ```text
 Branding -> Universal Login -> Advanced Options -> Login
 ```
 
-把 `Customize Login Page` 关掉，保存，再回到：
+确认 `Customize Login Page` 是 `Off`，保存，再回到：
 
 ```text
 Authentication -> Authentication Profile
