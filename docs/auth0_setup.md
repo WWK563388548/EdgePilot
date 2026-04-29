@@ -239,6 +239,22 @@ Applications -> EdgePilot Frontend: On
 
 还需要让 Universal Login 支持这个登录方式。
 
+先确认没有打开 custom login page。
+
+左侧菜单：
+
+```text
+Branding -> Universal Login -> Advanced Options -> Login
+```
+
+如果看到这个开关，把它关掉：
+
+```text
+Customize Login Page: Off
+```
+
+保存。我们第一版不需要自定义 Auth0 登录页，直接用 Auth0 托管的 New Universal Login。
+
 左侧菜单：
 
 ```text
@@ -252,6 +268,20 @@ Identifier First
 ```
 
 保存。
+
+如果 `Identifier First` 是灰色的，并提示：
+
+```text
+You cannot use a custom login page with Identifier First
+```
+
+说明 custom login page 还开着。回到：
+
+```text
+Branding -> Universal Login -> Advanced Options -> Login
+```
+
+把 `Customize Login Page` 关掉，保存后再回来刷新这个页面。
 
 这样用户点击登录后，会跳到 Auth0 页面，输入邮箱，收到一次性验证码，再输入验证码登录。
 
@@ -504,6 +534,28 @@ Maximum Refresh Token Lifetime: 86400
 Idle Refresh Token Lifetime: 82800
 ```
 
+### Identifier First 是灰色的，不能选
+
+如果你看到：
+
+```text
+You cannot use a custom login page with Identifier First
+```
+
+说明 Auth0 当前启用了 custom login page。回到：
+
+```text
+Branding -> Universal Login -> Advanced Options -> Login
+```
+
+把 `Customize Login Page` 关掉，保存，再回到：
+
+```text
+Authentication -> Authentication Profile
+```
+
+重新选择 `Identifier First`。
+
 ### 重发验证邮件失败
 
 检查 Machine to Machine 应用是否授权了：
@@ -539,5 +591,7 @@ AUTH0_MANAGEMENT_AUDIENCE
 
 - Auth0 access token lifetime: https://auth0.com/docs/secure/tokens/access-tokens/update-access-token-lifetime
 - Auth0 refresh token rotation: https://auth0.com/docs/secure/tokens/refresh-tokens/configure-refresh-token-rotation
+- Auth0 Identifier First: https://auth0.com/docs/authenticate/login/auth0-universal-login/identifier-first
+- Auth0 passwordless with Universal Login: https://auth0.com/docs/authenticate/passwordless/passwordless-with-universal-login
 - Auth0 passwordless email OTP: https://auth0.com/docs/authenticate/login/auth0-universal-login/passwordless-login/email-or-sms
 - Auth0 resend verification emails: https://auth0.com/docs/manage-users/user-accounts/resend-verification-emails
