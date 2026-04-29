@@ -108,7 +108,7 @@ Token lifetime requirements live in Auth0, not Railway:
 - Set the API access token lifetime to `1800` seconds.
 - Enable Refresh Token Rotation for the SPA.
 - Set refresh token absolute lifetime to `86400` seconds.
-- Enable email passwordless OTP login if you want one-time email codes.
+- Enable an Auth0 Database connection for the SPA for the first email/password login flow.
 
 See `docs/auth0_setup.md` for the full Auth0 checklist.
 
@@ -191,7 +191,7 @@ NEXT_PUBLIC_AUTH0_DOMAIN=<auth0-domain>
 NEXT_PUBLIC_AUTH0_CLIENT_ID=<auth0-spa-client-id>
 NEXT_PUBLIC_AUTH0_AUDIENCE=<auth0-api-audience>
 NEXT_PUBLIC_AUTH0_REDIRECT_URI=https://<frontend-domain>
-NEXT_PUBLIC_AUTH0_CONNECTION=email
+NEXT_PUBLIC_AUTH0_CONNECTION=
 ```
 
 5. Add the frontend domain to the backend service variable:

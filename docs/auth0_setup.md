@@ -1,13 +1,19 @@
 # Auth0 傻瓜配置指南
 
-这份文档按“第一次用 Auth0”的方式写。你照着点就行。
+这份文档按“第一次用 Auth0”的方式写。当前默认方案是最简单、最稳的：
+
+```text
+邮箱 + 密码登录
+```
+
+先不做邮箱一次性验证码，也不碰 `Identifier First`。这样可以绕开 Auth0 Dashboard 里 New/Classic Universal Login 的复杂限制。
 
 目标：
 
 - 用户必须登录才能用 EdgePilot。
-- 登录用邮箱一次性验证码。
+- 登录方式先用邮箱 + 密码。
 - access token 有效期 30 分钟。
-- refresh token 有效期 24 小时，自动刷新 access token。
+- refresh token 最长 24 小时，前端自动刷新 access token。
 - refresh token 过期后用户需要重新登录。
 - 未验证邮箱的用户不能进入工作台。
 
@@ -20,12 +26,19 @@ Frontend App name: EdgePilot Frontend
 Backend API name: EdgePilot API
 API Identifier: https://edgepilot-api
 Machine App name: EdgePilot Backend Management
+Database Connection name: Username-Password-Authentication
+```
+
+`Username-Password-Authentication` 通常是 Auth0 默认创建的数据库连接。如果你的 Auth0 里没有它，也可以自己创建一个，名字用：
+
+```text
+EdgePilot Database
 ```
 
 后面看到 `<auth0-domain>`，意思是你的 Auth0 域名，例如：
 
 ```text
-dev-xxxxxx.us.auth0.com
+dev-xxxxxx.au.auth0.com
 ```
 
 不要把尖括号 `< >` 一起复制进去。
@@ -35,18 +48,25 @@ dev-xxxxxx.us.auth0.com
 1. 打开 Auth0 Dashboard。
 2. 如果还没有账号，先注册。
 3. 进入你的 Tenant。
-4. 记住右上角或 Settings 里的 Domain，例如：
+4. 记住 Domain，例如：
 
 ```text
-dev-xxxxxx.us.auth0.com
+dev-xxxxxx.au.auth0.com
 ```
 
 这个值后面会填到：
 
 ```text
-NEXT_PUBLIC_AUTH0_DOMAIN=dev-xxxxxx.us.auth0.com
-AUTH_ISSUER=https://dev-xxxxxx.us.auth0.com/
+NEXT_PUBLIC_AUTH0_DOMAIN=dev-xxxxxx.au.auth0.com
+AUTH_ISSUER=https://dev-xxxxxx.au.auth0.com/
+AUTH0_MANAGEMENT_AUDIENCE=https://dev-xxxxxx.au.auth0.com/api/v2/
 ```
+
+注意：
+
+- `NEXT_PUBLIC_AUTH0_DOMAIN` 不要加 `https://`。
+- `AUTH_ISSUER` 要加 `https://`，最后还要有 `/`。
+- `AUTH0_MANAGEMENT_AUDIENCE` 要以 `/api/v2/` 结尾。
 
 ## 2. 创建后端 API
 
@@ -213,107 +233,80 @@ Refresh Token
 
 保存。
 
-## 5. 打开邮箱一次性验证码登录
+## 5. 打开邮箱 + 密码登录
 
 左侧菜单：
+
+```text
+Authentication -> Database
+```
+
+先看看有没有这个连接：
+
+```text
+Username-Password-Authentication
+```
+
+如果有，点进去。
+
+如果没有，点 `Create DB Connection`，填写：
+
+```text
+Name: EdgePilot Database
+```
+
+创建后，进入这个 Database connection。
+
+在 `Applications` tab 里，把前端应用打开：
+
+```text
+EdgePilot Frontend: On
+```
+
+第一版推荐不要强制 username，直接用邮箱 + 密码：
+
+```text
+Requires Username: Off
+```
+
+这样用户登录和注册时用邮箱地址，不需要额外记一个 username。
+
+如果你想让用户可以用 username 登录，以后再打开 `Requires Username`。Auth0 文档里说，打开后新用户注册时需要填 username 和 email，之后可以用 username 或 email 登录。这个会多一步，先不建议。
+
+如果页面有密码强度设置，建议先选中等或强：
+
+```text
+Password Strength: Good / Excellent
+```
+
+保存。
+
+## 6. 不需要配置 Passwordless
+
+这条路线不需要：
 
 ```text
 Authentication -> Passwordless -> Email
+Authentication -> Authentication Profile -> Identifier First
 ```
 
-打开 Email passwordless connection。
+也就是说，之前卡住你的 `Identifier First` 可以先完全不管。
 
-选择一次性验证码模式：
+前端环境变量里也不要填：
 
 ```text
-OTP / Code
+NEXT_PUBLIC_AUTH0_CONNECTION=email
 ```
 
-保存。
-
-然后确认这个 Email connection 启用给前端应用：
+保持空值即可：
 
 ```text
-Applications -> EdgePilot Frontend: On
+NEXT_PUBLIC_AUTH0_CONNECTION=
 ```
 
-还需要让 Universal Login 支持这个登录方式。
+这样前端不会强制指定 passwordless email connection，Auth0 会使用你给 `EdgePilot Frontend` 启用的 Database connection。
 
-先确认使用的是 New Universal Login，并且没有打开 custom login page。
-
-左侧菜单：
-
-```text
-Branding -> Universal Login -> Settings
-```
-
-如果看到 `Universal Login Experience` 或类似选项，选择：
-
-```text
-New
-```
-
-保存。
-
-左侧菜单：
-
-```text
-Branding -> Universal Login -> Advanced Options -> Login
-```
-
-如果看到这个开关，把它关掉：
-
-```text
-Customize Login Page: Off
-```
-
-保存。我们第一版不需要自定义 Auth0 登录页，直接用 Auth0 托管的 New Universal Login。
-
-注意：如果这个页面顶部写着：
-
-```text
-Enable, disable, or configure Classic Login options
-```
-
-这只是 Classic Login 的配置页。把 `Customize Login Page` 关掉还不够，还要回到 `Settings` tab 确认体验是 `New`。
-
-左侧菜单：
-
-```text
-Authentication -> Authentication Profile
-```
-
-选择：
-
-```text
-Identifier First
-```
-
-保存。
-
-如果 `Identifier First` 是灰色的，并提示：
-
-```text
-You cannot use a custom login page with Identifier First
-```
-
-说明 Auth0 仍然认为当前在使用 Classic/custom login。按这个顺序重新检查：
-
-1. 回到 `Branding -> Universal Login -> Settings`，确认体验是 `New` 并保存。
-2. 再去 `Branding -> Universal Login -> Advanced Options -> Login`，确认 `Customize Login Page` 是 `Off`。
-3. 回到 `Authentication -> Authentication Profile`，强制刷新页面。
-
-如果你只是在这个页面看到：
-
-```text
-Branding -> Universal Login -> Advanced Options -> Login
-```
-
-且页面标题下面写着 `Classic Login options`，说明你还需要回到 `Settings` tab 先切 New Universal Login。
-
-这样用户点击登录后，会跳到 Auth0 页面，输入邮箱，收到一次性验证码，再输入验证码登录。
-
-## 6. 创建后端 Management 应用
+## 7. 创建后端 Management 应用
 
 这个应用不是给用户登录用的。它是给 EdgePilot 后端调用 Auth0，用来“重发邮箱验证邮件”。
 
@@ -360,12 +353,12 @@ AUTH0_MANAGEMENT_CLIENT_ID=
 AUTH0_MANAGEMENT_CLIENT_SECRET=
 ```
 
-## 7. 本地 `.env` 怎么填
+## 8. 本地 `.env` 怎么填
 
 根目录 `.env` 或 `backend/.env` 填：
 
 ```text
-AUTH_ISSUER=https://dev-xxxxxx.us.auth0.com/
+AUTH_ISSUER=https://dev-xxxxxx.au.auth0.com/
 AUTH_AUDIENCE=https://edgepilot-api
 AUTH_JWKS_URL=
 AUTH_ALGORITHMS=RS256
@@ -375,7 +368,7 @@ AUTH_DEFAULT_ROLE=owner
 
 AUTH0_MANAGEMENT_CLIENT_ID=<EdgePilot Backend Management 的 Client ID>
 AUTH0_MANAGEMENT_CLIENT_SECRET=<EdgePilot Backend Management 的 Client Secret>
-AUTH0_MANAGEMENT_AUDIENCE=https://dev-xxxxxx.us.auth0.com/api/v2/
+AUTH0_MANAGEMENT_AUDIENCE=https://dev-xxxxxx.au.auth0.com/api/v2/
 ```
 
 `frontend/.env.local` 填：
@@ -385,26 +378,25 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 NEXT_PUBLIC_SSE_URL=http://localhost:8000/api/realtime/events/stream
 NEXT_PUBLIC_APP_NAME=EdgePilot
 
-NEXT_PUBLIC_AUTH0_DOMAIN=dev-xxxxxx.us.auth0.com
+NEXT_PUBLIC_AUTH0_DOMAIN=dev-xxxxxx.au.auth0.com
 NEXT_PUBLIC_AUTH0_CLIENT_ID=<EdgePilot Frontend 的 Client ID>
 NEXT_PUBLIC_AUTH0_AUDIENCE=https://edgepilot-api
 NEXT_PUBLIC_AUTH0_REDIRECT_URI=http://localhost:3000
-NEXT_PUBLIC_AUTH0_CONNECTION=email
+NEXT_PUBLIC_AUTH0_CONNECTION=
 ```
 
 注意：
 
-- `NEXT_PUBLIC_AUTH0_DOMAIN` 不要加 `https://`。
-- `AUTH_ISSUER` 要加 `https://`，最后还要有 `/`。
-- `AUTH_AUDIENCE` 和 `NEXT_PUBLIC_AUTH0_AUDIENCE` 必须一样。
+- `AUTH_AUDIENCE` 和 `NEXT_PUBLIC_AUTH0_AUDIENCE` 必须完全一样。
+- `NEXT_PUBLIC_AUTH0_CONNECTION` 先留空。
 - `AUTH0_MANAGEMENT_CLIENT_SECRET` 绝对不要放到 frontend。
 
-## 8. Railway 怎么填
+## 9. Railway 怎么填
 
 Railway 后端服务 Variables 填：
 
 ```text
-AUTH_ISSUER=https://dev-xxxxxx.us.auth0.com/
+AUTH_ISSUER=https://dev-xxxxxx.au.auth0.com/
 AUTH_AUDIENCE=https://edgepilot-api
 AUTH_JWKS_URL=
 AUTH_ALGORITHMS=RS256
@@ -413,17 +405,17 @@ AUTH_ROLE_CLAIM=https://edgepilot/role
 AUTH_DEFAULT_ROLE=owner
 AUTH0_MANAGEMENT_CLIENT_ID=<EdgePilot Backend Management 的 Client ID>
 AUTH0_MANAGEMENT_CLIENT_SECRET=<EdgePilot Backend Management 的 Client Secret>
-AUTH0_MANAGEMENT_AUDIENCE=https://dev-xxxxxx.us.auth0.com/api/v2/
+AUTH0_MANAGEMENT_AUDIENCE=https://dev-xxxxxx.au.auth0.com/api/v2/
 ```
 
 前端部署平台，例如 Vercel 或 Railway frontend，填：
 
 ```text
-NEXT_PUBLIC_AUTH0_DOMAIN=dev-xxxxxx.us.auth0.com
+NEXT_PUBLIC_AUTH0_DOMAIN=dev-xxxxxx.au.auth0.com
 NEXT_PUBLIC_AUTH0_CLIENT_ID=<EdgePilot Frontend 的 Client ID>
 NEXT_PUBLIC_AUTH0_AUDIENCE=https://edgepilot-api
 NEXT_PUBLIC_AUTH0_REDIRECT_URI=https://<你的前端域名>
-NEXT_PUBLIC_AUTH0_CONNECTION=email
+NEXT_PUBLIC_AUTH0_CONNECTION=
 ```
 
 然后回到 Auth0 的 `EdgePilot Frontend` 应用，把正式域名也加到：
@@ -434,7 +426,7 @@ Allowed Logout URLs
 Allowed Web Origins
 ```
 
-## 9. 怎么验证配置成功
+## 10. 怎么验证配置成功
 
 本地启动：
 
@@ -450,17 +442,15 @@ npm run dev -- --port 3000
 http://localhost:3000
 ```
 
-应该看到登录页面。
+应该看到登录入口。
 
 点击登录后：
 
 1. 跳到 Auth0。
-2. 输入邮箱。
-3. 收到一次性验证码。
-4. 输入验证码。
-5. 回到 EdgePilot。
-
-如果邮箱还没验证，会看到验证提示页。
+2. 看到邮箱 + 密码登录页。
+3. 如果没有账号，点注册/Sign up。
+4. 注册后回到 EdgePilot。
+5. 如果邮箱还没验证，会看到验证提示页。
 
 点击：
 
@@ -474,7 +464,7 @@ Resend verification email
 I verified my email
 ```
 
-## 10. 最容易填错的地方
+## 11. 最容易填错的地方
 
 ### 登录后回不来
 
@@ -506,7 +496,7 @@ NEXT_PUBLIC_AUTH0_AUDIENCE
 检查：
 
 ```text
-AUTH_ISSUER=https://dev-xxxxxx.us.auth0.com/
+AUTH_ISSUER=https://dev-xxxxxx.au.auth0.com/
 ```
 
 它必须：
@@ -562,35 +552,42 @@ Maximum Refresh Token Lifetime: 86400
 Idle Refresh Token Lifetime: 82800
 ```
 
-### Identifier First 是灰色的，不能选
+### 登录页还是显示一次性验证码
 
-如果你看到：
-
-```text
-You cannot use a custom login page with Identifier First
-```
-
-说明 Auth0 当前还在使用 Classic/custom login。先去：
+检查：
 
 ```text
-Branding -> Universal Login -> Settings
+frontend/.env.local
 ```
 
-确认 `Universal Login Experience` 是 `New`，保存。
-
-再去：
+确认：
 
 ```text
-Branding -> Universal Login -> Advanced Options -> Login
+NEXT_PUBLIC_AUTH0_CONNECTION=
 ```
 
-确认 `Customize Login Page` 是 `Off`，保存，再回到：
+不要填 `email`。
+
+然后重启前端：
+
+```bash
+cd frontend
+npm run dev -- --port 3000
+```
+
+### 登录页没有邮箱 + 密码
+
+检查 Database connection 有没有启用给前端应用：
 
 ```text
-Authentication -> Authentication Profile
+Authentication -> Database -> Username-Password-Authentication -> Applications
 ```
 
-重新选择 `Identifier First`。
+确认：
+
+```text
+EdgePilot Frontend: On
+```
 
 ### 重发验证邮件失败
 
@@ -609,10 +606,12 @@ AUTH0_MANAGEMENT_CLIENT_SECRET
 AUTH0_MANAGEMENT_AUDIENCE
 ```
 
-## 11. 先不要管的高级内容
+## 12. 先不要管的高级内容
 
 下面这些以后再做，不影响第一版登录：
 
+- 邮箱一次性验证码 passwordless。
+- Identifier First。
 - 多人共享一个 account。
 - Auth0 Actions 自动写 `account_id` 和 `role`。
 - 更复杂的角色权限。
@@ -625,9 +624,10 @@ AUTH0_MANAGEMENT_AUDIENCE
 
 ## References
 
+- Auth0 database connections: https://auth0.com/docs/authenticate/database-connections
+- Auth0 set up database connections: https://auth0.com/docs/get-started/applications/set-up-database-connections
+- Auth0 username for database connections: https://auth0.com/docs/authenticate/database-connections/require-username
+- Auth0 password policies: https://auth0.com/docs/authenticate/database-connections/password-options
 - Auth0 access token lifetime: https://auth0.com/docs/secure/tokens/access-tokens/update-access-token-lifetime
 - Auth0 refresh token rotation: https://auth0.com/docs/secure/tokens/refresh-tokens/configure-refresh-token-rotation
-- Auth0 Identifier First: https://auth0.com/docs/authenticate/login/auth0-universal-login/identifier-first
-- Auth0 passwordless with Universal Login: https://auth0.com/docs/authenticate/passwordless/passwordless-with-universal-login
-- Auth0 passwordless email OTP: https://auth0.com/docs/authenticate/login/auth0-universal-login/passwordless-login/email-or-sms
 - Auth0 resend verification emails: https://auth0.com/docs/manage-users/user-accounts/resend-verification-emails

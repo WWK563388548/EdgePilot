@@ -186,7 +186,7 @@ Tasks:
 
 - Add Auth0 environment variables and backend JWT verification.
 - Configure Auth0 access token lifetime to 1800 seconds and refresh-token lifetime to 86400 seconds.
-- Configure Auth0 email passwordless OTP and verification-email templates.
+- Configure Auth0 Database email/password login and verification-email templates.
 - Add `current_user`, `current_account`, and role dependencies.
 - Protect business read/write endpoints.
 - Keep ingestion writes behind `INGESTION_ADMIN_TOKEN`.

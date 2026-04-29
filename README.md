@@ -100,7 +100,7 @@ Authorization: Bearer <OIDC access token>
 - `NEXT_PUBLIC_AUTH0_CLIENT_ID`
 - `NEXT_PUBLIC_AUTH0_AUDIENCE`
 - `NEXT_PUBLIC_AUTH0_REDIRECT_URI`
-- `NEXT_PUBLIC_AUTH0_CONNECTION`（启用 Auth0 email passwordless 时用 `email`）
+- `NEXT_PUBLIC_AUTH0_CONNECTION`（默认留空，使用 Auth0 Database 邮箱 + 密码登录）
 
 ## 部署
 
