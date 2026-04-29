@@ -1,5 +1,8 @@
 # v0.3 开发规划（TDD 对齐版）
 
+> Status: historical roadmap. The current product direction is v0.6 Advanced PA Engine.
+> Use `docs/v0_6_review_and_next_steps.md` for the next implementation sequence.
+
 ## 目标
 
 基于 `trading_assistant_prd_tdd_implementation_plan_v0_3_db_frontend_analytics (1).md`，把项目拆解为可执行里程碑，优先完成：
