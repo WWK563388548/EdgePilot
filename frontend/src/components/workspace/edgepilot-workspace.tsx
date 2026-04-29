@@ -21,8 +21,9 @@ import { AlertsTable, JournalTable, PositionsTable, SettingsPanel } from "@/comp
 import { WorkspaceFrame, WorkspaceHeader, WorkspaceNav, type WorkspaceNavItem } from "@/components/workspace/shell";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { localeTag, t, type Locale } from "@/lib/i18n";
+import { localeTag, type Locale } from "@/lib/i18n-config";
 import { useWorkspaceStore } from "@/lib/store";
+import { useAppI18n } from "@/lib/use-app-i18n";
 
 const views: WorkspaceNavItem[] = [
   { id: "overview", labelKey: "overview", icon: BarChart3 },
@@ -35,6 +36,7 @@ const views: WorkspaceNavItem[] = [
 ];
 
 export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
+  const { t } = useAppI18n();
   const auth = useAuth();
   const { view, setView } = useWorkspaceStore();
   const queriesEnabled = auth.ready && auth.isAuthenticated && auth.emailVerified;
@@ -73,15 +75,15 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const riskTone = summary?.risk_mode === "normal" ? "good" : summary?.risk_mode === "shock" ? "bad" : "warn";
 
   if (!auth.configured) {
-    return <AuthScreen locale={locale} status={t(locale, "authNotConfigured")} />;
+    return <AuthScreen locale={locale} status={t("authNotConfigured")} />;
   }
 
   if (!auth.ready) {
-    return <AuthScreen locale={locale} status={t(locale, "checkingSession")} />;
+    return <AuthScreen locale={locale} status={t("checkingSession")} />;
   }
 
   if (!auth.isAuthenticated) {
-    return <AuthScreen action={auth.login} locale={locale} status={t(locale, "signInRequired")} />;
+    return <AuthScreen action={auth.login} locale={locale} status={t("signInRequired")} />;
   }
 
   if (!auth.emailVerified) {
@@ -90,8 +92,8 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
         action={auth.resendVerificationEmail}
         locale={locale}
         secondaryAction={auth.refreshSession}
-        secondaryLabel={t(locale, "verifiedEmail")}
-        status={t(locale, "verifyEmail")}
+        secondaryLabel={t("verifiedEmail")}
+        status={t("verifyEmail")}
       />
     );
   }
@@ -100,7 +102,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     <WorkspaceFrame>
       <WorkspaceHeader
         locale={locale}
-        riskMode={summary?.risk_mode ?? t(locale, "unknown")}
+        riskMode={summary?.risk_mode ?? t("unknown")}
         riskTone={riskTone}
       />
       <WorkspaceNav activeView={view} items={views} locale={locale} onChange={setView} />

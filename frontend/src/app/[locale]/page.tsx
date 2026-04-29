@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { EdgePilotWorkspace } from "@/components/workspace/edgepilot-workspace";
-import { isLocale, localeOptions, type Locale } from "@/lib/i18n";
+import { isLocale, localeOptions, type Locale } from "@/lib/i18n-config";
 
 type PageProps = {
   params: Promise<{ locale: string }>;

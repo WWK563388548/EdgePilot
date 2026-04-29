@@ -1,9 +1,12 @@
+"use client";
+
 import { BookOpen, CircleDot } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { formatValue } from "@/lib/format";
-import { t, type Locale } from "@/lib/i18n";
+import type { Locale } from "@/lib/i18n-config";
+import { useAppI18n } from "@/lib/use-app-i18n";
 
 export function StatusPill({
   label,
@@ -31,11 +34,13 @@ export function DataState({
   isError: boolean;
   locale: Locale;
 }) {
+  const { t } = useAppI18n();
+
   if (isLoading) {
-    return <span className="text-sm text-slate-500">{t(locale, "loading")}</span>;
+    return <span className="text-sm text-slate-500">{t("loading")}</span>;
   }
   if (isError) {
-    return <span className="text-sm text-rose-700">{t(locale, "apiUnavailable")}</span>;
+    return <span className="text-sm text-rose-700">{t("apiUnavailable")}</span>;
   }
   return null;
 }

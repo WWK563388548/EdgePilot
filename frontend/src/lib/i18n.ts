@@ -1,4 +1,3 @@
-import type { Candidate, PASetup } from "@/lib/api";
 import {
   defaultLocale,
   isLocale,
@@ -316,10 +315,48 @@ const text = {
   }
 } as const;
 
-export type TextKey = keyof typeof text.en;
+function localizedGroup(locale: Locale, group: keyof typeof labels) {
+  return Object.fromEntries(
+    Object.entries(labels[group]).map(([key, value]) => [key, value[locale] ?? key])
+  );
+}
 
-export function t(locale: Locale, key: TextKey) {
-  return text[locale][key] ?? text.en[key];
+function localizedScore(locale: Locale) {
+  return Object.fromEntries(
+    Object.entries(scoreText).map(([key, value]) => [
+      key,
+      {
+        label: value[locale][0],
+        description: value[locale][1]
+      }
+    ])
+  );
+}
+
+export function getAppMessages(locale: Locale) {
+  return {
+    ui: text[locale],
+    labels: {
+      setup: localizedGroup(locale, "setup"),
+      status: localizedGroup(locale, "status"),
+      plan: localizedGroup(locale, "plan")
+    },
+    score: localizedScore(locale),
+    narratives: {
+      noSetup:
+        locale === "zh"
+          ? "请选择一个 setup 查看解释。"
+          : locale === "ja"
+            ? "セットアップを選択すると説明が表示されます。"
+            : "Select a setup to see the explanation.",
+      setup:
+        locale === "zh"
+          ? "{symbol} 当前被识别为「{setupName}」。综合分{score}，系统判定为「{decision}」。入场关注价约为 {trigger}，初始止损约为 {stop}。验证状态是「{validation}」，表示这条信号目前只适合观察和复盘，不应直接当作实盘交易指令。"
+          : locale === "ja"
+            ? "{symbol} は「{setupName}」として検出されています。総合スコアは {score}、判定は「{decision}」です。注目するエントリー価格は約 {trigger}、初期損切りは約 {stop}。検証状態は「{validation}」なので、現時点では観察・検証用であり、実運用シグナルではありません。"
+            : "{symbol} is currently classified as \"{setupName}\". The overall score is {score} and the decision is \"{decision}\". Watch the entry area around {trigger} with an initial stop near {stop}. Validation is \"{validation}\", so this is for observation and review, not a live trading instruction."
+    }
+  };
 }
 
 const labels = {
@@ -363,14 +400,6 @@ const labels = {
   }
 } as const;
 
-export function labelFor(locale: Locale, group: "setup" | "status" | "plan", value: string | null | undefined) {
-  if (!value) {
-    return "-";
-  }
-  const item = labels[group][value as keyof (typeof labels)[typeof group]];
-  return item?.[locale] ?? value;
-}
-
 const scoreText = {
   total: {
     zh: ["总分", "综合质量分。越高表示趋势、强度、成交量和形态越一致。"],
@@ -408,42 +437,3 @@ const scoreText = {
     ja: ["簡易ファンダ", "ETF v1 の軽量プレースホルダー。詳細ファンダは後続で追加。"]
   }
 } as const;
-
-export function scoreMeta(locale: Locale, key: string) {
-  const item = scoreText[key as keyof typeof scoreText];
-  if (!item) {
-    return { label: key, description: "" };
-  }
-  return { label: item[locale][0], description: item[locale][1] };
-}
-
-function numberFromRecord(data: Record<string, unknown> | null | undefined, key: string) {
-  const value = data?.[key];
-  return typeof value === "number" ? value : null;
-}
-
-export function setupNarrative(locale: Locale, setup: PASetup | null | undefined, candidate?: Candidate | null) {
-  if (!setup) {
-    return locale === "zh"
-      ? "请选择一个 setup 查看解释。"
-      : locale === "ja"
-        ? "セットアップを選択すると説明が表示されます。"
-        : "Select a setup to see the explanation.";
-  }
-
-  const symbol = setup.symbol_id;
-  const setupName = labelFor(locale, "setup", setup.setup_type);
-  const validation = labelFor(locale, "status", setup.validation_status);
-  const score = setup.pa_quality_score ?? candidate?.score_total ?? null;
-  const trigger = numberFromRecord(setup.entry_plan, "trigger_price") ?? candidate?.entry_trigger ?? null;
-  const stop = numberFromRecord(setup.exit_plan, "initial_stop") ?? candidate?.initial_stop ?? null;
-  const decision = labelFor(locale, "status", candidate?.decision ?? setup.status);
-
-  if (locale === "zh") {
-    return `${symbol} 当前被识别为「${setupName}」。综合分${score ?? "-"}，系统判定为「${decision}」。入场关注价约为 ${trigger ?? "-"}，初始止损约为 ${stop ?? "-"}。验证状态是「${validation}」，表示这条信号目前只适合观察和复盘，不应直接当作实盘交易指令。`;
-  }
-  if (locale === "ja") {
-    return `${symbol} は「${setupName}」として検出されています。総合スコアは ${score ?? "-"}、判定は「${decision}」です。注目するエントリー価格は約 ${trigger ?? "-"}、初期損切りは約 ${stop ?? "-"}。検証状態は「${validation}」なので、現時点では観察・検証用であり、実運用シグナルではありません。`;
-  }
-  return `${symbol} is currently classified as "${setupName}". The overall score is ${score ?? "-"} and the decision is "${decision}". Watch the entry area around ${trigger ?? "-"} with an initial stop near ${stop ?? "-"}. Validation is "${validation}", so this is for observation and review, not a live trading instruction.`;
-}

@@ -1,4 +1,6 @@
-import { labelFor, localeTag, type Locale } from "@/lib/i18n";
+import { localeTag, type Locale } from "@/lib/i18n-config";
+
+type DetailLabeler = (group: "plan" | "status", value: string | null | undefined) => string;
 
 export function formatValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") {
@@ -50,7 +52,7 @@ export function stringFromRecord(data: Record<string, unknown> | null | undefine
   return typeof value === "string" ? value : null;
 }
 
-export function formatDetailValue(value: unknown, locale: Locale): string {
+export function formatDetailValue(value: unknown, locale: Locale, labelFor: DetailLabeler): string {
   if (typeof value === "number") {
     return formatNumber(value, 3, locale);
   }
@@ -61,18 +63,18 @@ export function formatDetailValue(value: unknown, locale: Locale): string {
     return "-";
   }
   if (Array.isArray(value)) {
-    return value.map((item) => formatDetailValue(item, locale)).join(", ");
+    return value.map((item) => formatDetailValue(item, locale, labelFor)).join(", ");
   }
   if (typeof value === "object") {
     return Object.entries(value as Record<string, unknown>)
       .filter(([, nestedValue]) => nestedValue !== null && nestedValue !== undefined && nestedValue !== "")
-      .map(([nestedKey, nestedValue]) => `${labelFor(locale, "plan", nestedKey)}: ${formatDetailValue(nestedValue, locale)}`)
+      .map(([nestedKey, nestedValue]) => `${labelFor("plan", nestedKey)}: ${formatDetailValue(nestedValue, locale, labelFor)}`)
       .join(" / ");
   }
   const raw = String(value);
-  const planLabel = labelFor(locale, "plan", raw);
+  const planLabel = labelFor("plan", raw);
   if (planLabel !== raw) {
     return planLabel;
   }
-  return labelFor(locale, "status", raw);
+  return labelFor("status", raw);
 }

@@ -6,9 +6,11 @@ import { Field, StatusPill, TableShell } from "@/components/workspace/common";
 import type { ExitAlert, JournalTrade, Position } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatValue } from "@/lib/format";
-import { t, type Locale } from "@/lib/i18n";
+import type { Locale } from "@/lib/i18n-config";
+import { useAppI18n } from "@/lib/use-app-i18n";
 
 export function SettingsPanel({ locale }: { locale: Locale }) {
+  const { t } = useAppI18n();
   const auth = useAuth();
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
   const sseUrl =
@@ -19,32 +21,32 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
     <section className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">{t(locale, "runtime")}</h2>
+          <h2 className="text-base font-semibold text-ink">{t("runtime")}</h2>
           <Settings size={18} className="text-teal" />
         </div>
         <dl className="grid gap-3">
-          <Field label={t(locale, "app")} value={appName} />
-          <Field label={t(locale, "apiBaseUrl")} value={apiBaseUrl} />
-          <Field label={t(locale, "sseUrl")} value={sseUrl} />
-          <Field label={t(locale, "auth")} value={t(locale, "authRequired")} />
-          <Field label={t(locale, "user")} value={auth.userLabel} />
-          <Field label={t(locale, "email")} value={auth.emailVerified ? t(locale, "emailVerified") : t(locale, "emailPending")} />
+          <Field label={t("app")} value={appName} />
+          <Field label={t("apiBaseUrl")} value={apiBaseUrl} />
+          <Field label={t("sseUrl")} value={sseUrl} />
+          <Field label={t("auth")} value={t("authRequired")} />
+          <Field label={t("user")} value={auth.userLabel} />
+          <Field label={t("email")} value={auth.emailVerified ? t("emailVerified") : t("emailPending")} />
         </dl>
       </div>
 
       <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">{t(locale, "connections")}</h2>
+          <h2 className="text-base font-semibold text-ink">{t("connections")}</h2>
           <PlugZap size={18} className="text-teal" />
         </div>
         <div className="grid gap-3">
           <div className="flex items-center justify-between border-b border-line pb-3">
-            <span className="text-sm font-medium text-ink">{t(locale, "backendApi")}</span>
-            <StatusPill label={apiBaseUrl ? t(locale, "configured") : t(locale, "missing")} tone={apiBaseUrl ? "good" : "bad"} />
+            <span className="text-sm font-medium text-ink">{t("backendApi")}</span>
+            <StatusPill label={apiBaseUrl ? t("configured") : t("missing")} tone={apiBaseUrl ? "good" : "bad"} />
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-ink">{t(locale, "realtimeStream")}</span>
-            <StatusPill label={sseUrl ? t(locale, "configured") : t(locale, "missing")} tone={sseUrl ? "good" : "bad"} />
+            <span className="text-sm font-medium text-ink">{t("realtimeStream")}</span>
+            <StatusPill label={sseUrl ? t("configured") : t("missing")} tone={sseUrl ? "good" : "bad"} />
           </div>
         </div>
       </div>
@@ -63,17 +65,19 @@ export function PositionsTable({
   error: boolean;
   locale: Locale;
 }) {
+  const { t } = useAppI18n();
+
   return (
-    <TableShell title={t(locale, "positions")} loading={loading} error={error} locale={locale}>
+    <TableShell title={t("positions")} loading={loading} error={error} locale={locale}>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-4 py-3">{t(locale, "symbol")}</th>
-            <th className="px-4 py-3">{t(locale, "type")}</th>
-            <th className="px-4 py-3">{t(locale, "qty")}</th>
-            <th className="px-4 py-3">{t(locale, "entry")}</th>
-            <th className="px-4 py-3">{t(locale, "stop")}</th>
-            <th className="px-4 py-3">{t(locale, "status")}</th>
+            <th className="px-4 py-3">{t("symbol")}</th>
+            <th className="px-4 py-3">{t("type")}</th>
+            <th className="px-4 py-3">{t("qty")}</th>
+            <th className="px-4 py-3">{t("entry")}</th>
+            <th className="px-4 py-3">{t("stop")}</th>
+            <th className="px-4 py-3">{t("status")}</th>
           </tr>
         </thead>
         <tbody>
@@ -104,16 +108,18 @@ export function AlertsTable({
   error: boolean;
   locale: Locale;
 }) {
+  const { t } = useAppI18n();
+
   return (
-    <TableShell title={t(locale, "alerts")} loading={loading} error={error} locale={locale}>
+    <TableShell title={t("alerts")} loading={loading} error={error} locale={locale}>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-4 py-3">{t(locale, "level")}</th>
-            <th className="px-4 py-3">{t(locale, "action")}</th>
-            <th className="px-4 py-3">{t(locale, "reason")}</th>
-            <th className="px-4 py-3">{t(locale, "newStop")}</th>
-            <th className="px-4 py-3">{t(locale, "time")}</th>
+            <th className="px-4 py-3">{t("level")}</th>
+            <th className="px-4 py-3">{t("action")}</th>
+            <th className="px-4 py-3">{t("reason")}</th>
+            <th className="px-4 py-3">{t("newStop")}</th>
+            <th className="px-4 py-3">{t("time")}</th>
           </tr>
         </thead>
         <tbody>
@@ -143,17 +149,19 @@ export function JournalTable({
   error: boolean;
   locale: Locale;
 }) {
+  const { t } = useAppI18n();
+
   return (
-    <TableShell title={t(locale, "journal")} loading={loading} error={error} locale={locale}>
+    <TableShell title={t("journal")} loading={loading} error={error} locale={locale}>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-4 py-3">{t(locale, "symbol")}</th>
-            <th className="px-4 py-3">{t(locale, "entry")}</th>
-            <th className="px-4 py-3">{t(locale, "exit")}</th>
-            <th className="px-4 py-3">{t(locale, "netPnl")}</th>
-            <th className="px-4 py-3">{t(locale, "rMultiple")}</th>
-            <th className="px-4 py-3">{t(locale, "exitReason")}</th>
+            <th className="px-4 py-3">{t("symbol")}</th>
+            <th className="px-4 py-3">{t("entry")}</th>
+            <th className="px-4 py-3">{t("exit")}</th>
+            <th className="px-4 py-3">{t("netPnl")}</th>
+            <th className="px-4 py-3">{t("rMultiple")}</th>
+            <th className="px-4 py-3">{t("exitReason")}</th>
           </tr>
         </thead>
         <tbody>

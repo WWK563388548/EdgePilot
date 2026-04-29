@@ -2,7 +2,8 @@
 
 import { BarChart3, LogIn } from "lucide-react";
 
-import { t, type Locale } from "@/lib/i18n";
+import type { Locale } from "@/lib/i18n-config";
+import { useAppI18n } from "@/lib/use-app-i18n";
 
 export function AuthScreen({
   status,
@@ -17,6 +18,8 @@ export function AuthScreen({
   secondaryAction?: () => Promise<void>;
   secondaryLabel?: string;
 }) {
+  const { t } = useAppI18n();
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#eef2f5] px-4">
       <section className="w-full max-w-sm rounded-md border border-line bg-white p-5 shadow-[0_1px_0_rgba(22,32,42,0.05)]">
@@ -37,7 +40,7 @@ export function AuthScreen({
               type="button"
             >
               <LogIn size={16} />
-              {secondaryAction ? t(locale, "resendVerificationEmail") : t(locale, "signIn")}
+              {secondaryAction ? t("resendVerificationEmail") : t("signIn")}
             </button>
             {secondaryAction ? (
               <button

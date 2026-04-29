@@ -9,8 +9,9 @@ import { CandidateDetailPanel } from "@/components/workspace/detail-panels";
 import type { Candidate } from "@/lib/api";
 import { api } from "@/lib/api";
 import { formatNumber, formatValue } from "@/lib/format";
-import { labelFor, t, type Locale } from "@/lib/i18n";
+import type { Locale } from "@/lib/i18n-config";
 import { decisionTone } from "@/lib/presentation";
+import { useAppI18n } from "@/lib/use-app-i18n";
 
 export function CandidatesView({
   data,
@@ -23,6 +24,7 @@ export function CandidatesView({
   error: boolean;
   locale: Locale;
 }) {
+  const { labelFor, t } = useAppI18n();
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const activeCandidateId = selectedCandidateId ?? data[0]?.candidate_id ?? null;
   const detail = useQuery({
@@ -45,25 +47,25 @@ export function CandidatesView({
   return (
     <section className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
-        <CompactStat icon={<Target size={18} />} label={t(locale, "candidatePool")} value={data.length} />
-        <CompactStat icon={<TrendingUp size={18} />} label={t(locale, "topScore")} value={formatNumber(topScore, 1, locale)} />
-        <CompactStat icon={<Eye size={18} />} label={t(locale, "selected")} value={activeCandidate?.symbol_id ?? "-"} />
+        <CompactStat icon={<Target size={18} />} label={t("candidatePool")} value={data.length} />
+        <CompactStat icon={<TrendingUp size={18} />} label={t("topScore")} value={formatNumber(topScore, 1, locale)} />
+        <CompactStat icon={<Eye size={18} />} label={t("selected")} value={activeCandidate?.symbol_id ?? "-"} />
       </div>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
-        <TableShell title={t(locale, "candidates")} loading={loading} error={error} locale={locale}>
+        <TableShell title={t("candidates")} loading={loading} error={error} locale={locale}>
           <table className="min-w-full table-fixed text-left text-sm">
             <thead className="bg-panel text-xs uppercase text-slate-500">
               <tr>
-                <th className="w-24 px-4 py-3">{t(locale, "symbol")}</th>
-                <th className="w-44 px-4 py-3">{t(locale, "setup")}</th>
-                <th className="w-20 px-4 py-3">{t(locale, "grade")}</th>
-                <th className="w-32 px-4 py-3">{t(locale, "validation")}</th>
-                <th className="w-24 px-4 py-3">{t(locale, "score")}</th>
-                <th className="w-28 px-4 py-3">{t(locale, "decision")}</th>
-                <th className="w-32 px-4 py-3">{t(locale, "entry")}</th>
-                <th className="w-32 px-4 py-3">{t(locale, "stop")}</th>
-                <th className="w-32 px-4 py-3">{t(locale, "scanDate")}</th>
+                <th className="w-24 px-4 py-3">{t("symbol")}</th>
+                <th className="w-44 px-4 py-3">{t("setup")}</th>
+                <th className="w-20 px-4 py-3">{t("grade")}</th>
+                <th className="w-32 px-4 py-3">{t("validation")}</th>
+                <th className="w-24 px-4 py-3">{t("score")}</th>
+                <th className="w-28 px-4 py-3">{t("decision")}</th>
+                <th className="w-32 px-4 py-3">{t("entry")}</th>
+                <th className="w-32 px-4 py-3">{t("stop")}</th>
+                <th className="w-32 px-4 py-3">{t("scanDate")}</th>
                 <th className="w-20 px-4 py-3"></th>
               </tr>
             </thead>
@@ -71,7 +73,7 @@ export function CandidatesView({
               {!data.length ? (
                 <tr>
                   <td className="px-4 py-6 text-sm text-slate-600" colSpan={10}>
-                    {loading || error ? <DataState isLoading={loading} isError={error} locale={locale} /> : t(locale, "noCandidate")}
+                    {loading || error ? <DataState isLoading={loading} isError={error} locale={locale} /> : t("noCandidate")}
                   </td>
                 </tr>
               ) : null}
@@ -84,18 +86,18 @@ export function CandidatesView({
                 >
                   <td className="px-4 py-3 font-semibold text-ink">{row.symbol_id}</td>
                   <td className="truncate px-4 py-3" title={row.setup_type ?? row.strategy_name}>
-                    {row.setup_type ? labelFor(locale, "setup", row.setup_type) : row.strategy_name}
+                    {row.setup_type ? labelFor("setup", row.setup_type) : row.strategy_name}
                   </td>
                   <td className="px-4 py-3">{formatValue(row.pa_setup_grade)}</td>
                   <td className="px-4 py-3">
                     <StatusPill
-                      label={labelFor(locale, "status", row.validation_status ?? "unlinked")}
+                      label={labelFor("status", row.validation_status ?? "unlinked")}
                       tone={decisionTone(row.validation_status)}
                     />
                   </td>
                   <td className="px-4 py-3 font-medium text-ink">{formatNumber(row.score_total, 1, locale)}</td>
                   <td className="px-4 py-3">
-                    <StatusPill label={labelFor(locale, "status", row.decision ?? "unknown")} tone={decisionTone(row.decision)} />
+                    <StatusPill label={labelFor("status", row.decision ?? "unknown")} tone={decisionTone(row.decision)} />
                   </td>
                   <td className="px-4 py-3">{formatNumber(row.entry_trigger, 2, locale)}</td>
                   <td className="px-4 py-3">{formatNumber(row.initial_stop, 2, locale)}</td>
@@ -104,7 +106,7 @@ export function CandidatesView({
                     <button
                       className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
                       onClick={() => setSelectedCandidateId(row.candidate_id)}
-                      title={t(locale, "openDetail")}
+                      title={t("openDetail")}
                       type="button"
                     >
                       <Eye size={16} />

@@ -6,12 +6,13 @@ import type { ReactNode } from "react";
 
 import { StatusPill } from "@/components/workspace/common";
 import { useAuth } from "@/lib/auth";
-import { isLocale, labelFor, localeOptions, t, type Locale, type TextKey } from "@/lib/i18n";
+import { isLocale, localeOptions, type Locale } from "@/lib/i18n-config";
 import type { WorkspaceView } from "@/lib/store";
+import { useAppI18n } from "@/lib/use-app-i18n";
 
 export type WorkspaceNavItem = {
   id: WorkspaceView;
-  labelKey: TextKey;
+  labelKey: string;
   icon: LucideIcon;
 };
 
@@ -24,6 +25,8 @@ export function WorkspaceHeader({
   riskMode: string;
   riskTone: "good" | "warn" | "bad" | "neutral";
 }) {
+  const { labelFor, t } = useAppI18n();
+
   return (
     <header className="border-b border-line bg-white">
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
@@ -33,16 +36,16 @@ export function WorkspaceHeader({
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-normal text-ink">EdgePilot</h1>
-            <p className="text-sm text-slate-600">{t(locale, "subtitle")}</p>
+            <p className="text-sm text-slate-600">{t("subtitle")}</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <StatusPill label={labelFor(locale, "status", riskMode)} tone={riskTone} />
+          <StatusPill label={labelFor("status", riskMode)} tone={riskTone} />
           <LanguageSwitcher locale={locale} />
           <AuthButton />
           <div className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-panel px-3 text-sm text-slate-700">
             <RefreshCcw size={16} />
-            {t(locale, "refresh")}
+            {t("refresh")}
           </div>
         </div>
       </div>
@@ -61,6 +64,8 @@ export function WorkspaceNav({
   locale: Locale;
   onChange: (view: WorkspaceView) => void;
 }) {
+  const { t } = useAppI18n();
+
   return (
     <section className="border-b border-line bg-panel">
       <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-4 py-3 sm:px-6 lg:px-8">
@@ -79,7 +84,7 @@ export function WorkspaceNav({
               type="button"
             >
               <Icon size={16} />
-              {t(locale, item.labelKey)}
+              {t(item.labelKey)}
             </button>
           );
         })}

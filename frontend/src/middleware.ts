@@ -1,17 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
+import createMiddleware from "next-intl/middleware";
 
-import { defaultLocale } from "@/lib/i18n-config";
+import { routing } from "@/i18n/routing";
 
-export function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname === "/") {
-    const url = request.nextUrl.clone();
-    url.pathname = `/${defaultLocale}`;
-    return NextResponse.redirect(url);
-  }
-
-  return NextResponse.next();
-}
+export default createMiddleware(routing);
 
 export const config = {
-  matcher: ["/"]
+  matcher: ["/", "/(zh|en|ja)/:path*"]
 };
