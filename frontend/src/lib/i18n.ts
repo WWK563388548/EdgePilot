@@ -1,12 +1,14 @@
 import type { Candidate, PASetup } from "@/lib/api";
+import {
+  defaultLocale,
+  isLocale,
+  localeOptions,
+  locales,
+  localeTag,
+  type Locale
+} from "@/lib/i18n-config";
 
-export type Locale = "zh" | "en" | "ja";
-
-export const localeOptions: Array<{ id: Locale; label: string }> = [
-  { id: "zh", label: "中文" },
-  { id: "en", label: "English" },
-  { id: "ja", label: "日本語" }
-];
+export { defaultLocale, isLocale, localeOptions, locales, localeTag, type Locale };
 
 const text = {
   zh: {
@@ -102,7 +104,13 @@ const text = {
     netPnl: "净盈亏",
     rMultiple: "R 倍数",
     exitReason: "离场原因",
-    source: "来源"
+    source: "来源",
+    candidatePool: "候选池",
+    paUniverse: "PA 形态池",
+    topScore: "最高分",
+    activeFilters: "筛选条件",
+    selected: "当前选择",
+    setupCount: "形态数量"
   },
   en: {
     overview: "Overview",
@@ -197,7 +205,13 @@ const text = {
     netPnl: "Net PnL",
     rMultiple: "R",
     exitReason: "Exit Reason",
-    source: "Source"
+    source: "Source",
+    candidatePool: "Candidate Pool",
+    paUniverse: "PA Universe",
+    topScore: "Top score",
+    activeFilters: "Active filters",
+    selected: "Selected",
+    setupCount: "Setups"
   },
   ja: {
     overview: "概要",
@@ -292,7 +306,13 @@ const text = {
     netPnl: "純損益",
     rMultiple: "R",
     exitReason: "決済理由",
-    source: "ソース"
+    source: "ソース",
+    candidatePool: "候補プール",
+    paUniverse: "PA ユニバース",
+    topScore: "最高スコア",
+    activeFilters: "フィルター",
+    selected: "選択中",
+    setupCount: "セットアップ数"
   }
 } as const;
 
