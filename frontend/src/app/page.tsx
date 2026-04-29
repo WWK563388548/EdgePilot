@@ -25,18 +25,26 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Candidate, CandidateDetail, ExitAlert, JournalTrade, PASetup, Position } from "@/lib/api";
+import { labelFor, localeOptions, scoreMeta, setupNarrative, t } from "@/lib/i18n";
+import type { Locale, TextKey } from "@/lib/i18n";
 import { useWorkspaceStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store";
 
-const views: Array<{ id: WorkspaceView; label: string }> = [
-  { id: "overview", label: "Overview" },
-  { id: "candidates", label: "Candidates" },
-  { id: "pa_lab", label: "PA Lab" },
-  { id: "positions", label: "Positions" },
-  { id: "alerts", label: "Exit Alerts" },
-  { id: "journal", label: "Journal" },
-  { id: "settings", label: "Settings" }
+const views: Array<{ id: WorkspaceView; labelKey: TextKey }> = [
+  { id: "overview", labelKey: "overview" },
+  { id: "candidates", labelKey: "candidates" },
+  { id: "pa_lab", labelKey: "paLab" },
+  { id: "positions", labelKey: "positions" },
+  { id: "alerts", labelKey: "alerts" },
+  { id: "journal", labelKey: "journal" },
+  { id: "settings", labelKey: "settings" }
 ];
+
+const localeTag: Record<Locale, string> = {
+  zh: "zh-CN",
+  en: "en-US",
+  ja: "ja-JP"
+};
 
 function formatValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") {
@@ -45,21 +53,21 @@ function formatValue(value: string | number | null | undefined) {
   return String(value);
 }
 
-function formatNumber(value: number | null | undefined, digits = 1) {
+function formatNumber(value: number | null | undefined, digits = 1, locale: Locale = "en") {
   if (value === null || value === undefined) {
     return "-";
   }
-  return new Intl.NumberFormat("en", {
+  return new Intl.NumberFormat(localeTag[locale], {
     maximumFractionDigits: digits,
     minimumFractionDigits: 0
   }).format(value);
 }
 
-function formatDate(value: string | null | undefined) {
+function formatDate(value: string | null | undefined, locale: Locale = "en") {
   if (!value) {
     return "-";
   }
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(localeTag[locale], {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -82,12 +90,12 @@ function StatusPill({ label, tone = "neutral" }: { label: string; tone?: "good" 
   );
 }
 
-function DataState({ isLoading, isError }: { isLoading: boolean; isError: boolean }) {
+function DataState({ isLoading, isError, locale = "en" }: { isLoading: boolean; isError: boolean; locale?: Locale }) {
   if (isLoading) {
-    return <span className="text-sm text-slate-500">Loading data...</span>;
+    return <span className="text-sm text-slate-500">{t(locale, "loading")}</span>;
   }
   if (isError) {
-    return <span className="text-sm text-rose-700">API unavailable</span>;
+    return <span className="text-sm text-rose-700">{t(locale, "apiUnavailable")}</span>;
   }
   return null;
 }
@@ -107,7 +115,7 @@ function decisionTone(value: string | null | undefined): "good" | "warn" | "bad"
 
 export default function Home() {
   const auth = useAuth();
-  const { view, setView } = useWorkspaceStore();
+  const { view, setView, locale, setLocale } = useWorkspaceStore();
   const queriesEnabled = auth.ready && auth.isAuthenticated && auth.emailVerified;
   const dashboard = useQuery({
     queryKey: ["dashboard"],
@@ -139,24 +147,25 @@ export default function Home() {
   const riskTone = summary?.risk_mode === "normal" ? "good" : summary?.risk_mode === "shock" ? "bad" : "warn";
 
   if (!auth.configured) {
-    return <AuthScreen status="Auth is not configured" />;
+    return <AuthScreen locale={locale} status={t(locale, "authNotConfigured")} />;
   }
 
   if (!auth.ready) {
-    return <AuthScreen status="Checking session..." />;
+    return <AuthScreen locale={locale} status={t(locale, "checkingSession")} />;
   }
 
   if (!auth.isAuthenticated) {
-    return <AuthScreen action={auth.login} status="Sign in required" />;
+    return <AuthScreen action={auth.login} locale={locale} status={t(locale, "signInRequired")} />;
   }
 
   if (!auth.emailVerified) {
     return (
       <AuthScreen
         action={auth.resendVerificationEmail}
+        locale={locale}
         secondaryAction={auth.refreshSession}
-        secondaryLabel="I verified my email"
-        status="Verify your email to continue"
+        secondaryLabel={t(locale, "verifiedEmail")}
+        status={t(locale, "verifyEmail")}
       />
     );
   }
@@ -172,16 +181,17 @@ export default function Home() {
               </div>
               <div>
                 <h1 className="text-xl font-semibold tracking-normal text-ink">EdgePilot</h1>
-                <p className="text-sm text-slate-600">Trading operations workspace</p>
+                <p className="text-sm text-slate-600">{t(locale, "subtitle")}</p>
               </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill label={summary?.risk_mode ?? "unknown"} tone={riskTone} />
+            <StatusPill label={summary?.risk_mode ?? t(locale, "unknown")} tone={riskTone} />
+            <LanguageSwitcher locale={locale} setLocale={setLocale} />
             <AuthButton />
             <div className="inline-flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-slate-700">
               <RefreshCcw size={16} />
-              30s refresh
+              {t(locale, "refresh")}
             </div>
           </div>
         </div>
@@ -200,42 +210,42 @@ export default function Home() {
               onClick={() => setView(item.id)}
               type="button"
             >
-              {item.label}
+              {t(locale, item.labelKey)}
             </button>
           ))}
         </div>
       </section>
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <DataState isLoading={dashboard.isLoading} isError={dashboard.isError} />
+        <DataState isLoading={dashboard.isLoading} isError={dashboard.isError} locale={locale} />
 
         {view === "overview" && (
           <div className="space-y-6">
             <section className="grid gap-3 md:grid-cols-4">
-              <Metric icon={<ListChecks size={18} />} label="Candidates" value={summary?.candidate_count ?? 0} />
-              <Metric icon={<BriefcaseBusiness size={18} />} label="Open Positions" value={summary?.open_position_count ?? 0} />
-              <Metric icon={<AlertTriangle size={18} />} label="Open Alerts" value={summary?.exit_alert_count ?? 0} />
-              <Metric icon={<ShieldCheck size={18} />} label="Highest Level" value={summary?.highest_exit_level ?? "-"} />
+              <Metric icon={<ListChecks size={18} />} label={t(locale, "candidates")} value={summary?.candidate_count ?? 0} />
+              <Metric icon={<BriefcaseBusiness size={18} />} label={t(locale, "openPositions")} value={summary?.open_position_count ?? 0} />
+              <Metric icon={<AlertTriangle size={18} />} label={t(locale, "openAlerts")} value={summary?.exit_alert_count ?? 0} />
+              <Metric icon={<ShieldCheck size={18} />} label={t(locale, "highestLevel")} value={summary?.highest_exit_level ?? "-"} />
             </section>
 
             <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
               <div className="rounded-md border border-line bg-white p-4">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-ink">Market Context</h2>
+                  <h2 className="text-base font-semibold text-ink">{t(locale, "marketContext")}</h2>
                   <Activity size={18} className="text-teal" />
                 </div>
                 <dl className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Risk" value={summary?.market_context.risk_level} />
-                  <Field label="US Bias" value={summary?.market_context.us_bias} />
-                  <Field label="Japan Bias" value={summary?.market_context.japan_bias} />
-                  <Field label="Updated" value={formatDate(summary?.market_context.snapshot_ts)} />
+                  <Field label={t(locale, "risk")} value={summary?.market_context.risk_level} />
+                  <Field label={t(locale, "usBias")} value={summary?.market_context.us_bias} />
+                  <Field label={t(locale, "japanBias")} value={summary?.market_context.japan_bias} />
+                  <Field label={t(locale, "updated")} value={formatDate(summary?.market_context.snapshot_ts, locale)} />
                 </dl>
-                <p className="mt-4 text-sm text-slate-600">{summary?.market_context.notes ?? "No market notes yet."}</p>
+                <p className="mt-4 text-sm text-slate-600">{summary?.market_context.notes ?? t(locale, "noMarketNotes")}</p>
               </div>
 
               <div className="rounded-md border border-line bg-white p-4">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-ink">Data Freshness</h2>
+                  <h2 className="text-base font-semibold text-ink">{t(locale, "dataFreshness")}</h2>
                   <Database size={18} className="text-teal" />
                 </div>
                 <div className="space-y-3">
@@ -244,13 +254,13 @@ export default function Home() {
                       <div key={item.dataset_key} className="flex items-center justify-between gap-3 border-b border-line pb-2 last:border-0 last:pb-0">
                         <div>
                           <div className="text-sm font-medium text-ink">{item.dataset_key}</div>
-                          <div className="text-xs text-slate-500">{item.source ?? "unknown"}</div>
+                          <div className="text-xs text-slate-500">{item.source ?? t(locale, "unknown")}</div>
                         </div>
-                        <div className="text-right text-xs text-slate-600">{formatDate(item.last_updated_at)}</div>
+                        <div className="text-right text-xs text-slate-600">{formatDate(item.last_updated_at, locale)}</div>
                       </div>
                     ))
                   ) : (
-                    <p className="text-sm text-slate-600">No freshness records yet.</p>
+                    <p className="text-sm text-slate-600">{t(locale, "noFreshnessRecords")}</p>
                   )}
                 </div>
               </div>
@@ -258,12 +268,12 @@ export default function Home() {
           </div>
         )}
 
-        {view === "candidates" && <CandidatesTable data={candidates.data ?? []} loading={candidates.isLoading} error={candidates.isError} />}
-        {view === "pa_lab" && <PALab />}
-        {view === "positions" && <PositionsTable data={positions.data ?? []} loading={positions.isLoading} error={positions.isError} />}
-        {view === "alerts" && <AlertsTable data={alerts.data ?? []} loading={alerts.isLoading} error={alerts.isError} />}
-        {view === "journal" && <JournalTable data={journal.data ?? []} loading={journal.isLoading} error={journal.isError} />}
-        {view === "settings" && <SettingsPanel />}
+        {view === "candidates" && <CandidatesTable data={candidates.data ?? []} loading={candidates.isLoading} error={candidates.isError} locale={locale} />}
+        {view === "pa_lab" && <PALab locale={locale} />}
+        {view === "positions" && <PositionsTable data={positions.data ?? []} loading={positions.isLoading} error={positions.isError} locale={locale} />}
+        {view === "alerts" && <AlertsTable data={alerts.data ?? []} loading={alerts.isLoading} error={alerts.isError} locale={locale} />}
+        {view === "journal" && <JournalTable data={journal.data ?? []} loading={journal.isLoading} error={journal.isError} locale={locale} />}
+        {view === "settings" && <SettingsPanel locale={locale} />}
       </div>
     </main>
   );
@@ -271,11 +281,13 @@ export default function Home() {
 
 function AuthScreen({
   status,
+  locale,
   action,
   secondaryAction,
   secondaryLabel
 }: {
   status: string;
+  locale: Locale;
   action?: () => Promise<void>;
   secondaryAction?: () => Promise<void>;
   secondaryLabel?: string;
@@ -300,7 +312,7 @@ function AuthScreen({
               type="button"
             >
               <LogIn size={16} />
-              {secondaryAction ? "Resend verification email" : "Sign in"}
+              {secondaryAction ? t(locale, "resendVerificationEmail") : t(locale, "signIn")}
             </button>
             {secondaryAction ? (
               <button
@@ -317,6 +329,31 @@ function AuthScreen({
         )}
       </section>
     </main>
+  );
+}
+
+function LanguageSwitcher({
+  locale,
+  setLocale
+}: {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-line bg-panel p-1">
+      {localeOptions.map((option) => (
+        <button
+          className={`focus-ring min-w-16 rounded px-2.5 py-1.5 text-xs font-medium ${
+            locale === option.id ? "bg-ink text-white" : "text-slate-700 hover:bg-white"
+          }`}
+          key={option.id}
+          onClick={() => setLocale(option.id)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -349,9 +386,9 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
 
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-xs uppercase text-slate-500">{label}</dt>
-      <dd className="mt-1 text-sm font-medium text-ink">{formatValue(value)}</dd>
+      <dd className="mt-1 break-words text-sm font-medium text-ink">{formatValue(value)}</dd>
     </div>
   );
 }
@@ -360,11 +397,13 @@ function TableShell({
   title,
   loading,
   error,
+  locale = "en",
   children
 }: {
   title: string;
   loading: boolean;
   error: boolean;
+  locale?: Locale;
   children: ReactNode;
 }) {
   return (
@@ -374,14 +413,14 @@ function TableShell({
           <BookOpen size={18} className="text-teal" />
           <h2 className="text-base font-semibold text-ink">{title}</h2>
         </div>
-        <DataState isLoading={loading} isError={error} />
+        <DataState isLoading={loading} isError={error} locale={locale} />
       </div>
       <div className="overflow-x-auto">{children}</div>
     </section>
   );
 }
 
-function SettingsPanel() {
+function SettingsPanel({ locale }: { locale: Locale }) {
   const auth = useAuth();
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
   const sseUrl =
@@ -392,32 +431,32 @@ function SettingsPanel() {
     <section className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-md border border-line bg-white p-4">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">Runtime</h2>
+          <h2 className="text-base font-semibold text-ink">{t(locale, "runtime")}</h2>
           <Settings size={18} className="text-teal" />
         </div>
         <dl className="grid gap-3">
-          <Field label="App" value={appName} />
-          <Field label="API Base URL" value={apiBaseUrl} />
-          <Field label="SSE URL" value={sseUrl} />
-          <Field label="Auth" value="required" />
-          <Field label="User" value={auth.userLabel} />
-          <Field label="Email" value={auth.emailVerified ? "verified" : "pending"} />
+          <Field label={t(locale, "app")} value={appName} />
+          <Field label={t(locale, "apiBaseUrl")} value={apiBaseUrl} />
+          <Field label={t(locale, "sseUrl")} value={sseUrl} />
+          <Field label={t(locale, "auth")} value={t(locale, "authRequired")} />
+          <Field label={t(locale, "user")} value={auth.userLabel} />
+          <Field label={t(locale, "email")} value={auth.emailVerified ? t(locale, "emailVerified") : t(locale, "emailPending")} />
         </dl>
       </div>
 
       <div className="rounded-md border border-line bg-white p-4">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">Connections</h2>
+          <h2 className="text-base font-semibold text-ink">{t(locale, "connections")}</h2>
           <PlugZap size={18} className="text-teal" />
         </div>
         <div className="grid gap-3">
           <div className="flex items-center justify-between border-b border-line pb-3">
-            <span className="text-sm font-medium text-ink">Backend API</span>
-            <StatusPill label={apiBaseUrl ? "configured" : "missing"} tone={apiBaseUrl ? "good" : "bad"} />
+            <span className="text-sm font-medium text-ink">{t(locale, "backendApi")}</span>
+            <StatusPill label={apiBaseUrl ? t(locale, "configured") : t(locale, "missing")} tone={apiBaseUrl ? "good" : "bad"} />
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-ink">Realtime Stream</span>
-            <StatusPill label={sseUrl ? "configured" : "missing"} tone={sseUrl ? "good" : "bad"} />
+            <span className="text-sm font-medium text-ink">{t(locale, "realtimeStream")}</span>
+            <StatusPill label={sseUrl ? t(locale, "configured") : t(locale, "missing")} tone={sseUrl ? "good" : "bad"} />
           </div>
         </div>
       </div>
@@ -425,7 +464,17 @@ function SettingsPanel() {
   );
 }
 
-function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading: boolean; error: boolean }) {
+function CandidatesTable({
+  data,
+  loading,
+  error,
+  locale
+}: {
+  data: Candidate[];
+  loading: boolean;
+  error: boolean;
+  locale: Locale;
+}) {
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const activeCandidateId = selectedCandidateId ?? data[0]?.candidate_id ?? null;
   const detail = useQuery({
@@ -441,24 +490,31 @@ function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading:
   }, [data, selectedCandidateId]);
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <TableShell title="Candidates" loading={loading} error={error}>
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
+      <TableShell title={t(locale, "candidates")} loading={loading} error={error} locale={locale}>
         <table className="min-w-full table-fixed text-left text-sm">
           <thead className="bg-panel text-xs uppercase text-slate-500">
             <tr>
-              <th className="w-24 px-4 py-3">Symbol</th>
-              <th className="w-44 px-4 py-3">Setup</th>
-              <th className="w-20 px-4 py-3">Grade</th>
-              <th className="w-32 px-4 py-3">Validation</th>
-              <th className="w-24 px-4 py-3">Score</th>
-              <th className="w-28 px-4 py-3">Decision</th>
-              <th className="w-32 px-4 py-3">Entry</th>
-              <th className="w-32 px-4 py-3">Stop</th>
-              <th className="w-32 px-4 py-3">Scan Date</th>
+              <th className="w-24 px-4 py-3">{t(locale, "symbol")}</th>
+              <th className="w-44 px-4 py-3">{t(locale, "setup")}</th>
+              <th className="w-20 px-4 py-3">{t(locale, "grade")}</th>
+              <th className="w-32 px-4 py-3">{t(locale, "validation")}</th>
+              <th className="w-24 px-4 py-3">{t(locale, "score")}</th>
+              <th className="w-28 px-4 py-3">{t(locale, "decision")}</th>
+              <th className="w-32 px-4 py-3">{t(locale, "entry")}</th>
+              <th className="w-32 px-4 py-3">{t(locale, "stop")}</th>
+              <th className="w-32 px-4 py-3">{t(locale, "scanDate")}</th>
               <th className="w-20 px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
+            {!data.length ? (
+              <tr>
+                <td className="px-4 py-6 text-sm text-slate-600" colSpan={10}>
+                  {t(locale, "noCandidate")}
+                </td>
+              </tr>
+            ) : null}
             {data.map((row) => (
               <tr
                 key={row.candidate_id}
@@ -466,27 +522,27 @@ function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading:
               >
                 <td className="px-4 py-3 font-medium text-ink">{row.symbol_id}</td>
                 <td className="truncate px-4 py-3" title={row.setup_type ?? row.strategy_name}>
-                  {row.setup_type ?? row.strategy_name}
+                  {row.setup_type ? labelFor(locale, "setup", row.setup_type) : row.strategy_name}
                 </td>
                 <td className="px-4 py-3">{formatValue(row.pa_setup_grade)}</td>
                 <td className="px-4 py-3">
                   <StatusPill
-                    label={row.validation_status ?? "unlinked"}
+                    label={labelFor(locale, "status", row.validation_status ?? "unlinked")}
                     tone={decisionTone(row.validation_status)}
                   />
                 </td>
-                <td className="px-4 py-3">{formatNumber(row.score_total)}</td>
+                <td className="px-4 py-3">{formatNumber(row.score_total, 1, locale)}</td>
                 <td className="px-4 py-3">
-                  <StatusPill label={row.decision ?? "unknown"} tone={decisionTone(row.decision)} />
+                  <StatusPill label={labelFor(locale, "status", row.decision ?? "unknown")} tone={decisionTone(row.decision)} />
                 </td>
-                <td className="px-4 py-3">{formatNumber(row.entry_trigger, 2)}</td>
-                <td className="px-4 py-3">{formatNumber(row.initial_stop, 2)}</td>
+                <td className="px-4 py-3">{formatNumber(row.entry_trigger, 2, locale)}</td>
+                <td className="px-4 py-3">{formatNumber(row.initial_stop, 2, locale)}</td>
                 <td className="px-4 py-3">{row.scan_date}</td>
                 <td className="px-4 py-3">
                   <button
                     className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
                     onClick={() => setSelectedCandidateId(row.candidate_id)}
-                    title="Open candidate detail"
+                    title={t(locale, "openDetail")}
                     type="button"
                   >
                     <Eye size={16} />
@@ -501,6 +557,7 @@ function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading:
       <CandidateDetailPanel
         detail={detail.data}
         error={detail.isError}
+        locale={locale}
         loading={detail.isLoading}
         onClose={() => setSelectedCandidateId(null)}
         selected={Boolean(activeCandidateId)}
@@ -513,32 +570,37 @@ function CandidateDetailPanel({
   detail,
   loading,
   error,
+  locale,
   selected,
   onClose
 }: {
   detail: CandidateDetail | undefined;
   loading: boolean;
   error: boolean;
+  locale: Locale;
   selected: boolean;
   onClose: () => void;
 }) {
   const candidate = detail?.candidate;
   const setup = detail?.pa_setup;
+  const entryPlan = detail?.entry_plan ?? setup?.entry_plan;
+  const exitPlan = detail?.exit_plan ?? setup?.exit_plan;
+  const scoreBreakdown = detail?.score_breakdown ?? nestedRecord(entryPlan, "score_breakdown");
 
   return (
-    <aside className="rounded-md border border-line bg-white">
+    <aside className="min-w-0 rounded-md border border-line bg-white">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-base font-semibold text-ink">
-            {candidate ? `${candidate.symbol_id} PA Detail` : "Candidate Detail"}
+            {candidate ? `${candidate.symbol_id} ${t(locale, "candidateDetail")}` : t(locale, "candidateDetail")}
           </h2>
-          <p className="text-xs text-slate-500">{setup?.setup_id ?? candidate?.candidate_id ?? "No candidate selected"}</p>
+          <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? candidate?.candidate_id ?? t(locale, "noSelection")}</p>
         </div>
         <button
           className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
           disabled={!selected}
           onClick={onClose}
-          title="Close detail"
+          title={t(locale, "closeDetail")}
           type="button"
         >
           <X size={16} />
@@ -546,27 +608,32 @@ function CandidateDetailPanel({
       </div>
 
       <div className="space-y-4 p-4">
-        <DataState isLoading={loading} isError={error} />
-        {!selected && <p className="text-sm text-slate-600">No candidate selected.</p>}
+        <DataState isLoading={loading} isError={error} locale={locale} />
+        {!selected && <p className="text-sm text-slate-600">{t(locale, "noSelection")}</p>}
         {candidate ? (
           <>
+            <ExplanationBlock locale={locale} setup={setup} candidate={candidate} />
+
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Setup" value={candidate.setup_type} />
-              <Field label="Grade" value={setup?.setup_grade} />
-              <Field label="Validation" value={setup?.validation_status} />
-              <Field label="Status" value={setup?.status ?? candidate.decision} />
-              <Field label="Quality" value={formatNumber(setup?.pa_quality_score ?? candidate.score_total)} />
-              <Field label="Timeframe" value={setup?.timeframe} />
+              <Field label={t(locale, "setup")} value={candidate.setup_type ? labelFor(locale, "setup", candidate.setup_type) : "-"} />
+              <Field label={t(locale, "grade")} value={setup?.setup_grade} />
+              <Field label={t(locale, "validation")} value={labelFor(locale, "status", setup?.validation_status)} />
+              <Field label={t(locale, "status")} value={labelFor(locale, "status", setup?.status ?? candidate.decision)} />
+              <Field label={t(locale, "quality")} value={formatNumber(setup?.pa_quality_score ?? candidate.score_total, 1, locale)} />
+              <Field label={t(locale, "timeframe")} value={setup?.timeframe} />
             </div>
 
-            <div className="grid gap-2">
-              <StatusPill label={setup?.validation_status ?? "unlinked"} tone={decisionTone(setup?.validation_status)} />
-            </div>
-
-            <DetailBlock title="Score Breakdown" data={detail?.score_breakdown} />
-            <DetailBlock title="Entry Plan" data={detail?.entry_plan} />
-            <DetailBlock title="Exit Plan" data={detail?.exit_plan} />
-            <DetailBlock title="Invalidation" data={detail?.invalidation} />
+            <KeyLevelsBlock
+              candidate={candidate}
+              entryPlan={entryPlan}
+              exitPlan={exitPlan}
+              locale={locale}
+              setup={setup}
+            />
+            <ScoreBreakdownBlock data={scoreBreakdown} locale={locale} />
+            <PlanFields title={t(locale, "entryPlan")} data={entryPlan} locale={locale} omitKeys={["score_breakdown"]} />
+            <PlanFields title={t(locale, "exitPlan")} data={exitPlan} locale={locale} />
+            <PlanFields title={t(locale, "invalidation")} data={detail?.invalidation ?? setup?.invalidation} locale={locale} />
           </>
         ) : null}
       </div>
@@ -574,17 +641,122 @@ function CandidateDetailPanel({
   );
 }
 
-function DetailBlock({ title, data }: { title: string; data: Record<string, unknown> | null | undefined }) {
+function ExplanationBlock({
+  locale,
+  setup,
+  candidate
+}: {
+  locale: Locale;
+  setup: PASetup | null | undefined;
+  candidate?: Candidate | null;
+}) {
+  return (
+    <section className="rounded-md border border-teal-200 bg-teal-50/60 p-3">
+      <h3 className="mb-2 text-sm font-semibold text-ink">{t(locale, "plainExplanation")}</h3>
+      <p className="text-sm leading-6 text-slate-700">{setupNarrative(locale, setup, candidate)}</p>
+    </section>
+  );
+}
+
+function KeyLevelsBlock({
+  candidate,
+  setup,
+  entryPlan,
+  exitPlan,
+  locale
+}: {
+  candidate?: Candidate | null;
+  setup?: PASetup | null;
+  entryPlan: Record<string, unknown> | null | undefined;
+  exitPlan: Record<string, unknown> | null | undefined;
+  locale: Locale;
+}) {
+  const trigger = numberFromRecord(entryPlan, "trigger_price") ?? candidate?.entry_trigger ?? null;
+  const stop = numberFromRecord(exitPlan, "initial_stop") ?? candidate?.initial_stop ?? null;
+  const triggerType = stringFromRecord(entryPlan, "trigger_type");
+
+  return (
+    <section className="border-t border-line pt-3">
+      <h3 className="mb-2 text-sm font-semibold text-ink">{t(locale, "keyLevels")}</h3>
+      <dl className="grid grid-cols-2 gap-3">
+        <Field label={t(locale, "entry")} value={formatNumber(trigger, 2, locale)} />
+        <Field label={t(locale, "stop")} value={formatNumber(stop, 2, locale)} />
+        <Field label={labelFor(locale, "plan", "trigger_type")} value={labelFor(locale, "plan", triggerType)} />
+        <Field label={t(locale, "validation")} value={labelFor(locale, "status", setup?.validation_status)} />
+      </dl>
+    </section>
+  );
+}
+
+function ScoreBreakdownBlock({
+  data,
+  locale
+}: {
+  data: Record<string, unknown> | null | undefined;
+  locale: Locale;
+}) {
+  const order = ["total", "trend", "relative_strength", "volume_liquidity", "base_setup", "market_context", "fundamental_lite"];
+  const entries = Object.entries(data ?? {})
+    .filter(([, value]) => typeof value === "number")
+    .sort(([left], [right]) => {
+      const leftIndex = order.indexOf(left);
+      const rightIndex = order.indexOf(right);
+      return (leftIndex === -1 ? 99 : leftIndex) - (rightIndex === -1 ? 99 : rightIndex);
+    });
+
+  return (
+    <section className="border-t border-line pt-3">
+      <h3 className="mb-3 text-sm font-semibold text-ink">{t(locale, "scoreBreakdown")}</h3>
+      {entries.length ? (
+        <div className="grid gap-3">
+          {entries.map(([key, value]) => {
+            const meta = scoreMeta(locale, key);
+            const score = typeof value === "number" ? value : null;
+            return (
+              <div key={key} className="grid grid-cols-[minmax(0,1fr)_3.5rem] gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink">{meta.label}</div>
+                  {meta.description ? <div className="mt-0.5 text-xs leading-5 text-slate-500">{meta.description}</div> : null}
+                  <div className="mt-2 h-1.5 overflow-hidden rounded bg-slate-100">
+                    <div
+                      className="h-full rounded bg-teal"
+                      style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="text-right text-sm font-semibold text-ink">{formatNumber(score, 1, locale)}</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500">-</p>
+      )}
+    </section>
+  );
+}
+
+function PlanFields({
+  title,
+  data,
+  locale,
+  omitKeys = []
+}: {
+  title: string;
+  data: Record<string, unknown> | null | undefined;
+  locale: Locale;
+  omitKeys?: string[];
+}) {
   const entries = Object.entries(data ?? {});
   return (
     <section className="border-t border-line pt-3">
       <h3 className="mb-2 text-sm font-semibold text-ink">{title}</h3>
-      {entries.length ? (
+      {entries.filter(([key]) => !omitKeys.includes(key)).length ? (
         <dl className="grid gap-2">
-          {entries.map(([key, value]) => (
-            <div key={key} className="flex items-start justify-between gap-3 text-sm">
-              <dt className="max-w-[45%] break-words text-slate-500">{key}</dt>
-              <dd className="max-w-[55%] break-words text-right font-medium text-ink">{formatDetailValue(value)}</dd>
+          {entries.filter(([key]) => !omitKeys.includes(key)).map(([key, value]) => (
+            <div key={key} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3 text-sm">
+              <dt className="min-w-0 break-words text-slate-500">{labelFor(locale, "plan", key)}</dt>
+              <dd className="min-w-0 break-words font-medium text-ink">{formatDetailValue(value, locale)}</dd>
             </div>
           ))}
         </dl>
@@ -595,7 +767,7 @@ function DetailBlock({ title, data }: { title: string; data: Record<string, unkn
   );
 }
 
-function PALab() {
+function PALab({ locale }: { locale: Locale }) {
   const [symbol, setSymbol] = useState("");
   const [setupType, setSetupType] = useState("");
   const [validationStatus, setValidationStatus] = useState("");
@@ -614,21 +786,21 @@ function PALab() {
     setups.data?.find((setup) => setup.setup_id === selectedSetupId) ?? setups.data?.[0] ?? null;
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
       <section className="rounded-md border border-line bg-white">
         <div className="border-b border-line px-4 py-3">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Filter size={18} className="text-teal" />
-              <h2 className="text-base font-semibold text-ink">PA Setup Explorer</h2>
+              <h2 className="text-base font-semibold text-ink">{t(locale, "setupExplorer")}</h2>
             </div>
-            <DataState isLoading={setups.isLoading} isError={setups.isError} />
+            <DataState isLoading={setups.isLoading} isError={setups.isError} locale={locale} />
           </div>
           <div className="grid gap-2 md:grid-cols-[minmax(120px,180px)_minmax(160px,220px)_minmax(160px,220px)]">
             <input
               className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
               onChange={(event) => setSymbol(event.target.value)}
-              placeholder="Symbol"
+              placeholder={t(locale, "symbol")}
               value={symbol}
             />
             <select
@@ -636,21 +808,21 @@ function PALab() {
               onChange={(event) => setSetupType(event.target.value)}
               value={setupType}
             >
-              <option value="">All setups</option>
-              <option value="breakout">Breakout</option>
-              <option value="pullback_to_20ma">Pullback to 20MA</option>
-              <option value="failed_breakdown_reclaim">Failed breakdown reclaim</option>
-              <option value="oneil_leader_watch">O'Neil leader watch</option>
+              <option value="">{t(locale, "allSetups")}</option>
+              <option value="breakout">{labelFor(locale, "setup", "breakout")}</option>
+              <option value="pullback_to_20ma">{labelFor(locale, "setup", "pullback_to_20ma")}</option>
+              <option value="failed_breakdown_reclaim">{labelFor(locale, "setup", "failed_breakdown_reclaim")}</option>
+              <option value="oneil_leader_watch">{labelFor(locale, "setup", "oneil_leader_watch")}</option>
             </select>
             <select
               className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
               onChange={(event) => setValidationStatus(event.target.value)}
               value={validationStatus}
             >
-              <option value="">All validation</option>
-              <option value="shadow_only">Shadow only</option>
-              <option value="paper_allowed">Paper allowed</option>
-              <option value="live_allowed">Live allowed</option>
+              <option value="">{t(locale, "allValidation")}</option>
+              <option value="shadow_only">{labelFor(locale, "status", "shadow_only")}</option>
+              <option value="paper_allowed">{labelFor(locale, "status", "paper_allowed")}</option>
+              <option value="live_allowed">{labelFor(locale, "status", "live_allowed")}</option>
             </select>
           </div>
         </div>
@@ -659,17 +831,24 @@ function PALab() {
           <table className="min-w-full table-fixed text-left text-sm">
             <thead className="bg-panel text-xs uppercase text-slate-500">
               <tr>
-                <th className="w-24 px-4 py-3">Symbol</th>
-                <th className="w-48 px-4 py-3">Setup</th>
-                <th className="w-20 px-4 py-3">Grade</th>
-                <th className="w-24 px-4 py-3">Score</th>
-                <th className="w-32 px-4 py-3">Validation</th>
-                <th className="w-28 px-4 py-3">Status</th>
-                <th className="w-40 px-4 py-3">Detected</th>
+                <th className="w-24 px-4 py-3">{t(locale, "symbol")}</th>
+                <th className="w-48 px-4 py-3">{t(locale, "setup")}</th>
+                <th className="w-20 px-4 py-3">{t(locale, "grade")}</th>
+                <th className="w-24 px-4 py-3">{t(locale, "score")}</th>
+                <th className="w-32 px-4 py-3">{t(locale, "validation")}</th>
+                <th className="w-28 px-4 py-3">{t(locale, "status")}</th>
+                <th className="w-40 px-4 py-3">{t(locale, "detected")}</th>
                 <th className="w-20 px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
+              {!(setups.data ?? []).length ? (
+                <tr>
+                  <td className="px-4 py-6 text-sm text-slate-600" colSpan={8}>
+                    {t(locale, "noSetup")}
+                  </td>
+                </tr>
+              ) : null}
               {(setups.data ?? []).map((setup) => (
                 <tr
                   key={setup.setup_id}
@@ -677,23 +856,23 @@ function PALab() {
                 >
                   <td className="px-4 py-3 font-medium text-ink">{setup.symbol_id}</td>
                   <td className="truncate px-4 py-3" title={setup.setup_type}>
-                    {setup.setup_type}
+                    {labelFor(locale, "setup", setup.setup_type)}
                   </td>
                   <td className="px-4 py-3">{formatValue(setup.setup_grade)}</td>
-                  <td className="px-4 py-3">{formatNumber(setup.pa_quality_score)}</td>
+                  <td className="px-4 py-3">{formatNumber(setup.pa_quality_score, 1, locale)}</td>
                   <td className="px-4 py-3">
                     <StatusPill
-                      label={setup.validation_status ?? "unknown"}
+                      label={labelFor(locale, "status", setup.validation_status ?? "unknown")}
                       tone={decisionTone(setup.validation_status)}
                     />
                   </td>
-                  <td className="px-4 py-3">{formatValue(setup.status)}</td>
-                  <td className="px-4 py-3">{formatDate(setup.detected_ts)}</td>
+                  <td className="px-4 py-3">{labelFor(locale, "status", setup.status)}</td>
+                  <td className="px-4 py-3">{formatDate(setup.detected_ts, locale)}</td>
                   <td className="px-4 py-3">
                     <button
                       className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
                       onClick={() => setSelectedSetupId(setup.setup_id)}
-                      title="Open setup detail"
+                      title={t(locale, "openDetail")}
                       type="button"
                     >
                       <Eye size={16} />
@@ -706,47 +885,49 @@ function PALab() {
         </div>
       </section>
 
-      <PASetupDetailPanel setup={selectedSetup} />
+      <PASetupDetailPanel locale={locale} setup={selectedSetup} />
     </section>
   );
 }
 
-function PASetupDetailPanel({ setup }: { setup: PASetup | null }) {
+function PASetupDetailPanel({ setup, locale }: { setup: PASetup | null; locale: Locale }) {
   const scoreBreakdown = nestedRecord(setup?.entry_plan, "score_breakdown");
   return (
-    <aside className="rounded-md border border-line bg-white">
+    <aside className="min-w-0 rounded-md border border-line bg-white">
       <div className="border-b border-line px-4 py-3">
         <h2 className="text-base font-semibold text-ink">
-          {setup ? `${setup.symbol_id} Setup Detail` : "Setup Detail"}
+          {setup ? `${setup.symbol_id} ${t(locale, "setupDetail")}` : t(locale, "setupDetail")}
         </h2>
-        <p className="text-xs text-slate-500">{setup?.setup_id ?? "No setup selected"}</p>
+        <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? t(locale, "noSelection")}</p>
       </div>
       <div className="space-y-4 p-4">
         {setup ? (
           <>
+            <ExplanationBlock locale={locale} setup={setup} />
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Setup" value={setup.setup_type} />
-              <Field label="Grade" value={setup.setup_grade} />
-              <Field label="Quality" value={formatNumber(setup.pa_quality_score)} />
-              <Field label="Timeframe" value={setup.timeframe} />
-              <Field label="Validation" value={setup.validation_status} />
-              <Field label="Status" value={setup.status} />
+              <Field label={t(locale, "setup")} value={labelFor(locale, "setup", setup.setup_type)} />
+              <Field label={t(locale, "grade")} value={setup.setup_grade} />
+              <Field label={t(locale, "quality")} value={formatNumber(setup.pa_quality_score, 1, locale)} />
+              <Field label={t(locale, "timeframe")} value={setup.timeframe} />
+              <Field label={t(locale, "validation")} value={labelFor(locale, "status", setup.validation_status)} />
+              <Field label={t(locale, "status")} value={labelFor(locale, "status", setup.status)} />
             </div>
             <div className="grid grid-cols-2 gap-3 border-t border-line pt-3">
-              <Field label="Structure" value={formatNumber(setup.structure_score)} />
-              <Field label="Location" value={formatNumber(setup.location_score)} />
-              <Field label="Volume" value={formatNumber(setup.volume_score)} />
-              <Field label="Trend RS" value={formatNumber(setup.trend_rs_score)} />
-              <Field label="Context" value={formatNumber(setup.context_score)} />
-              <Field label="Risk Stop" value={formatNumber(setup.risk_stop_score)} />
+              <Field label={t(locale, "structure")} value={formatNumber(setup.structure_score, 1, locale)} />
+              <Field label={t(locale, "location")} value={formatNumber(setup.location_score, 1, locale)} />
+              <Field label={t(locale, "volume")} value={formatNumber(setup.volume_score, 1, locale)} />
+              <Field label={t(locale, "trendRs")} value={formatNumber(setup.trend_rs_score, 1, locale)} />
+              <Field label={t(locale, "context")} value={formatNumber(setup.context_score, 1, locale)} />
+              <Field label={t(locale, "riskStop")} value={formatNumber(setup.risk_stop_score, 1, locale)} />
             </div>
-            <DetailBlock title="Score Breakdown" data={scoreBreakdown} />
-            <DetailBlock title="Entry Plan" data={setup.entry_plan} />
-            <DetailBlock title="Exit Plan" data={setup.exit_plan} />
-            <DetailBlock title="Invalidation" data={setup.invalidation} />
+            <KeyLevelsBlock entryPlan={setup.entry_plan} exitPlan={setup.exit_plan} locale={locale} setup={setup} />
+            <ScoreBreakdownBlock data={scoreBreakdown} locale={locale} />
+            <PlanFields title={t(locale, "entryPlan")} data={setup.entry_plan} locale={locale} omitKeys={["score_breakdown"]} />
+            <PlanFields title={t(locale, "exitPlan")} data={setup.exit_plan} locale={locale} />
+            <PlanFields title={t(locale, "invalidation")} data={setup.invalidation} locale={locale} />
           </>
         ) : (
-          <p className="text-sm text-slate-600">No PA setups found.</p>
+          <p className="text-sm text-slate-600">{t(locale, "noSetup")}</p>
         )}
       </div>
     </aside>
@@ -764,9 +945,19 @@ function nestedRecord(
   return null;
 }
 
-function formatDetailValue(value: unknown) {
+function numberFromRecord(data: Record<string, unknown> | null | undefined, key: string) {
+  const value = data?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function stringFromRecord(data: Record<string, unknown> | null | undefined, key: string) {
+  const value = data?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function formatDetailValue(value: unknown, locale: Locale): string {
   if (typeof value === "number") {
-    return formatNumber(value, 3);
+    return formatNumber(value, 3, locale);
   }
   if (typeof value === "boolean") {
     return value ? "true" : "false";
@@ -774,24 +965,45 @@ function formatDetailValue(value: unknown) {
   if (value === null || value === undefined || value === "") {
     return "-";
   }
-  if (typeof value === "object") {
-    return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => formatDetailValue(item, locale)).join(", ");
   }
-  return String(value);
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([, nestedValue]) => nestedValue !== null && nestedValue !== undefined && nestedValue !== "")
+      .map(([nestedKey, nestedValue]) => `${labelFor(locale, "plan", nestedKey)}: ${formatDetailValue(nestedValue, locale)}`)
+      .join(" / ");
+  }
+  const raw = String(value);
+  const planLabel = labelFor(locale, "plan", raw);
+  if (planLabel !== raw) {
+    return planLabel;
+  }
+  return labelFor(locale, "status", raw);
 }
 
-function PositionsTable({ data, loading, error }: { data: Position[]; loading: boolean; error: boolean }) {
+function PositionsTable({
+  data,
+  loading,
+  error,
+  locale
+}: {
+  data: Position[];
+  loading: boolean;
+  error: boolean;
+  locale: Locale;
+}) {
   return (
-    <TableShell title="Positions" loading={loading} error={error}>
+    <TableShell title={t(locale, "positions")} loading={loading} error={error} locale={locale}>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-4 py-3">Symbol</th>
-            <th className="px-4 py-3">Type</th>
-            <th className="px-4 py-3">Qty</th>
-            <th className="px-4 py-3">Entry</th>
-            <th className="px-4 py-3">Stop</th>
-            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">{t(locale, "symbol")}</th>
+            <th className="px-4 py-3">{t(locale, "type")}</th>
+            <th className="px-4 py-3">{t(locale, "qty")}</th>
+            <th className="px-4 py-3">{t(locale, "entry")}</th>
+            <th className="px-4 py-3">{t(locale, "stop")}</th>
+            <th className="px-4 py-3">{t(locale, "status")}</th>
           </tr>
         </thead>
         <tbody>
@@ -811,17 +1023,27 @@ function PositionsTable({ data, loading, error }: { data: Position[]; loading: b
   );
 }
 
-function AlertsTable({ data, loading, error }: { data: ExitAlert[]; loading: boolean; error: boolean }) {
+function AlertsTable({
+  data,
+  loading,
+  error,
+  locale
+}: {
+  data: ExitAlert[];
+  loading: boolean;
+  error: boolean;
+  locale: Locale;
+}) {
   return (
-    <TableShell title="Exit Alerts" loading={loading} error={error}>
+    <TableShell title={t(locale, "alerts")} loading={loading} error={error} locale={locale}>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-4 py-3">Level</th>
-            <th className="px-4 py-3">Action</th>
-            <th className="px-4 py-3">Reason</th>
-            <th className="px-4 py-3">New Stop</th>
-            <th className="px-4 py-3">Time</th>
+            <th className="px-4 py-3">{t(locale, "level")}</th>
+            <th className="px-4 py-3">{t(locale, "action")}</th>
+            <th className="px-4 py-3">{t(locale, "reason")}</th>
+            <th className="px-4 py-3">{t(locale, "newStop")}</th>
+            <th className="px-4 py-3">{t(locale, "time")}</th>
           </tr>
         </thead>
         <tbody>
@@ -831,7 +1053,7 @@ function AlertsTable({ data, loading, error }: { data: ExitAlert[]; loading: boo
               <td className="px-4 py-3">{formatValue(row.action)}</td>
               <td className="px-4 py-3">{formatValue(row.reason)}</td>
               <td className="px-4 py-3">{formatValue(row.new_stop)}</td>
-              <td className="px-4 py-3">{formatDate(row.alert_ts)}</td>
+              <td className="px-4 py-3">{formatDate(row.alert_ts, locale)}</td>
             </tr>
           ))}
         </tbody>
@@ -840,26 +1062,36 @@ function AlertsTable({ data, loading, error }: { data: ExitAlert[]; loading: boo
   );
 }
 
-function JournalTable({ data, loading, error }: { data: JournalTrade[]; loading: boolean; error: boolean }) {
+function JournalTable({
+  data,
+  loading,
+  error,
+  locale
+}: {
+  data: JournalTrade[];
+  loading: boolean;
+  error: boolean;
+  locale: Locale;
+}) {
   return (
-    <TableShell title="Journal" loading={loading} error={error}>
+    <TableShell title={t(locale, "journal")} loading={loading} error={error} locale={locale}>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
-            <th className="px-4 py-3">Symbol</th>
-            <th className="px-4 py-3">Entry</th>
-            <th className="px-4 py-3">Exit</th>
-            <th className="px-4 py-3">Net PnL</th>
-            <th className="px-4 py-3">R</th>
-            <th className="px-4 py-3">Exit Reason</th>
+            <th className="px-4 py-3">{t(locale, "symbol")}</th>
+            <th className="px-4 py-3">{t(locale, "entry")}</th>
+            <th className="px-4 py-3">{t(locale, "exit")}</th>
+            <th className="px-4 py-3">{t(locale, "netPnl")}</th>
+            <th className="px-4 py-3">{t(locale, "rMultiple")}</th>
+            <th className="px-4 py-3">{t(locale, "exitReason")}</th>
           </tr>
         </thead>
         <tbody>
           {data.map((row) => (
             <tr key={row.trade_id} className="border-t border-line">
               <td className="px-4 py-3 font-medium text-ink">{formatValue(row.symbol_id)}</td>
-              <td className="px-4 py-3">{formatDate(row.entry_ts)}</td>
-              <td className="px-4 py-3">{formatDate(row.exit_ts)}</td>
+              <td className="px-4 py-3">{formatDate(row.entry_ts, locale)}</td>
+              <td className="px-4 py-3">{formatDate(row.exit_ts, locale)}</td>
               <td className="px-4 py-3">{formatValue(row.net_pnl)}</td>
               <td className="px-4 py-3">{formatValue(row.r_multiple)}</td>
               <td className="px-4 py-3">{formatValue(row.exit_reason)}</td>
