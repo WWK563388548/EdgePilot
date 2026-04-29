@@ -9,19 +9,21 @@ import {
   BriefcaseBusiness,
   CircleDot,
   Database,
+  Eye,
   ListChecks,
   LogIn,
   LogOut,
   PlugZap,
   RefreshCcw,
   Settings,
-  ShieldCheck
+  ShieldCheck,
+  X
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { Candidate, ExitAlert, JournalTrade, Position } from "@/lib/api";
+import type { Candidate, CandidateDetail, ExitAlert, JournalTrade, Position } from "@/lib/api";
 import { useWorkspaceStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store";
 
@@ -39,6 +41,16 @@ function formatValue(value: string | number | null | undefined) {
     return "-";
   }
   return String(value);
+}
+
+function formatNumber(value: number | null | undefined, digits = 1) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return new Intl.NumberFormat("en", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: 0
+  }).format(value);
 }
 
 function formatDate(value: string | null | undefined) {
@@ -76,6 +88,19 @@ function DataState({ isLoading, isError }: { isLoading: boolean; isError: boolea
     return <span className="text-sm text-rose-700">API unavailable</span>;
   }
   return null;
+}
+
+function decisionTone(value: string | null | undefined): "good" | "warn" | "bad" | "neutral" {
+  if (value === "candidate" || value === "live_allowed") {
+    return "good";
+  }
+  if (value === "watch" || value === "paper_allowed" || value === "shadow_only") {
+    return "warn";
+  }
+  if (value === "avoid" || value === "failed") {
+    return "bad";
+  }
+  return "neutral";
 }
 
 export default function Home() {
@@ -398,32 +423,182 @@ function SettingsPanel() {
 }
 
 function CandidatesTable({ data, loading, error }: { data: Candidate[]; loading: boolean; error: boolean }) {
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const detail = useQuery({
+    queryKey: ["candidate-detail", selectedCandidateId],
+    queryFn: () => api.candidateDetail(selectedCandidateId as string),
+    enabled: Boolean(selectedCandidateId)
+  });
+
   return (
-    <TableShell title="Candidates" loading={loading} error={error}>
-      <table className="min-w-full text-left text-sm">
-        <thead className="bg-panel text-xs uppercase text-slate-500">
-          <tr>
-            <th className="px-4 py-3">Symbol</th>
-            <th className="px-4 py-3">Strategy</th>
-            <th className="px-4 py-3">Score</th>
-            <th className="px-4 py-3">Decision</th>
-            <th className="px-4 py-3">Scan Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row) => (
-            <tr key={row.candidate_id} className="border-t border-line">
-              <td className="px-4 py-3 font-medium text-ink">{row.symbol_id}</td>
-              <td className="px-4 py-3">{row.strategy_name}</td>
-              <td className="px-4 py-3">{formatValue(row.score_total)}</td>
-              <td className="px-4 py-3">{formatValue(row.decision)}</td>
-              <td className="px-4 py-3">{row.scan_date}</td>
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <TableShell title="Candidates" loading={loading} error={error}>
+        <table className="min-w-full table-fixed text-left text-sm">
+          <thead className="bg-panel text-xs uppercase text-slate-500">
+            <tr>
+              <th className="w-24 px-4 py-3">Symbol</th>
+              <th className="w-44 px-4 py-3">Setup</th>
+              <th className="w-20 px-4 py-3">Grade</th>
+              <th className="w-32 px-4 py-3">Validation</th>
+              <th className="w-24 px-4 py-3">Score</th>
+              <th className="w-28 px-4 py-3">Decision</th>
+              <th className="w-32 px-4 py-3">Entry</th>
+              <th className="w-32 px-4 py-3">Stop</th>
+              <th className="w-32 px-4 py-3">Scan Date</th>
+              <th className="w-20 px-4 py-3"></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </TableShell>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr
+                key={row.candidate_id}
+                className={`border-t border-line ${selectedCandidateId === row.candidate_id ? "bg-teal-50/50" : ""}`}
+              >
+                <td className="px-4 py-3 font-medium text-ink">{row.symbol_id}</td>
+                <td className="truncate px-4 py-3" title={row.setup_type ?? row.strategy_name}>
+                  {row.setup_type ?? row.strategy_name}
+                </td>
+                <td className="px-4 py-3">{formatValue(row.pa_setup_grade)}</td>
+                <td className="px-4 py-3">
+                  <StatusPill
+                    label={row.validation_status ?? "unlinked"}
+                    tone={decisionTone(row.validation_status)}
+                  />
+                </td>
+                <td className="px-4 py-3">{formatNumber(row.score_total)}</td>
+                <td className="px-4 py-3">
+                  <StatusPill label={row.decision ?? "unknown"} tone={decisionTone(row.decision)} />
+                </td>
+                <td className="px-4 py-3">{formatNumber(row.entry_trigger, 2)}</td>
+                <td className="px-4 py-3">{formatNumber(row.initial_stop, 2)}</td>
+                <td className="px-4 py-3">{row.scan_date}</td>
+                <td className="px-4 py-3">
+                  <button
+                    className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
+                    onClick={() => setSelectedCandidateId(row.candidate_id)}
+                    title="Open candidate detail"
+                    type="button"
+                  >
+                    <Eye size={16} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableShell>
+
+      <CandidateDetailPanel
+        detail={detail.data}
+        error={detail.isError}
+        loading={detail.isLoading}
+        onClose={() => setSelectedCandidateId(null)}
+        selected={Boolean(selectedCandidateId)}
+      />
+    </section>
   );
+}
+
+function CandidateDetailPanel({
+  detail,
+  loading,
+  error,
+  selected,
+  onClose
+}: {
+  detail: CandidateDetail | undefined;
+  loading: boolean;
+  error: boolean;
+  selected: boolean;
+  onClose: () => void;
+}) {
+  const candidate = detail?.candidate;
+  const setup = detail?.pa_setup;
+
+  return (
+    <aside className="rounded-md border border-line bg-white">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        <div>
+          <h2 className="text-base font-semibold text-ink">
+            {candidate ? `${candidate.symbol_id} PA Detail` : "Candidate Detail"}
+          </h2>
+          <p className="text-xs text-slate-500">{setup?.setup_id ?? candidate?.candidate_id ?? "No candidate selected"}</p>
+        </div>
+        <button
+          className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
+          disabled={!selected}
+          onClick={onClose}
+          title="Close detail"
+          type="button"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="space-y-4 p-4">
+        <DataState isLoading={loading} isError={error} />
+        {!selected && <p className="text-sm text-slate-600">No candidate selected.</p>}
+        {candidate ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Setup" value={candidate.setup_type} />
+              <Field label="Grade" value={setup?.setup_grade} />
+              <Field label="Validation" value={setup?.validation_status} />
+              <Field label="Status" value={setup?.status ?? candidate.decision} />
+              <Field label="Quality" value={formatNumber(setup?.pa_quality_score ?? candidate.score_total)} />
+              <Field label="Timeframe" value={setup?.timeframe} />
+            </div>
+
+            <div className="grid gap-2">
+              <StatusPill label={setup?.validation_status ?? "unlinked"} tone={decisionTone(setup?.validation_status)} />
+            </div>
+
+            <DetailBlock title="Score Breakdown" data={detail?.score_breakdown} />
+            <DetailBlock title="Entry Plan" data={detail?.entry_plan} />
+            <DetailBlock title="Exit Plan" data={detail?.exit_plan} />
+            <DetailBlock title="Invalidation" data={detail?.invalidation} />
+          </>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
+function DetailBlock({ title, data }: { title: string; data: Record<string, unknown> | null | undefined }) {
+  const entries = Object.entries(data ?? {});
+  return (
+    <section className="border-t border-line pt-3">
+      <h3 className="mb-2 text-sm font-semibold text-ink">{title}</h3>
+      {entries.length ? (
+        <dl className="grid gap-2">
+          {entries.map(([key, value]) => (
+            <div key={key} className="flex items-start justify-between gap-3 text-sm">
+              <dt className="max-w-[45%] break-words text-slate-500">{key}</dt>
+              <dd className="max-w-[55%] break-words text-right font-medium text-ink">{formatDetailValue(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-sm text-slate-500">-</p>
+      )}
+    </section>
+  );
+}
+
+function formatDetailValue(value: unknown) {
+  if (typeof value === "number") {
+    return formatNumber(value, 3);
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
 
 function PositionsTable({ data, loading, error }: { data: Position[]; loading: boolean; error: boolean }) {

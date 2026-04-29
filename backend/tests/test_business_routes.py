@@ -8,6 +8,7 @@ from backend.app.api.routes.business import (
     create_journal_trade,
     create_position,
     get_dashboard_summary,
+    get_candidate_detail,
     list_candidates,
     list_exit_alerts,
     list_journal_trades,
@@ -22,6 +23,8 @@ from backend.app.main import app
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
+    CandidateDetail,
+    CandidatePASetup,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -109,6 +112,22 @@ def test_candidate_routes(monkeypatch) -> None:
         "update_candidate",
         lambda session, principal, candidate_id, request: _candidate(),
     )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_candidate_detail",
+        lambda session, principal, candidate_id: CandidateDetail(
+            candidate=_candidate(),
+            pa_setup=CandidatePASetup(
+                setup_id="pasetup_1",
+                symbol_id="SPY",
+                timeframe="1d",
+                detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+                setup_type="breakout",
+                validation_status="shadow_only",
+            ),
+            score_breakdown={"total": 82},
+        ),
+    )
 
     assert create_candidate(
         CandidateCreate(
@@ -120,6 +139,10 @@ def test_candidate_routes(monkeypatch) -> None:
         principal=_principal(),
     ).candidate_id == "cand_1"
     assert list_candidates(session=None, principal=_principal(), limit=10)[0].symbol_id == "SPY"
+    assert (
+        get_candidate_detail("cand_1", session=None, principal=_principal()).pa_setup.setup_id
+        == "pasetup_1"
+    )
     assert (
         update_candidate(
             "cand_1",

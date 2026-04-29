@@ -104,7 +104,10 @@ class ETFScannerService:
                 scored=scored,
                 setup_id=setup.setup_id,
             )
-            candidates.append(Candidate.model_validate(candidate))
+            candidate_schema = Candidate.model_validate(candidate)
+            candidate_schema.pa_setup_grade = setup.setup_grade
+            candidate_schema.validation_status = setup.validation_status
+            candidates.append(candidate_schema)
 
         return ETFOneilScannerResponse(
             account_id=request.account_id,
@@ -444,6 +447,7 @@ def _upsert_candidate(
         "scan_date": scored.detected_ts.date(),
         "strategy_name": "oneil_core_us_etf",
         "setup_type": scored.setup_type,
+        "pa_setup_id": setup_id,
         "score_total": scored.total_score,
         "entry_trigger": scored.entry_plan.get("trigger_price"),
         "initial_stop": scored.exit_plan.get("initial_stop"),

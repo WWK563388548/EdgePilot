@@ -39,6 +39,7 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert response.candidates_written == 1
     assert response.candidates[0].strategy_name == "oneil_core_us_etf"
     assert response.candidates[0].decision == "candidate"
+    assert response.candidates[0].pa_setup_id is not None
 
     setup_count = session.scalar(
         select(func.count()).select_from(db.PASetup).where(db.PASetup.symbol_id == "SPY")

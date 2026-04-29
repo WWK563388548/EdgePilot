@@ -4,6 +4,7 @@ from backend.app.api.dependencies import DbSession, TraderPrincipal, VerifiedPri
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
+    CandidateDetail,
     CandidateUpdate,
     DashboardSummary,
     ExitAlert,
@@ -42,6 +43,22 @@ def list_candidates(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[Candidate]:
     return BusinessService.list_candidates(session=session, principal=principal, limit=limit)
+
+
+@router.get("/candidates/{candidate_id}", response_model=CandidateDetail)
+def get_candidate_detail(
+    candidate_id: str,
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> CandidateDetail:
+    try:
+        return BusinessService.get_candidate_detail(
+            session=session,
+            principal=principal,
+            candidate_id=candidate_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.patch("/candidates/{candidate_id}", response_model=Candidate)

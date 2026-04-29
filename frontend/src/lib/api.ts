@@ -43,12 +43,49 @@ export type Candidate = {
   scan_date: string;
   strategy_name: string;
   setup_type: string | null;
+  pa_setup_id: string | null;
   score_total: number | null;
   entry_trigger: number | null;
   initial_stop: number | null;
   decision: string | null;
   option_suitability: string | null;
+  ai_review_json: string | null;
   created_at: string | null;
+  pa_setup_grade: string | null;
+  validation_status: string | null;
+};
+
+export type PASetup = {
+  setup_id: string;
+  symbol_id: string;
+  timeframe: string;
+  detected_ts: string;
+  setup_type: string;
+  setup_grade: string | null;
+  pa_quality_score: number | null;
+  structure_score: number | null;
+  location_score: number | null;
+  volume_score: number | null;
+  trend_rs_score: number | null;
+  context_score: number | null;
+  risk_stop_score: number | null;
+  followthrough_score: number | null;
+  entry_plan: Record<string, unknown> | null;
+  exit_plan: Record<string, unknown> | null;
+  invalidation: Record<string, unknown> | null;
+  status: string | null;
+  validation_status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type CandidateDetail = {
+  candidate: Candidate;
+  pa_setup: PASetup | null;
+  score_breakdown: Record<string, unknown> | null;
+  entry_plan: Record<string, unknown> | null;
+  exit_plan: Record<string, unknown> | null;
+  invalidation: Record<string, unknown> | null;
 };
 
 export type Position = {
@@ -150,6 +187,8 @@ export const api = {
     postJson<VerificationEmailResponse>("/api/auth/resend-verification"),
   dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
   candidates: () => getJson<Candidate[]>("/api/candidates?limit=100"),
+  candidateDetail: (candidateId: string) =>
+    getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
   positions: () => getJson<Position[]>("/api/positions?limit=100"),
   alerts: () => getJson<ExitAlert[]>("/api/exit-alerts?acknowledged=false&limit=100"),
   journal: () => getJson<JournalTrade[]>("/api/journal/trades?limit=100")

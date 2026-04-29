@@ -183,6 +183,7 @@ class Candidate(Base):
     scan_date: Mapped[date] = mapped_column(Date)
     strategy_name: Mapped[str] = mapped_column(Text)
     setup_type: Mapped[str | None] = mapped_column(Text)
+    pa_setup_id: Mapped[str | None] = mapped_column(ForeignKey("pa_setups.setup_id"))
     score_total: Mapped[float | None] = mapped_column(Float)
     entry_trigger: Mapped[float | None] = mapped_column(Float)
     initial_stop: Mapped[float | None] = mapped_column(Float)
