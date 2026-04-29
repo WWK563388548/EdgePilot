@@ -1,5 +1,9 @@
 # EdgePilot Review, Next Steps, Deployment, and CI/CD Plan
 
+> Status: historical review for the D1/D2 reliability and deployment foundation.
+> Most reliability/auth/ORM/frontend items are now implemented. Current product sequencing is
+> tracked in `docs/v0_6_review_and_next_steps.md`.
+
 ## Scope
 
 This review covers the current `main` state after D1 market-data ingestion was merged. It focuses on implementation correctness, the next backend/frontend milestones, and a pragmatic deployment plus CI/CD path.

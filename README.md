@@ -1,8 +1,8 @@
 # EdgePilot
 
-基于 `docs/trading_assistant_prd_tdd_implementation_plan_v0_3_db_frontend_analytics (1).md` 的首版落地骨架。
+基于 `docs/edgepilot_prd_tdd_implementation_plan_v0_6_advanced_pa_engine.md` 的交易辅助系统。v0.6 的当前产品重点是 Advanced PA Engine：从市场数据生成 PA facts、结构/位置/量能判断、setup、评分、入场/离场计划，并通过 shadow/paper/live validation gate 控制风险。
 
-## 当前已落地（D0 + D1 + D2 + F0/F1 启动）
+## 当前已落地（平台与数据底座）
 
 - Backend FastAPI 基础服务（health、analytics API、realtime SSE 事件流占位、D1 ingestion API、D2 business state API）。
 - PostgreSQL + TimescaleDB + Redis 的 `docker-compose` 本地开发环境。
@@ -15,7 +15,14 @@
   - 根目录 `.env.example`
   - `backend/.env.example`
   - `frontend/.env.example`
-- 面向 v0.3 的分阶段实施路线图文档。
+- 面向 v0.6 的 PRD/TDD 与下一步实施路线图文档。
+
+## 当前还没有落地
+
+- Scanner / PA Engine 尚未生成真实 candidates，所以业务 API 返回空数组是正常状态。
+- PA v0.6 表与 API 尚未实现：`pa_facts`、`pa_structures`、`pa_setups`、`pa_calibration_stats`。
+- PA Lab、candidate detail drawer、图表标注、validation/cashflow/analytics 扩展页面尚未实现。
+- J-Quants、日本市场 context、Option Adapter、AI PA Reviewer 仍是后续阶段。
 
 ## 快速启动
 
@@ -63,21 +70,29 @@ npm run dev -- --port 3000
 - `GET /api/journal/trades`
 - `POST /api/journal/trades`
 
-All backend write endpoints require the admin header:
+Ingestion write endpoints require the admin header:
 
 ```text
 X-Ingestion-Admin-Token: <INGESTION_ADMIN_TOKEN>
 ```
 
-Business/dashboard endpoints also require:
+Business/dashboard endpoints require:
 
 ```text
 Authorization: Bearer <OIDC access token>
 ```
 
+Business write endpoints additionally require a role that passes the backend role gate.
+
 ## 规划阶段
 
-详见：`docs/v0_3_execution_roadmap.md`
+当前产品方向：
+
+- v0.6 PRD/TDD：`docs/edgepilot_prd_tdd_implementation_plan_v0_6_advanced_pa_engine.md`
+- v0.6 review and next steps：`docs/v0_6_review_and_next_steps.md`
+- v0.3 historical roadmap：`docs/v0_3_execution_roadmap.md`
+
+建议下一步实现：`PR B: PA Data Foundation`，即 Alembic + ORM + schemas + read APIs for `pa_facts` / `pa_structures` / `pa_setups` / `pa_calibration_stats`。
 
 ## D1 Ingestion 环境变量
 
@@ -90,6 +105,9 @@ Authorization: Bearer <OIDC access token>
 - `AUTH_JWKS_URL`（可选；默认从 issuer 推导 `/.well-known/jwks.json`）
 - `AUTH_ACCOUNT_CLAIM`（默认 `https://edgepilot/account_id`）
 - `AUTH_ROLE_CLAIM`（默认 `https://edgepilot/role`）
+- `AUTH_EMAIL_CLAIM`（默认 `https://edgepilot/email`）
+- `AUTH_DISPLAY_NAME_CLAIM`（默认 `https://edgepilot/name`）
+- `AUTH_EMAIL_VERIFIED_CLAIM`（默认 `https://edgepilot/email_verified`）
 - `AUTH0_MANAGEMENT_CLIENT_ID`（用于重发验证邮件）
 - `AUTH0_MANAGEMENT_CLIENT_SECRET`
 - `AUTH0_MANAGEMENT_AUDIENCE`

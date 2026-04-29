@@ -1,5 +1,9 @@
 # Auth, ORM, and Next Implementation Plan
 
+> Status: PR 5/6 foundation is implemented. This document remains the auth/ORM decision record.
+> Product feature sequencing has moved to v0.6 Advanced PA Engine; use
+> `docs/v0_6_review_and_next_steps.md` for the current next PR plan.
+
 ## Current Context
 
 The project now has a deployable FastAPI backend, D1 ingestion hardening, D2 business-state APIs, and a Next.js frontend workspace. The remaining blocker before sharing the system with non-technical users is not UI polish; it is user identity and data isolation.
