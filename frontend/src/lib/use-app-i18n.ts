@@ -7,6 +7,16 @@ import { numberFromRecord } from "@/lib/format";
 
 type LabelGroup = "setup" | "status" | "plan";
 
+function normalizeLabelKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 export function useAppI18n() {
   const t = useTranslations("ui");
   const setupLabels = useTranslations("labels.setup");
@@ -20,7 +30,12 @@ export function useAppI18n() {
       return "-";
     }
     const source = group === "setup" ? setupLabels : group === "status" ? statusLabels : planLabels;
-    return source.has(value) ? source(value) : value;
+    if (source.has(value)) {
+      return source(value);
+    }
+
+    const normalized = normalizeLabelKey(value);
+    return source.has(normalized) ? source(normalized) : value;
   };
 
   const scoreMeta = (key: string) => {

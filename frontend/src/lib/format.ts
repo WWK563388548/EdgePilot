@@ -31,6 +31,23 @@ export function formatDate(value: string | null | undefined, locale: Locale = "e
   }).format(new Date(value));
 }
 
+export function formatDateOnly(value: string | null | undefined, locale: Locale = "en") {
+  if (!value) {
+    return "-";
+  }
+
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const date = dateMatch
+    ? new Date(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
+    : new Date(value);
+
+  return new Intl.DateTimeFormat(localeTag[locale], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
 export function nestedRecord(
   data: Record<string, unknown> | null | undefined,
   key: string
@@ -57,7 +74,7 @@ export function formatDetailValue(value: unknown, locale: Locale, labelFor: Deta
     return formatNumber(value, 3, locale);
   }
   if (typeof value === "boolean") {
-    return value ? "true" : "false";
+    return labelFor("plan", value ? "true" : "false");
   }
   if (value === null || value === undefined || value === "") {
     return "-";

@@ -67,7 +67,7 @@ export function CandidateDetailPanel({
               <Field label={t("validation")} value={labelFor("status", setup?.validation_status)} />
               <Field label={t("status")} value={labelFor("status", setup?.status ?? candidate.decision)} />
               <Field label={t("quality")} value={formatNumber(setup?.pa_quality_score ?? candidate.score_total, 1, locale)} />
-              <Field label={t("timeframe")} value={setup?.timeframe} />
+              <Field label={t("timeframe")} value={labelFor("plan", setup?.timeframe)} />
             </div>
 
             <KeyLevelsBlock
@@ -108,7 +108,7 @@ export function PASetupDetailPanel({ setup, locale }: { setup: PASetup | null; l
               <Field label={t("setup")} value={labelFor("setup", setup.setup_type)} />
               <Field label={t("grade")} value={setup.setup_grade} />
               <Field label={t("quality")} value={formatNumber(setup.pa_quality_score, 1, locale)} />
-              <Field label={t("timeframe")} value={setup.timeframe} />
+              <Field label={t("timeframe")} value={labelFor("plan", setup.timeframe)} />
               <Field label={t("validation")} value={labelFor("status", setup.validation_status)} />
               <Field label={t("status")} value={labelFor("status", setup.status)} />
             </div>
@@ -193,6 +193,15 @@ function ScoreBreakdownBlock({
 }) {
   const { scoreMeta, t } = useAppI18n();
   const order = ["total", "trend", "relative_strength", "volume_liquidity", "base_setup", "market_context", "fundamental_lite"];
+  const maxScoreByKey: Record<string, number> = {
+    total: 100,
+    trend: 25,
+    relative_strength: 25,
+    volume_liquidity: 10,
+    base_setup: 12,
+    market_context: 10,
+    fundamental_lite: 10
+  };
   const entries = Object.entries(data ?? {})
     .filter(([, value]) => typeof value === "number")
     .sort(([left], [right]) => {
@@ -209,6 +218,8 @@ function ScoreBreakdownBlock({
           {entries.map(([key, value]) => {
             const meta = scoreMeta(key);
             const score = typeof value === "number" ? value : null;
+            const maxScore = maxScoreByKey[key] ?? 100;
+            const barWidth = Math.max(0, Math.min(100, ((score ?? 0) / maxScore) * 100));
             return (
               <div key={key} className="grid grid-cols-[minmax(0,1fr)_3.5rem] gap-3">
                 <div className="min-w-0">
@@ -217,7 +228,7 @@ function ScoreBreakdownBlock({
                   <div className="mt-2 h-1.5 overflow-hidden rounded bg-slate-100">
                     <div
                       className="h-full rounded bg-teal"
-                      style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }}
+                      style={{ width: `${barWidth}%` }}
                     />
                   </div>
                 </div>
@@ -253,9 +264,14 @@ function PlanFields({
       {entries.length ? (
         <dl className="grid gap-2">
           {entries.map(([key, value]) => (
-            <div key={key} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3 text-sm">
+            <div
+              key={key}
+              className="grid gap-1 rounded-md border border-line bg-panel/70 px-3 py-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-3"
+            >
               <dt className="min-w-0 break-words text-slate-500">{labelFor("plan", key)}</dt>
-              <dd className="min-w-0 break-words font-medium text-ink">{formatDetailValue(value, locale, labelFor)}</dd>
+              <dd className="min-w-0 break-words font-semibold leading-6 text-ink">
+                {formatDetailValue(value, locale, labelFor)}
+              </dd>
             </div>
           ))}
         </dl>

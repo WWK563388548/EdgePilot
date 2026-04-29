@@ -109,7 +109,10 @@ const text = {
     topScore: "最高分",
     activeFilters: "筛选条件",
     selected: "当前选择",
-    setupCount: "形态数量"
+    setupCount: "形态数量",
+    scan: "扫描",
+    selectedCandidate: "当前候选",
+    reviewOnly: "观察与复盘"
   },
   en: {
     overview: "Overview",
@@ -210,7 +213,10 @@ const text = {
     topScore: "Top score",
     activeFilters: "Active filters",
     selected: "Selected",
-    setupCount: "Setups"
+    setupCount: "Setups",
+    scan: "Scan",
+    selectedCandidate: "Selected candidate",
+    reviewOnly: "Review only"
   },
   ja: {
     overview: "概要",
@@ -311,7 +317,10 @@ const text = {
     topScore: "最高スコア",
     activeFilters: "フィルター",
     selected: "選択中",
-    setupCount: "セットアップ数"
+    setupCount: "セットアップ数",
+    scan: "スキャン",
+    selectedCandidate: "選択中の候補",
+    reviewOnly: "観察・検証用"
   }
 } as const;
 
@@ -395,8 +404,20 @@ const labels = {
     price_below: { zh: "跌破价格", en: "Price below", ja: "下回る価格" },
     reason: { zh: "原因", en: "Reason", ja: "理由" },
     long: { zh: "做多", en: "Long", ja: "ロング" },
+    "1d": { zh: "日线", en: "Daily", ja: "日足" },
+    "20ma": { zh: "20 日均线", en: "20MA", ja: "20日線" },
+    "50ma": { zh: "50 日均线", en: "50MA", ja: "50日線" },
+    true: { zh: "是", en: "Yes", ja: "はい" },
+    false: { zh: "否", en: "No", ja: "いいえ" },
+    score_refs: { zh: "评分引用", en: "Score references", ja: "スコア参照" },
+    oneil_core: { zh: "欧奈尔核心评分", en: "O'Neil core score", ja: "オニール中核スコア" },
     break_above_high: { zh: "突破当日高点", en: "Break above high", ja: "高値上抜け" },
-    reclaim_momentum: { zh: "重新转强", en: "Reclaim momentum", ja: "勢い回復" }
+    reclaim_momentum: { zh: "重新转强", en: "Reclaim momentum", ja: "勢い回復" },
+    daily_close_below_initial_stop_or_setup_loses_20_50ma_support: {
+      zh: "日线收盘跌破初始止损，或形态失去 20/50 日均线支撑",
+      en: "Daily close below the initial stop, or the setup loses 20/50MA support",
+      ja: "日足終値が初期損切りを下回る、または20/50日線の支えを失う"
+    }
   }
 } as const;
 
