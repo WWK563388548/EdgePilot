@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Eye, Filter, Layers, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CompactStat, DataState, StatusPill } from "@/components/workspace/common";
 import { PASetupDetailPanel } from "@/components/workspace/detail-panels";
@@ -18,6 +18,7 @@ export function PALabView({ locale }: { locale: Locale }) {
   const [setupType, setSetupType] = useState("");
   const [validationStatus, setValidationStatus] = useState("");
   const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(true);
   const filters = {
     symbol: symbol.trim().toUpperCase() || undefined,
     setupType: setupType || undefined,
@@ -29,11 +30,17 @@ export function PALabView({ locale }: { locale: Locale }) {
     queryFn: () => api.paSetups(filters)
   });
   const rows = setups.data ?? [];
-  const selectedSetup = rows.find((setup) => setup.setup_id === selectedSetupId) ?? rows[0] ?? null;
+  const selectedSetup = detailOpen ? rows.find((setup) => setup.setup_id === selectedSetupId) ?? rows[0] ?? null : null;
   const topScore = useMemo(
     () => rows.reduce<number | null>((best, row) => Math.max(best ?? 0, row.pa_quality_score ?? 0), null),
     [rows]
   );
+
+  useEffect(() => {
+    if (selectedSetupId && !rows.some((setup) => setup.setup_id === selectedSetupId)) {
+      setSelectedSetupId(null);
+    }
+  }, [rows, selectedSetupId]);
 
   return (
     <section className="space-y-4">
@@ -43,7 +50,11 @@ export function PALabView({ locale }: { locale: Locale }) {
         <CompactStat icon={<Eye size={18} />} label={t("selected")} value={selectedSetup?.symbol_id ?? "-"} />
       </div>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
+      <section
+        className={`grid gap-4 ${
+          detailOpen && selectedSetup ? "xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]" : "xl:grid-cols-1"
+        }`}
+      >
         <section className="overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)]">
           <div className="border-b border-line bg-white px-4 py-3">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -134,7 +145,10 @@ export function PALabView({ locale }: { locale: Locale }) {
                     <td className="px-4 py-3">
                       <button
                         className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
-                        onClick={() => setSelectedSetupId(setup.setup_id)}
+                        onClick={() => {
+                          setSelectedSetupId(setup.setup_id);
+                          setDetailOpen(true);
+                        }}
                         title={t("openDetail")}
                         type="button"
                       >
@@ -148,7 +162,16 @@ export function PALabView({ locale }: { locale: Locale }) {
           </div>
         </section>
 
-        <PASetupDetailPanel locale={locale} setup={selectedSetup} />
+        {detailOpen && selectedSetup ? (
+          <PASetupDetailPanel
+            locale={locale}
+            onClose={() => {
+              setDetailOpen(false);
+              setSelectedSetupId(null);
+            }}
+            setup={selectedSetup}
+          />
+        ) : null}
       </section>
     </section>
   );

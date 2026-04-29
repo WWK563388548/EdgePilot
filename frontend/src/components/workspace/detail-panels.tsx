@@ -88,17 +88,37 @@ export function CandidateDetailPanel({
   );
 }
 
-export function PASetupDetailPanel({ setup, locale }: { setup: PASetup | null; locale: Locale }) {
+export function PASetupDetailPanel({
+  setup,
+  locale,
+  onClose
+}: {
+  setup: PASetup | null;
+  locale: Locale;
+  onClose?: () => void;
+}) {
   const { labelFor, t } = useAppI18n();
   const scoreBreakdown = nestedRecord(setup?.entry_plan, "score_breakdown");
 
   return (
     <aside className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-      <div className="border-b border-line bg-white px-4 py-3">
-        <h2 className="text-base font-semibold text-ink">
-          {setup ? `${setup.symbol_id} ${t("setupDetail")}` : t("setupDetail")}
-        </h2>
-        <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? t("noSelection")}</p>
+      <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-ink">
+            {setup ? `${setup.symbol_id} ${t("setupDetail")}` : t("setupDetail")}
+          </h2>
+          <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? t("noSelection")}</p>
+        </div>
+        {onClose ? (
+          <button
+            className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
+            onClick={onClose}
+            title={t("closeDetail")}
+            type="button"
+          >
+            <X size={16} />
+          </button>
+        ) : null}
       </div>
       <div className="space-y-4 p-4">
         {setup ? (
