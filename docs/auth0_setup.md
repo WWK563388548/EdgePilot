@@ -336,7 +336,10 @@ NEXT_PUBLIC_AUTH0_CONNECTION=
 
 ## 7. 创建后端 Management 应用
 
-这个应用不是给用户登录用的。它是给 EdgePilot 后端调用 Auth0，用来“重发邮箱验证邮件”。
+这个应用不是给用户登录用的。它是给 EdgePilot 后端调用 Auth0，用来：
+
+- 重发邮箱验证邮件。
+- 在 access token 没有 `email_verified` 字段时，查询用户是否已经验证邮箱。
 
 左侧菜单：
 
@@ -362,6 +365,7 @@ Auth0 Management API
 勾选权限：
 
 ```text
+read:users
 update:users
 ```
 
@@ -392,6 +396,9 @@ AUTH_JWKS_URL=
 AUTH_ALGORITHMS=RS256
 AUTH_ACCOUNT_CLAIM=https://edgepilot/account_id
 AUTH_ROLE_CLAIM=https://edgepilot/role
+AUTH_EMAIL_CLAIM=https://edgepilot/email
+AUTH_DISPLAY_NAME_CLAIM=https://edgepilot/name
+AUTH_EMAIL_VERIFIED_CLAIM=https://edgepilot/email_verified
 AUTH_DEFAULT_ROLE=owner
 
 AUTH0_MANAGEMENT_CLIENT_ID=<EdgePilot Backend Management 的 Client ID>
@@ -430,6 +437,9 @@ AUTH_JWKS_URL=
 AUTH_ALGORITHMS=RS256
 AUTH_ACCOUNT_CLAIM=https://edgepilot/account_id
 AUTH_ROLE_CLAIM=https://edgepilot/role
+AUTH_EMAIL_CLAIM=https://edgepilot/email
+AUTH_DISPLAY_NAME_CLAIM=https://edgepilot/name
+AUTH_EMAIL_VERIFIED_CLAIM=https://edgepilot/email_verified
 AUTH_DEFAULT_ROLE=owner
 AUTH0_MANAGEMENT_CLIENT_ID=<EdgePilot Backend Management 的 Client ID>
 AUTH0_MANAGEMENT_CLIENT_SECRET=<EdgePilot Backend Management 的 Client Secret>
@@ -647,6 +657,7 @@ EdgePilot Frontend: On
 
 ```text
 Auth0 Management API
+read:users
 update:users
 ```
 
@@ -656,6 +667,33 @@ update:users
 AUTH0_MANAGEMENT_CLIENT_ID
 AUTH0_MANAGEMENT_CLIENT_SECRET
 AUTH0_MANAGEMENT_AUDIENCE
+```
+
+### 已经验证邮箱但工作台 API 还是 403
+
+这通常是因为后端拿到的 API access token 里没有 `email_verified`。当前代码会自动去 Auth0 Management API 查用户资料，所以 Machine to Machine 应用必须授权：
+
+```text
+read:users
+```
+
+路径：
+
+```text
+Applications -> APIs -> Auth0 Management API -> Machine to Machine Applications
+```
+
+找到：
+
+```text
+EdgePilot Backend Management
+```
+
+勾选并保存：
+
+```text
+read:users
+update:users
 ```
 
 ## 12. 先不要管的高级内容

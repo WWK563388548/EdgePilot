@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from hashlib import sha256
+from time import monotonic
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
@@ -32,6 +34,9 @@ class AuthPrincipal:
 
 
 _jwks_client: PyJWKClient | None = None
+_auth0_management_token: tuple[str, float] | None = None
+_auth0_user_profile_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_AUTH0_USER_PROFILE_CACHE_SECONDS = 300
 
 
 def role_allows(actual: str, required: str) -> bool:
@@ -48,6 +53,57 @@ def _jwks_url() -> str:
     if settings.auth_issuer:
         return f"{settings.auth_issuer.rstrip('/')}/.well-known/jwks.json"
     return ""
+
+
+def _auth0_management_audience() -> str:
+    return settings.auth0_management_audience or f"{settings.auth_issuer.rstrip('/')}/api/v2/"
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return bool(value)
+
+
+def _claim_bool(claims: dict[str, Any], *keys: str) -> bool | None:
+    for key in keys:
+        if key in claims:
+            return _optional_bool(claims.get(key))
+    return None
+
+
+def _get_auth0_management_token(client: httpx.Client) -> str:
+    global _auth0_management_token
+
+    now = monotonic()
+    if _auth0_management_token and _auth0_management_token[1] > now:
+        return _auth0_management_token[0]
+
+    token_url = f"{settings.auth_issuer.rstrip('/')}/oauth/token"
+    token_response = client.post(
+        token_url,
+        json={
+            "grant_type": "client_credentials",
+            "client_id": settings.auth0_management_client_id,
+            "client_secret": settings.auth0_management_client_secret,
+            "audience": _auth0_management_audience(),
+        },
+    )
+    token_response.raise_for_status()
+    token_body = token_response.json()
+    access_token = token_body["access_token"]
+    expires_in = int(token_body.get("expires_in", 3600))
+    _auth0_management_token = (access_token, now + max(expires_in - 60, 60))
+    return access_token
+
+
+def _clear_auth0_management_token() -> None:
+    global _auth0_management_token
+    _auth0_management_token = None
 
 
 def decode_bearer_token(token: str) -> dict[str, Any]:
@@ -83,9 +139,24 @@ class AuthService:
         if role not in ROLE_ORDER:
             role = "viewer"
 
-        email = claims.get("email")
-        email_verified = bool(claims.get("email_verified"))
-        display_name = claims.get("name") or claims.get("nickname") or email
+        email = claims.get(settings.auth_email_claim) or claims.get("email")
+        display_name = (
+            claims.get(settings.auth_display_name_claim)
+            or claims.get("name")
+            or claims.get("nickname")
+            or email
+        )
+        email_verified = _claim_bool(
+            claims,
+            settings.auth_email_verified_claim,
+            "email_verified",
+        )
+        if email_verified is None or not email:
+            user_profile = AuthService.fetch_user_profile(subject)
+            email = email or user_profile.get("email")
+            display_name = display_name or user_profile.get("name") or user_profile.get("nickname")
+            if email_verified is None:
+                email_verified = _optional_bool(user_profile.get("email_verified"))
         user_id = _stable_id("user", subject)
 
         return AuthService.upsert_principal(
@@ -96,7 +167,7 @@ class AuthService:
             role=role,
             email=email,
             display_name=display_name,
-            email_verified=email_verified,
+            email_verified=bool(email_verified),
         )
 
     @staticmethod
@@ -128,6 +199,8 @@ class AuthService:
             user.email = email or user.email
             user.display_name = display_name or user.display_name
 
+        session.flush()
+
         membership = session.get(AccountMembership, (account_id, user.user_id))
         if membership is None:
             membership = AccountMembership(
@@ -153,11 +226,46 @@ class AuthService:
         return f"audit_{uuid4().hex}"
 
     @staticmethod
-    def resend_verification_email(external_subject: str) -> dict[str, Any]:
-        token_url = f"{settings.auth_issuer.rstrip('/')}/oauth/token"
-        audience = settings.auth0_management_audience or (
-            f"{settings.auth_issuer.rstrip('/')}/api/v2/"
+    def fetch_user_profile(external_subject: str) -> dict[str, Any]:
+        if not (
+            settings.auth_issuer
+            and settings.auth0_management_client_id
+            and settings.auth0_management_client_secret
+        ):
+            return {}
+
+        now = monotonic()
+        cached = _auth0_user_profile_cache.get(external_subject)
+        if cached and cached[0] > now:
+            return cached[1]
+
+        audience = _auth0_management_audience()
+        try:
+            with httpx.Client(timeout=10) as client:
+                for attempt in range(2):
+                    management_token = _get_auth0_management_token(client)
+                    response = client.get(
+                        f"{audience.rstrip('/')}/users/{quote(external_subject, safe='')}",
+                        headers={"Authorization": f"Bearer {management_token}"},
+                    )
+                    if response.status_code in {401, 403} and attempt == 0:
+                        _clear_auth0_management_token()
+                        continue
+                    response.raise_for_status()
+                    profile = dict(response.json())
+                    break
+        except httpx.HTTPError:
+            return {}
+
+        _auth0_user_profile_cache[external_subject] = (
+            now + _AUTH0_USER_PROFILE_CACHE_SECONDS,
+            profile,
         )
+        return profile
+
+    @staticmethod
+    def resend_verification_email(external_subject: str) -> dict[str, Any]:
+        audience = _auth0_management_audience()
         if not (
             settings.auth_issuer
             and settings.auth0_management_client_id
@@ -166,18 +274,7 @@ class AuthService:
             raise ValueError("Auth0 Management API credentials are not configured")
 
         with httpx.Client(timeout=10) as client:
-            token_response = client.post(
-                token_url,
-                json={
-                    "grant_type": "client_credentials",
-                    "client_id": settings.auth0_management_client_id,
-                    "client_secret": settings.auth0_management_client_secret,
-                    "audience": audience,
-                },
-            )
-            token_response.raise_for_status()
-            management_token = token_response.json()["access_token"]
-
+            management_token = _get_auth0_management_token(client)
             job_response = client.post(
                 f"{audience.rstrip('/')}/jobs/verification-email",
                 headers={"Authorization": f"Bearer {management_token}"},
