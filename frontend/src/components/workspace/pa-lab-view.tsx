@@ -43,7 +43,7 @@ export function PALabView({ locale }: { locale: Locale }) {
   }, [rows, selectedSetupId]);
 
   return (
-    <section className="space-y-4">
+    <section className="flex flex-col gap-4">
       <div className="grid gap-3 md:grid-cols-3">
         <CompactStat icon={<Layers size={18} />} label={t("paUniverse")} value={rows.length} />
         <CompactStat icon={<SlidersHorizontal size={18} />} label={t("topScore")} value={formatNumber(topScore, 1, locale)} />

@@ -80,7 +80,7 @@ export function PAEvidencePanel({
       </div>
 
       {explain ? (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             {WINDOW_OPTIONS.filter((option) => option <= Math.max(option, bars.length)).map((option) => (
               <button
@@ -361,12 +361,13 @@ function PriceEvidenceSvg({
             return null;
           }
           const tone = level.key === "trigger_price" ? "#1d766c" : level.key === "initial_stop" ? "#a44a3f" : "#8b6f2a";
+          const title = `${labelFor("plan", level.key)}: ${formatNumber(level.value, 2, locale)}`;
           return (
-            <g key={`${level.source}-${level.key}`}>
+            <g className="cursor-help" key={`${level.source}-${level.key}`}>
+              <title>{title}</title>
+              <rect x={PLOT_LEFT} y={y - 6} width={PLOT_RIGHT - PLOT_LEFT + 10} height="12" fill="transparent" pointerEvents="all" />
               <line x1={PLOT_LEFT} x2={PLOT_RIGHT} y1={y} y2={y} stroke={tone} strokeDasharray="5 5" strokeWidth="1.4" />
-              <text x={PLOT_RIGHT - 4} y={Math.max(12, y - 6)} textAnchor="end" fill={tone} fontSize="12" fontWeight="700">
-                {labelFor("plan", level.key)} {formatNumber(level.value, 2, locale)}
-              </text>
+              <circle cx={PLOT_RIGHT} cy={y} r="4.5" fill="#ffffff" stroke={tone} strokeWidth="1.6" />
             </g>
           );
         })}

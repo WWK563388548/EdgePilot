@@ -46,7 +46,7 @@ export function CandidatesView({
   }, [data, selectedCandidateId]);
 
   return (
-    <section className="space-y-4">
+    <section className="flex flex-col gap-4">
       <div className="grid gap-3 md:grid-cols-3">
         <CompactStat icon={<Target size={18} />} label={t("candidatePool")} value={data.length} />
         <CompactStat icon={<TrendingUp size={18} />} label={t("topScore")} value={formatNumber(topScore, 1, locale)} />

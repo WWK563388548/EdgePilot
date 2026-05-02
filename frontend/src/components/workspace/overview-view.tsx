@@ -25,7 +25,7 @@ export function OverviewView({
   const { t } = useAppI18n();
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <section className="grid gap-3 md:grid-cols-4">
         <Metric icon={<ListChecks size={18} />} label={t("candidates")} value={summary?.candidate_count ?? 0} />
         <Metric icon={<BriefcaseBusiness size={18} />} label={t("openPositions")} value={summary?.open_position_count ?? 0} />
@@ -53,7 +53,7 @@ export function OverviewView({
             <h2 className="text-base font-semibold text-ink">{t("dataFreshness")}</h2>
             <Database size={18} className="text-teal" />
           </div>
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3">
             {summary?.data_freshness.length ? (
               summary.data_freshness.map((item) => (
                 <div key={item.dataset_key} className="flex items-center justify-between gap-3 border-b border-line pb-2 last:border-0 last:pb-0">
