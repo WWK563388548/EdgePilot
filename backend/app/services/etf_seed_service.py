@@ -14,7 +14,7 @@ from backend.app.schemas.pa import ETFOneilScannerRequest
 from backend.app.services.pa_service import PAService
 from backend.app.services.polygon_client import PolygonClient
 from backend.app.services.scanner_service import ETFScannerService
-from backend.app.services.universes import US_ETF_UNIVERSE
+from backend.app.services.universes import default_symbols_when_omitted
 
 
 class ETFSeedService:
@@ -42,7 +42,7 @@ class ETFSeedService:
         request: ETFUniverseSeedRequest,
         client: PolygonClient,
     ) -> ETFUniverseSeedResponse:
-        symbols = _normalize_symbols(request.symbols or US_ETF_UNIVERSE)
+        symbols = _normalize_symbols(default_symbols_when_omitted(request.symbols))
         successful_symbols: list[str] = []
         skipped_symbols: list[str] = []
         symbol_results: list[ETFUniverseSeedSymbolResult] = []

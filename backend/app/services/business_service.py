@@ -52,6 +52,7 @@ class BusinessService:
         principal: AuthPrincipal,
         request: CandidateCreate,
     ) -> Candidate:
+        pa_setup_id = BusinessService._validated_pa_setup_id(session, request.pa_setup_id)
         candidate = db.Candidate(
             candidate_id=request.candidate_id or f"cand_{uuid4().hex}",
             account_id=principal.account_id,
@@ -59,7 +60,7 @@ class BusinessService:
             scan_date=request.scan_date,
             strategy_name=request.strategy_name,
             setup_type=request.setup_type,
-            pa_setup_id=request.pa_setup_id,
+            pa_setup_id=pa_setup_id,
             score_total=request.score_total,
             entry_trigger=request.entry_trigger,
             initial_stop=request.initial_stop,
@@ -116,6 +117,11 @@ class BusinessService:
     ) -> Candidate:
         candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
         payload = request.model_dump(exclude_unset=True)
+        if "pa_setup_id" in payload:
+            payload["pa_setup_id"] = BusinessService._validated_pa_setup_id(
+                session,
+                payload["pa_setup_id"],
+            )
         for key, value in payload.items():
             setattr(candidate, key, value)
         if payload:
@@ -143,6 +149,23 @@ class BusinessService:
         if not setup_id:
             return None
         return session.get(db.PASetup, setup_id)
+
+    @staticmethod
+    def _validated_pa_setup_id(session: Session, pa_setup_id: str | None) -> str | None:
+        if pa_setup_id is None:
+            return None
+
+        setup_id = pa_setup_id.strip()
+        if not setup_id:
+            return None
+        if any(
+            isinstance(model, db.PASetup) and model.setup_id == setup_id
+            for model in session.new
+        ):
+            return setup_id
+        if session.get(db.PASetup, setup_id) is None:
+            raise ValueError(f"PA setup not found: {setup_id}")
+        return setup_id
 
     @staticmethod
     def _legacy_pa_setup_id(candidate: db.Candidate) -> str | None:

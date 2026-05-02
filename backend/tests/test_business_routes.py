@@ -154,6 +154,36 @@ def test_candidate_routes(monkeypatch) -> None:
     )
 
 
+def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:
+    from fastapi import HTTPException
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "create_candidate",
+        lambda session, principal, request: (_ for _ in ()).throw(
+            ValueError("PA setup not found: missing_setup")
+        ),
+    )
+
+    try:
+        create_candidate(
+            CandidateCreate(
+                symbol_id="SPY",
+                scan_date=date(2026, 4, 26),
+                strategy_name="breakout",
+                pa_setup_id="missing_setup",
+            ),
+            session=None,
+            principal=_principal(),
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "PA setup not found: missing_setup"
+    else:
+        raise AssertionError("Expected invalid pa_setup_id to be mapped to HTTPException")
+
+
 def test_position_routes(monkeypatch) -> None:
     from backend.app.api.routes import business as business_route
 

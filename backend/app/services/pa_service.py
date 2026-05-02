@@ -12,7 +12,7 @@ from backend.app.schemas.pa import (
     PASetup,
 )
 from backend.app.services.pa_calculator import CalculatedPAFact, DailyPAFactsCalculator
-from backend.app.services.universes import US_ETF_UNIVERSE
+from backend.app.services.universes import default_symbols_when_omitted
 
 
 class PAService:
@@ -113,7 +113,7 @@ class PAService:
         with SessionLocal() as session:
             result = PAService.calculate_and_store_daily_facts(
                 session=session,
-                symbols=request.symbols or US_ETF_UNIVERSE,
+                symbols=default_symbols_when_omitted(request.symbols),
                 timeframe=request.timeframe,
             )
             session.commit()

@@ -20,3 +20,9 @@ US_ETF_UNIVERSE = [
     "SLV",
     "USO",
 ]
+
+
+def default_symbols_when_omitted(symbols: list[str] | None) -> list[str]:
+    if symbols is None:
+        return list(US_ETF_UNIVERSE)
+    return symbols

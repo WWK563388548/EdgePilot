@@ -11,7 +11,11 @@ from backend.app.services.etf_seed_service import ETFSeedService
 
 
 class FakePolygonClient:
+    def __init__(self):
+        self.calls: list[str] = []
+
     def list_daily_bars(self, ticker, from_date, to_date):
+        self.calls.append(ticker)
         if ticker == "EMPTY":
             return []
         start = datetime(2025, 8, 13, tzinfo=UTC)
@@ -93,3 +97,25 @@ def test_seed_us_etf_universe_records_empty_symbol_as_skipped(session) -> None:
     assert response.skipped_symbols == ["EMPTY"]
     assert response.symbol_results[0].status == "failed"
     assert response.symbol_results[0].error_message == "Polygon returned no bars for EMPTY"
+
+
+def test_seed_us_etf_universe_treats_explicit_empty_symbols_as_noop(session) -> None:
+    client = FakePolygonClient()
+
+    response = ETFSeedService.seed_us_etf_universe_for_session(
+        session=session,
+        client=client,
+        request=ETFUniverseSeedRequest(
+            symbols=[],
+            account_id="acct_local",
+            **{"from": "2025-08-13", "to": "2026-04-30"},
+        ),
+    )
+
+    assert response.symbols_requested == []
+    assert response.bars_written == 0
+    assert response.facts_written == 0
+    assert response.setups_written == 0
+    assert response.candidates_written == 0
+    assert response.symbol_results == []
+    assert client.calls == []

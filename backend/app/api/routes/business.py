@@ -33,7 +33,10 @@ def create_candidate(
     session: DbSession,
     principal: TraderPrincipal,
 ) -> Candidate:
-    return BusinessService.create_candidate(session=session, principal=principal, request=request)
+    try:
+        return BusinessService.create_candidate(session=session, principal=principal, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/candidates", response_model=list[Candidate])

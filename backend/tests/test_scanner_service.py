@@ -66,6 +66,24 @@ def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> 
     assert candidate_count == 1
 
 
+def test_us_etf_oneil_core_scanner_treats_explicit_empty_symbols_as_noop(session) -> None:
+    response = ETFScannerService.run_us_etf_oneil_core_for_session(
+        session,
+        ETFOneilScannerRequest(symbols=[], account_id="acct_local", min_score=60),
+    )
+
+    assert response.symbols_scanned == []
+    assert response.facts_written == 0
+    assert response.setups_written == 0
+    assert response.candidates_written == 0
+    assert response.skipped_symbols == []
+
+    candidate_count = session.scalar(
+        select(func.count()).select_from(db.Candidate).where(db.Candidate.account_id == "acct_local")
+    )
+    assert candidate_count == 0
+
+
 def _add_trending_bars(session, symbol: str) -> None:
     start = datetime(2025, 8, 13, tzinfo=UTC)
     for index in range(260):

@@ -15,7 +15,7 @@ from backend.app.schemas.pa import (
     PAFactsCalculationResponse,
 )
 from backend.app.services.pa_service import PAService
-from backend.app.services.universes import US_ETF_UNIVERSE
+from backend.app.services.universes import default_symbols_when_omitted
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ class ETFScannerService:
         if session.get(db.Account, request.account_id) is None:
             raise ValueError(f"Account not found: {request.account_id}")
 
-        symbols = _normalize_symbols(request.symbols or US_ETF_UNIVERSE)
+        symbols = _normalize_symbols(default_symbols_when_omitted(request.symbols))
         if request.recalculate_facts:
             facts_result = PAService.calculate_and_store_daily_facts(
                 session=session,
