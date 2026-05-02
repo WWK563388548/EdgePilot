@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -8,6 +9,8 @@ from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
+    CandidateDetail,
+    CandidatePASetup,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -49,6 +52,7 @@ class BusinessService:
         principal: AuthPrincipal,
         request: CandidateCreate,
     ) -> Candidate:
+        pa_setup_id = BusinessService._validated_pa_setup_id(session, request.pa_setup_id)
         candidate = db.Candidate(
             candidate_id=request.candidate_id or f"cand_{uuid4().hex}",
             account_id=principal.account_id,
@@ -56,6 +60,7 @@ class BusinessService:
             scan_date=request.scan_date,
             strategy_name=request.strategy_name,
             setup_type=request.setup_type,
+            pa_setup_id=pa_setup_id,
             score_total=request.score_total,
             entry_trigger=request.entry_trigger,
             initial_stop=request.initial_stop,
@@ -67,21 +72,41 @@ class BusinessService:
         BusinessService._audit(session, principal, "candidate.create", "candidate", candidate.candidate_id)
         session.commit()
         session.refresh(candidate)
-        return Candidate.model_validate(candidate)
+        return BusinessService._candidate_response(session, candidate)
 
     @staticmethod
     def list_candidates(
         session: Session,
         principal: AuthPrincipal,
+        decision: str | None = None,
         limit: int = 100,
     ) -> list[Candidate]:
+        statement = select(db.Candidate).where(db.Candidate.account_id == principal.account_id)
+        if decision:
+            statement = statement.where(db.Candidate.decision == decision)
+
         rows = session.scalars(
-            select(db.Candidate)
-            .where(db.Candidate.account_id == principal.account_id)
-            .order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc())
-            .limit(limit)
+            statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc()).limit(limit)
         ).all()
-        return [Candidate.model_validate(row) for row in rows]
+        return [BusinessService._candidate_response(session, row) for row in rows]
+
+    @staticmethod
+    def get_candidate_detail(
+        session: Session,
+        principal: AuthPrincipal,
+        candidate_id: str,
+    ) -> CandidateDetail:
+        candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
+        pa_setup = BusinessService._candidate_pa_setup(session, candidate)
+        entry_plan = pa_setup.entry_plan if pa_setup else None
+        return CandidateDetail(
+            candidate=BusinessService._candidate_response(session, candidate, pa_setup),
+            pa_setup=CandidatePASetup.model_validate(pa_setup) if pa_setup else None,
+            score_breakdown=entry_plan.get("score_breakdown") if entry_plan else None,
+            entry_plan=entry_plan,
+            exit_plan=pa_setup.exit_plan if pa_setup else None,
+            invalidation=pa_setup.invalidation if pa_setup else None,
+        )
 
     @staticmethod
     def update_candidate(
@@ -92,13 +117,66 @@ class BusinessService:
     ) -> Candidate:
         candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
         payload = request.model_dump(exclude_unset=True)
+        if "pa_setup_id" in payload:
+            payload["pa_setup_id"] = BusinessService._validated_pa_setup_id(
+                session,
+                payload["pa_setup_id"],
+            )
         for key, value in payload.items():
             setattr(candidate, key, value)
         if payload:
             BusinessService._audit(session, principal, "candidate.update", "candidate", candidate_id)
             session.commit()
             session.refresh(candidate)
-        return Candidate.model_validate(candidate)
+        return BusinessService._candidate_response(session, candidate)
+
+    @staticmethod
+    def _candidate_response(
+        session: Session,
+        candidate: db.Candidate,
+        pa_setup: db.PASetup | None = None,
+    ) -> Candidate:
+        setup = pa_setup if pa_setup is not None else BusinessService._candidate_pa_setup(session, candidate)
+        response = Candidate.model_validate(candidate)
+        if setup:
+            response.pa_setup_grade = setup.setup_grade
+            response.validation_status = setup.validation_status
+        return response
+
+    @staticmethod
+    def _candidate_pa_setup(session: Session, candidate: db.Candidate) -> db.PASetup | None:
+        setup_id = candidate.pa_setup_id or BusinessService._legacy_pa_setup_id(candidate)
+        if not setup_id:
+            return None
+        return session.get(db.PASetup, setup_id)
+
+    @staticmethod
+    def _validated_pa_setup_id(session: Session, pa_setup_id: str | None) -> str | None:
+        if pa_setup_id is None:
+            return None
+
+        setup_id = pa_setup_id.strip()
+        if not setup_id:
+            return None
+        if any(
+            isinstance(model, db.PASetup) and model.setup_id == setup_id
+            for model in session.new
+        ):
+            return setup_id
+        if session.get(db.PASetup, setup_id) is None:
+            raise ValueError(f"PA setup not found: {setup_id}")
+        return setup_id
+
+    @staticmethod
+    def _legacy_pa_setup_id(candidate: db.Candidate) -> str | None:
+        if not candidate.ai_review_json:
+            return None
+        try:
+            payload = json.loads(candidate.ai_review_json)
+        except json.JSONDecodeError:
+            return None
+        setup_id = payload.get("pa_setup_id")
+        return setup_id if isinstance(setup_id, str) else None
 
     @staticmethod
     def _get_candidate_model(
@@ -310,7 +388,8 @@ class BusinessService:
     def dashboard_summary(session: Session, principal: AuthPrincipal) -> DashboardSummary:
         candidate_count = session.scalar(
             select(func.count()).select_from(db.Candidate).where(
-                db.Candidate.account_id == principal.account_id
+                db.Candidate.account_id == principal.account_id,
+                db.Candidate.decision == "candidate",
             )
         )
         open_position_count = session.scalar(

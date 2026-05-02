@@ -10,6 +10,11 @@
 - Alembic baseline migration，供已有数据库升级使用。
 - SQLAlchemy 2.0 ORM models/session layer，覆盖 auth、business、ingestion、analytics core tables。
 - Auth foundation：JWT/OIDC bearer token verification、users/accounts/memberships、account-scoped business data、role checks、audit logs。
+- PA Data Foundation：`pa_facts`、`pa_structures`、`pa_setups`、`pa_calibration_stats` migration/ORM/schemas/read APIs。
+- US ETF PA facts calculator 与第一版 O'Neil-core scanner，可从已有 ETF 日线 `bars` 生成 shadow-only PA setups 和第一批 candidates。
+- US ETF universe seed 流程：可批量拉 Polygon 日线、计算 PA facts、运行 scanner 并写入 candidates。
+- Candidate + PA setup bridge：`candidates.pa_setup_id` 直接关联 `pa_setups`，候选详情 API 可返回 score breakdown、entry/exit/invalidation。
+- PA Lab 前端视图：可筛选 PA setups 并检查 score breakdown、entry/exit/invalidation。
 - Next.js + Tailwind + shadcn-compatible UI scaffold + TanStack Query + Zustand 前端工作台。
 - 环境变量模板：
   - 根目录 `.env.example`
@@ -19,8 +24,7 @@
 
 ## 当前还没有落地
 
-- Scanner / PA Engine 尚未生成真实 candidates，所以业务 API 返回空数组是正常状态。
-- PA v0.6 表与 API 尚未实现：`pa_facts`、`pa_structures`、`pa_setups`、`pa_calibration_stats`。
+- Polygon ETF universe seed/scheduled job 尚未完成；当前 scanner 从数据库中已有 `bars` 计算 PA facts。
 - PA Lab、candidate detail drawer、图表标注、validation/cashflow/analytics 扩展页面尚未实现。
 - J-Quants、日本市场 context、Option Adapter、AI PA Reviewer 仍是后续阶段。
 
@@ -54,11 +58,20 @@ npm run dev -- --port 3000
 - `POST /api/ingestion/bars`
 - `POST /api/ingestion/options-chain`
 - `POST /api/ingestion/market-context`
+- `POST /api/ingestion/us-etf-universe/seed`
 - `GET /api/ingestion/bars/{ticker}?timeframe=1d&limit=200`
 - `GET /api/ingestion/options-chain/{underlying_symbol}?limit=250`
 - `GET /api/ingestion/freshness`
+- `GET /api/pa/facts/{symbol}?timeframe=1d&limit=200`
+- `GET /api/pa/structures/{symbol}?timeframe=1d&limit=200`
+- `GET /api/pa/setups?symbol=&timeframe=1d&setup_type=&status=`
+- `GET /api/pa/setups/{setup_id}`
+- `GET /api/pa/calibration?setup_type=&market_regime=&timeframe=`
+- `POST /api/pa/facts/etf-universe`
+- `POST /api/pa/scanners/us-etf/oneil-core`
 - `GET /api/dashboard/summary`
 - `GET /api/candidates`
+- `GET /api/candidates/{candidate_id}`
 - `POST /api/candidates`
 - `PATCH /api/candidates/{candidate_id}`
 - `GET /api/positions`
@@ -70,7 +83,7 @@ npm run dev -- --port 3000
 - `GET /api/journal/trades`
 - `POST /api/journal/trades`
 
-Ingestion write endpoints require the admin header:
+Ingestion write endpoints and PA/scanner trigger endpoints require the admin header:
 
 ```text
 X-Ingestion-Admin-Token: <INGESTION_ADMIN_TOKEN>
@@ -84,6 +97,26 @@ Authorization: Bearer <OIDC access token>
 
 Business write endpoints additionally require a role that passes the backend role gate.
 
+## US ETF PA 本地一键 seed
+
+在完成 `alembic upgrade head`、配置 `POLYGON_API_KEY` 且本地存在 `acct_local` 后，可以跑：
+
+```bash
+.venv/bin/python scripts/seed_us_etf_pa.py --account-id acct_local --symbols SPY QQQ IWM SMH SOXX
+```
+
+也可以通过 API 触发完整流程：
+
+```bash
+curl -X POST http://localhost:8000/api/ingestion/us-etf-universe/seed \
+  -H "Content-Type: application/json" \
+  -H "X-Ingestion-Admin-Token: $INGESTION_ADMIN_TOKEN" \
+  -d '{"symbols":["SPY","QQQ","IWM","SMH","SOXX"],"account_id":"acct_local"}'
+```
+
+这个流程会依次写入 `bars`、`pa_facts`、`pa_setups`，并将高分 shadow-only setups 映射到 `candidates`。
+随后可以在前端的 Candidates 和 PA Lab 视图检查候选与 setup 详情。
+
 ## 规划阶段
 
 当前产品方向：
@@ -92,7 +125,7 @@ Business write endpoints additionally require a role that passes the backend rol
 - v0.6 review and next steps：`docs/v0_6_review_and_next_steps.md`
 - v0.3 historical roadmap：`docs/v0_3_execution_roadmap.md`
 
-建议下一步实现：`PR B: PA Data Foundation`，即 Alembic + ORM + schemas + read APIs for `pa_facts` / `pa_structures` / `pa_setups` / `pa_calibration_stats`。
+当前实现已覆盖 `PR B: PA Data Foundation`，并启动 `PR C/PR D` 的第一版本地流程：批量 seed US ETF daily bars，计算 PA facts，运行 O'Neil-core scanner，写入 shadow-only setups 和 account-scoped candidates。
 
 ## D1 Ingestion 环境变量
 

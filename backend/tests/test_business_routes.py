@@ -8,6 +8,7 @@ from backend.app.api.routes.business import (
     create_journal_trade,
     create_position,
     get_dashboard_summary,
+    get_candidate_detail,
     list_candidates,
     list_exit_alerts,
     list_journal_trades,
@@ -22,6 +23,8 @@ from backend.app.main import app
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
+    CandidateDetail,
+    CandidatePASetup,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -102,12 +105,28 @@ def test_candidate_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_candidates",
-        lambda session, principal, limit: [_candidate()],
+        lambda session, principal, decision, limit: [_candidate()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "update_candidate",
         lambda session, principal, candidate_id, request: _candidate(),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_candidate_detail",
+        lambda session, principal, candidate_id: CandidateDetail(
+            candidate=_candidate(),
+            pa_setup=CandidatePASetup(
+                setup_id="pasetup_1",
+                symbol_id="SPY",
+                timeframe="1d",
+                detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+                setup_type="breakout",
+                validation_status="shadow_only",
+            ),
+            score_breakdown={"total": 82},
+        ),
     )
 
     assert create_candidate(
@@ -119,7 +138,11 @@ def test_candidate_routes(monkeypatch) -> None:
         session=None,
         principal=_principal(),
     ).candidate_id == "cand_1"
-    assert list_candidates(session=None, principal=_principal(), limit=10)[0].symbol_id == "SPY"
+    assert list_candidates(session=None, principal=_principal(), decision="candidate", limit=10)[0].symbol_id == "SPY"
+    assert (
+        get_candidate_detail("cand_1", session=None, principal=_principal()).pa_setup.setup_id
+        == "pasetup_1"
+    )
     assert (
         update_candidate(
             "cand_1",
@@ -129,6 +152,36 @@ def test_candidate_routes(monkeypatch) -> None:
         ).decision
         == "watch"
     )
+
+
+def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:
+    from fastapi import HTTPException
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "create_candidate",
+        lambda session, principal, request: (_ for _ in ()).throw(
+            ValueError("PA setup not found: missing_setup")
+        ),
+    )
+
+    try:
+        create_candidate(
+            CandidateCreate(
+                symbol_id="SPY",
+                scan_date=date(2026, 4, 26),
+                strategy_name="breakout",
+                pa_setup_id="missing_setup",
+            ),
+            session=None,
+            principal=_principal(),
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "PA setup not found: missing_setup"
+    else:
+        raise AssertionError("Expected invalid pa_setup_id to be mapped to HTTPException")
 
 
 def test_position_routes(monkeypatch) -> None:

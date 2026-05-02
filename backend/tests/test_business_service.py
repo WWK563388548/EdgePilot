@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -81,3 +81,150 @@ def test_candidate_queries_are_scoped_by_account(session) -> None:
             "cand_b",
             CandidateUpdate(decision="watch"),
         )
+
+
+def test_candidate_queries_can_filter_by_decision(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_ready",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_watch",
+            symbol_id="QQQ",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="watch",
+        ),
+    )
+
+    assert [
+        row.candidate_id
+        for row in BusinessService.list_candidates(session, principal, decision="candidate")
+    ] == ["cand_ready"]
+
+
+def test_dashboard_candidate_count_only_counts_candidates(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_ready",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_watch",
+            symbol_id="QQQ",
+            scan_date=date(2026, 4, 26),
+            strategy_name="breakout",
+            decision="watch",
+        ),
+    )
+
+    assert BusinessService.dashboard_summary(session, principal).candidate_count == 1
+
+
+def test_candidate_create_validates_pa_setup_id(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    with pytest.raises(ValueError, match="PA setup not found: missing_setup"):
+        BusinessService.create_candidate(
+            session,
+            principal,
+            CandidateCreate(
+                candidate_id="cand_bad_setup",
+                symbol_id="SPY",
+                scan_date=date(2026, 4, 26),
+                strategy_name="oneil_core_us_etf",
+                pa_setup_id="missing_setup",
+            ),
+        )
+
+    assert BusinessService.list_candidates(session, principal) == []
+
+
+def test_candidate_update_validates_pa_setup_id(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_spy",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="PA setup not found: missing_setup"):
+        BusinessService.update_candidate(
+            session,
+            principal,
+            "cand_spy",
+            CandidateUpdate(pa_setup_id="missing_setup"),
+        )
+
+    detail = BusinessService.get_candidate_detail(session, principal, "cand_spy")
+    assert detail.candidate.pa_setup_id is None
+
+
+def test_candidate_detail_includes_linked_pa_setup(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    session.add(
+        db.PASetup(
+            setup_id="pasetup_spy_1d_2026-04-26_breakout",
+            symbol_id="SPY",
+            timeframe="1d",
+            detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+            setup_type="breakout",
+            setup_grade="A",
+            pa_quality_score=82,
+            entry_plan={
+                "trigger_price": 510.5,
+                "score_breakdown": {"trend": 25, "total": 82},
+            },
+            exit_plan={"initial_stop": 480},
+            invalidation={"price_below": 480},
+            validation_status="shadow_only",
+            status="candidate",
+        )
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_spy",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            setup_type="breakout",
+            pa_setup_id="pasetup_spy_1d_2026-04-26_breakout",
+        ),
+    )
+
+    detail = BusinessService.get_candidate_detail(session, principal, "cand_spy")
+
+    assert detail.candidate.pa_setup_id == "pasetup_spy_1d_2026-04-26_breakout"
+    assert detail.pa_setup is not None
+    assert detail.pa_setup.setup_grade == "A"
+    assert detail.score_breakdown == {"trend": 25, "total": 82}

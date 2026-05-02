@@ -11,6 +11,7 @@ from backend.app.api.routes.ingestion import (
     ingest_bars,
     ingest_market_context,
     ingest_options_chain,
+    seed_us_etf_universe,
 )
 from backend.app.core.config import settings
 from backend.app.main import app
@@ -20,6 +21,9 @@ from backend.app.schemas.ingestion import (
     BarsQueryResponse,
     DataFreshnessRecord,
     DataFreshnessResponse,
+    ETFUniverseSeedRequest,
+    ETFUniverseSeedResponse,
+    ETFUniverseSeedSymbolResult,
     IngestionResponse,
     MarketContextIngestionRequest,
     OptionChainSnapshotResponse,
@@ -96,6 +100,44 @@ def test_ingest_market_context_route(monkeypatch) -> None:
 
     assert response.records_written == 1
     assert response.source == "manual"
+
+
+def test_seed_us_etf_universe_route(monkeypatch) -> None:
+    from backend.app.api.routes import ingestion as ingestion_route
+
+    def _fake_seed_us_etf_universe(request):
+        assert request.symbols == ["SPY", "QQQ"]
+        return ETFUniverseSeedResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols,
+            bars_written=4,
+            facts_written=4,
+            setups_written=1,
+            candidates_written=1,
+            symbol_results=[
+                ETFUniverseSeedSymbolResult(symbol="SPY", status="success", bars_written=2),
+                ETFUniverseSeedSymbolResult(symbol="QQQ", status="success", bars_written=2),
+            ],
+        )
+
+    monkeypatch.setattr(
+        ingestion_route.ETFSeedService,
+        "seed_us_etf_universe",
+        _fake_seed_us_etf_universe,
+    )
+
+    response = seed_us_etf_universe(
+        ETFUniverseSeedRequest(
+            symbols=["spy", "qqq"],
+            **{"from": "2025-01-01", "to": "2026-04-30"},
+        )
+    )
+
+    assert response.bars_written == 4
+    assert response.symbols_requested == ["SPY", "QQQ"]
 
 
 def test_ingestion_post_requires_admin_token(monkeypatch) -> None:

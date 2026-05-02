@@ -43,12 +43,62 @@ export type Candidate = {
   scan_date: string;
   strategy_name: string;
   setup_type: string | null;
+  pa_setup_id: string | null;
   score_total: number | null;
   entry_trigger: number | null;
   initial_stop: number | null;
   decision: string | null;
   option_suitability: string | null;
+  ai_review_json: string | null;
   created_at: string | null;
+  pa_setup_grade: string | null;
+  validation_status: string | null;
+};
+
+export type PASetup = {
+  setup_id: string;
+  symbol_id: string;
+  timeframe: string;
+  detected_ts: string;
+  setup_type: string;
+  setup_grade: string | null;
+  pa_quality_score: number | null;
+  structure_score: number | null;
+  location_score: number | null;
+  volume_score: number | null;
+  trend_rs_score: number | null;
+  context_score: number | null;
+  risk_stop_score: number | null;
+  followthrough_score: number | null;
+  entry_plan: Record<string, unknown> | null;
+  exit_plan: Record<string, unknown> | null;
+  invalidation: Record<string, unknown> | null;
+  status: string | null;
+  validation_status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type PASetupFilters = {
+  symbol?: string;
+  setupType?: string;
+  validationStatus?: string;
+  status?: string;
+  limit?: number;
+};
+
+export type CandidateFilters = {
+  decision?: string;
+  limit?: number;
+};
+
+export type CandidateDetail = {
+  candidate: Candidate;
+  pa_setup: PASetup | null;
+  score_breakdown: Record<string, unknown> | null;
+  entry_plan: Record<string, unknown> | null;
+  exit_plan: Record<string, unknown> | null;
+  invalidation: Record<string, unknown> | null;
 };
 
 export type Position = {
@@ -101,6 +151,17 @@ export type VerificationEmailResponse = {
   job_id: string | null;
 };
 
+function queryString(params: Record<string, string | number | undefined>) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
+  const query = searchParams.toString();
+  return query ? `?${query}` : "";
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const token = accessTokenProvider ? await accessTokenProvider() : null;
   const headers: Record<string, string> = {
@@ -149,7 +210,26 @@ export const api = {
   resendVerificationEmail: () =>
     postJson<VerificationEmailResponse>("/api/auth/resend-verification"),
   dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
-  candidates: () => getJson<Candidate[]>("/api/candidates?limit=100"),
+  candidates: (filters: CandidateFilters = {}) =>
+    getJson<Candidate[]>(
+      `/api/candidates${queryString({
+        decision: filters.decision,
+        limit: filters.limit ?? 100
+      })}`
+    ),
+  candidateDetail: (candidateId: string) =>
+    getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
+  paSetups: (filters: PASetupFilters = {}) =>
+    getJson<PASetup[]>(
+      `/api/pa/setups${queryString({
+        symbol: filters.symbol,
+        setup_type: filters.setupType,
+        validation_status: filters.validationStatus,
+        status: filters.status,
+        timeframe: "1d",
+        limit: filters.limit ?? 100
+      })}`
+    ),
   positions: () => getJson<Position[]>("/api/positions?limit=100"),
   alerts: () => getJson<ExitAlert[]>("/api/exit-alerts?acknowledged=false&limit=100"),
   journal: () => getJson<JournalTrade[]>("/api/journal/trades?limit=100")

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,6 +12,7 @@ class CandidateBase(BaseModel):
     scan_date: date
     strategy_name: str = Field(..., min_length=1)
     setup_type: str | None = None
+    pa_setup_id: str | None = None
     score_total: float | None = None
     entry_trigger: float | None = None
     initial_stop: float | None = None
@@ -26,6 +27,7 @@ class CandidateCreate(CandidateBase):
 
 class CandidateUpdate(BaseModel):
     setup_type: str | None = None
+    pa_setup_id: str | None = None
     score_total: float | None = None
     entry_trigger: float | None = None
     initial_stop: float | None = None
@@ -39,6 +41,43 @@ class Candidate(CandidateBase):
 
     candidate_id: str
     created_at: datetime | None = None
+    pa_setup_grade: str | None = None
+    validation_status: str | None = None
+
+
+class CandidatePASetup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    setup_id: str
+    symbol_id: str
+    timeframe: str
+    detected_ts: datetime
+    setup_type: str
+    setup_grade: str | None = None
+    pa_quality_score: float | None = None
+    structure_score: float | None = None
+    location_score: float | None = None
+    volume_score: float | None = None
+    trend_rs_score: float | None = None
+    context_score: float | None = None
+    risk_stop_score: float | None = None
+    followthrough_score: float | None = None
+    entry_plan: dict[str, Any] | None = None
+    exit_plan: dict[str, Any] | None = None
+    invalidation: dict[str, Any] | None = None
+    status: str | None = None
+    validation_status: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CandidateDetail(BaseModel):
+    candidate: Candidate
+    pa_setup: CandidatePASetup | None = None
+    score_breakdown: dict[str, Any] | None = None
+    entry_plan: dict[str, Any] | None = None
+    exit_plan: dict[str, Any] | None = None
+    invalidation: dict[str, Any] | None = None
 
 
 class PositionBase(BaseModel):
