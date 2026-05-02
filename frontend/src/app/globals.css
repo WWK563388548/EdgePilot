@@ -31,29 +31,29 @@ textarea {
   outline-offset: 2px;
 }
 
-@keyframes drawer-panel-in {
+@keyframes detail-modal-in {
   from {
-    opacity: 0.65;
-    transform: translateX(34px);
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
 }
 
-@keyframes drawer-panel-out {
+@keyframes detail-modal-out {
   from {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
   to {
-    opacity: 0.65;
-    transform: translateX(34px);
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
   }
 }
 
-@keyframes drawer-backdrop-in {
+@keyframes detail-backdrop-in {
   from {
     opacity: 0;
   }
@@ -62,7 +62,7 @@ textarea {
   }
 }
 
-@keyframes drawer-backdrop-out {
+@keyframes detail-backdrop-out {
   from {
     opacity: 1;
   }
@@ -71,27 +71,27 @@ textarea {
   }
 }
 
-.drawer-panel-in {
-  animation: drawer-panel-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+.detail-modal-in {
+  animation: detail-modal-in 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.drawer-panel-out {
-  animation: drawer-panel-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
+.detail-modal-out {
+  animation: detail-modal-out 150ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
-.drawer-backdrop-in {
-  animation: drawer-backdrop-in 180ms ease-out both;
+.detail-backdrop-in {
+  animation: detail-backdrop-in 190ms ease-out both;
 }
 
-.drawer-backdrop-out {
-  animation: drawer-backdrop-out 160ms ease-in both;
+.detail-backdrop-out {
+  animation: detail-backdrop-out 150ms ease-in both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .drawer-panel-in,
-  .drawer-panel-out,
-  .drawer-backdrop-in,
-  .drawer-backdrop-out {
+  .detail-modal-in,
+  .detail-modal-out,
+  .detail-backdrop-in,
+  .detail-backdrop-out {
     animation-duration: 1ms;
   }
 }

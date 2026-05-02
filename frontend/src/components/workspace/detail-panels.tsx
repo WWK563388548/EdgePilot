@@ -46,7 +46,7 @@ export function CandidateDetailPanel({
   const subtitle = setup?.setup_id ?? candidate?.candidate_id ?? t("noSelection");
 
   return (
-    <DetailDrawerShell
+    <DetailModalShell
       closeLabel={t("closeDetail")}
       onClose={onClose}
       subtitle={subtitle}
@@ -86,7 +86,7 @@ export function CandidateDetailPanel({
             <PlanFields title={t("invalidation")} data={detail?.invalidation ?? setup?.invalidation} locale={locale} />
           </>
         ) : null}
-    </DetailDrawerShell>
+    </DetailModalShell>
   );
 }
 
@@ -110,7 +110,7 @@ export function PASetupDetailPanel({
   const subtitle = setup?.setup_id ?? t("noSelection");
 
   return (
-    <DetailDrawerShell
+    <DetailModalShell
       closeLabel={t("closeDetail")}
       onClose={onClose}
       subtitle={subtitle}
@@ -150,11 +150,11 @@ export function PASetupDetailPanel({
         ) : (
           <p className="text-sm text-slate-600">{t("noSetup")}</p>
         )}
-    </DetailDrawerShell>
+    </DetailModalShell>
   );
 }
 
-function DetailDrawerShell({
+function DetailModalShell({
   children,
   closeLabel,
   onClose,
@@ -197,22 +197,25 @@ function DetailDrawerShell({
   }, [onClose, requestClose]);
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6">
       {onClose ? (
         <div
           aria-hidden="true"
           className={`absolute inset-0 cursor-default bg-slate-950/30 backdrop-blur-[1px] ${
-            closing ? "drawer-backdrop-out" : "drawer-backdrop-in"
+            closing ? "detail-backdrop-out" : "detail-backdrop-in"
           }`}
           onClick={requestClose}
         />
       ) : null}
-      <aside
-        className={`absolute bottom-0 right-0 top-0 flex w-[min(1120px,100vw)] flex-col overflow-hidden border-l border-line bg-white shadow-2xl ${
-          closing ? "drawer-panel-out" : "drawer-panel-in"
+      <section
+        aria-label={title}
+        aria-modal="true"
+        className={`relative z-10 flex h-[92vh] w-[calc(100vw-1rem)] max-w-[1480px] flex-col overflow-hidden rounded-lg border border-line bg-white shadow-2xl sm:h-[85vh] sm:w-[85vw] ${
+          closing ? "detail-modal-out" : "detail-modal-in"
         }`}
+        role="dialog"
       >
-        <div className="flex min-h-20 shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-6 py-4">
+        <div className="flex min-h-20 shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-5 py-4 sm:px-6">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-ink">{title}</h2>
             <p className="truncate text-sm text-slate-500">{subtitle}</p>
@@ -228,8 +231,8 @@ function DetailDrawerShell({
             </button>
           ) : null}
         </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">{children}</div>
-      </aside>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+      </section>
     </div>
   );
 }
