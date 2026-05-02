@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { DataState, Field } from "@/components/workspace/common";
 import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
@@ -169,28 +169,42 @@ function DetailDrawerShell({
 }) {
   const [closing, setClosing] = useState(false);
 
-  useEffect(() => {
-    setClosing(false);
-  }, [title, subtitle]);
-
-  const requestClose = () => {
+  const requestClose = useCallback(() => {
     if (!onClose || closing) {
       return;
     }
     setClosing(true);
     window.setTimeout(onClose, 180);
-  };
+  }, [closing, onClose]);
+
+  useEffect(() => {
+    setClosing(false);
+  }, [title, subtitle]);
+
+  useEffect(() => {
+    if (!onClose) {
+      return undefined;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        requestClose();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, requestClose]);
 
   return (
     <div className="fixed inset-0 z-50">
       {onClose ? (
-        <button
-          aria-label={closeLabel}
-          className={`absolute inset-0 bg-slate-950/30 backdrop-blur-[1px] ${
+        <div
+          aria-hidden="true"
+          className={`absolute inset-0 cursor-default bg-slate-950/30 backdrop-blur-[1px] ${
             closing ? "drawer-backdrop-out" : "drawer-backdrop-in"
           }`}
           onClick={requestClose}
-          type="button"
         />
       ) : null}
       <aside
