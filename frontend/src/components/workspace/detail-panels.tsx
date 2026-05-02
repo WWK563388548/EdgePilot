@@ -201,7 +201,7 @@ function DetailModalShell({
       {onClose ? (
         <div
           aria-hidden="true"
-          className={`absolute inset-0 cursor-default bg-slate-950/30 backdrop-blur-[1px] ${
+          className={`absolute inset-0 cursor-default bg-transparent ${
             closing ? "detail-backdrop-out" : "detail-backdrop-in"
           }`}
           onClick={requestClose}
