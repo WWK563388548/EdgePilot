@@ -231,7 +231,7 @@ function DetailModalShell({
             </button>
           ) : null}
         </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
       </section>
     </div>
   );
