@@ -26,35 +26,6 @@ from backend.app.schemas.business import (
 )
 
 
-def _number_from_mapping(data: dict, key: str) -> float | None:
-    value = data.get(key)
-    return value if isinstance(value, (int, float)) else None
-
-
-def _add_fallback_rule(
-    passed_rules: list[dict],
-    failed_rules: list[dict],
-    score_breakdown: dict,
-    score_key: str,
-    threshold: float,
-    max_score: float,
-    passed_key: str,
-    failed_key: str,
-) -> None:
-    score = _number_from_mapping(score_breakdown, score_key)
-    if score is None:
-        return
-    target = passed_rules if score >= threshold else failed_rules
-    target.append(
-        {
-            "key": passed_key if score >= threshold else failed_key,
-            "score": round(score, 2),
-            "max_score": max_score,
-            "threshold": threshold,
-        }
-    )
-
-
 class BusinessService:
     @staticmethod
     def _audit(
@@ -217,74 +188,13 @@ class BusinessService:
         if isinstance(scanner_decision, dict):
             return scanner_decision
         if not candidate.ai_review_json:
-            return BusinessService._fallback_scanner_decision(entry_plan)
+            return None
         try:
             payload = json.loads(candidate.ai_review_json)
         except json.JSONDecodeError:
-            return BusinessService._fallback_scanner_decision(entry_plan)
+            return None
         scanner_decision = payload.get("scanner_decision")
-        if isinstance(scanner_decision, dict):
-            return scanner_decision
-        return BusinessService._fallback_scanner_decision(entry_plan)
-
-    @staticmethod
-    def _fallback_scanner_decision(entry_plan: dict | None) -> dict | None:
-        if not entry_plan:
-            return None
-        score_breakdown = entry_plan.get("score_breakdown")
-        if not isinstance(score_breakdown, dict):
-            return None
-        total_score = _number_from_mapping(score_breakdown, "total")
-        decision = "candidate" if total_score is not None and total_score >= 75 else "watch"
-
-        passed_rules: list[dict] = []
-        failed_rules: list[dict] = []
-        _add_fallback_rule(passed_rules, failed_rules, score_breakdown, "trend", 18, 25, "trend_aligned", "trend_needs_alignment")
-        _add_fallback_rule(
-            passed_rules,
-            failed_rules,
-            score_breakdown,
-            "relative_strength",
-            12.5,
-            25,
-            "relative_strength_leader",
-            "relative_strength_lagging",
-        )
-        _add_fallback_rule(
-            passed_rules,
-            failed_rules,
-            score_breakdown,
-            "volume_liquidity",
-            8,
-            15,
-            "volume_liquidity",
-            "volume_confirmation_missing",
-        )
-        _add_fallback_rule(passed_rules, failed_rules, score_breakdown, "base_setup", 9, 15, "setup_location", "setup_location_unclear")
-        _add_fallback_rule(
-            passed_rules,
-            failed_rules,
-            score_breakdown,
-            "market_context",
-            8,
-            10,
-            "market_support",
-            "market_context_caution",
-        )
-
-        return {
-            "version": "legacy_score_breakdown_fallback",
-            "strategy": "oneil_core_us_etf",
-            "decision": decision,
-            "total_score": total_score,
-            "validation_status": "shadow_only",
-            "trigger_price": _number_from_mapping(entry_plan, "trigger_price"),
-            "passed_rules": passed_rules,
-            "failed_rules": failed_rules,
-            "watch_reasons": ["shadow_only", "needs_trigger_confirmation"],
-            "upgrade_conditions": ["break_above_trigger", "hold_above_20_50ma", "volume_expansion"],
-            "risk_notes": ["initial_stop_required", "invalidates_below_stop"],
-        }
+        return scanner_decision if isinstance(scanner_decision, dict) else None
 
     @staticmethod
     def _get_candidate_model(
