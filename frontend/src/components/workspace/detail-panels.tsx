@@ -43,10 +43,17 @@ export function CandidateDetailPanel({
   });
 
   return (
-    <aside className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-      <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
+    <>
+      <button
+        aria-label={t("closeDetail")}
+        className="fixed inset-0 z-40 bg-slate-950/25"
+        onClick={onClose}
+        type="button"
+      />
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(1120px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border-l border-line bg-white shadow-2xl">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-5 py-4">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-ink">
+          <h2 className="text-lg font-semibold text-ink">
             {candidate ? `${candidate.symbol_id} ${t("candidateDetail")}` : t("candidateDetail")}
           </h2>
           <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? candidate?.candidate_id ?? t("noSelection")}</p>
@@ -62,7 +69,7 @@ export function CandidateDetailPanel({
         </button>
       </div>
 
-      <div className="space-y-4 p-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
         <DataState isLoading={loading} isError={error} locale={locale} />
         {!selected && <p className="text-sm text-slate-600">{t("noSelection")}</p>}
         {candidate ? (
@@ -98,7 +105,8 @@ export function CandidateDetailPanel({
           </>
         ) : null}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 
@@ -120,10 +128,19 @@ export function PASetupDetailPanel({
   });
 
   return (
-    <aside className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-      <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
+    <>
+      {onClose ? (
+        <button
+          aria-label={t("closeDetail")}
+          className="fixed inset-0 z-40 bg-slate-950/25"
+          onClick={onClose}
+          type="button"
+        />
+      ) : null}
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(1120px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border-l border-line bg-white shadow-2xl">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-5 py-4">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-ink">
+          <h2 className="text-lg font-semibold text-ink">
             {setup ? `${setup.symbol_id} ${t("setupDetail")}` : t("setupDetail")}
           </h2>
           <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? t("noSelection")}</p>
@@ -139,7 +156,7 @@ export function PASetupDetailPanel({
           </button>
         ) : null}
       </div>
-      <div className="space-y-4 p-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
         {setup ? (
           <>
             <ExplanationBlock locale={locale} setup={setup} />
@@ -175,7 +192,8 @@ export function PASetupDetailPanel({
           <p className="text-sm text-slate-600">{t("noSetup")}</p>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

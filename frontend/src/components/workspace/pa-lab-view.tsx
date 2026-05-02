@@ -18,7 +18,7 @@ export function PALabView({ locale }: { locale: Locale }) {
   const [setupType, setSetupType] = useState("");
   const [validationStatus, setValidationStatus] = useState("");
   const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(true);
+  const [detailOpen, setDetailOpen] = useState(false);
   const filters = {
     symbol: symbol.trim().toUpperCase() || undefined,
     setupType: setupType || undefined,
@@ -50,11 +50,7 @@ export function PALabView({ locale }: { locale: Locale }) {
         <CompactStat icon={<Eye size={18} />} label={t("selected")} value={selectedSetup?.symbol_id ?? "-"} />
       </div>
 
-      <section
-        className={`grid gap-4 ${
-          detailOpen && selectedSetup ? "xl:grid-cols-[minmax(0,1fr)_minmax(460px,560px)]" : "xl:grid-cols-1"
-        }`}
-      >
+      <section>
         <section className="overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)]">
           <div className="border-b border-line bg-white px-4 py-3">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -162,17 +158,17 @@ export function PALabView({ locale }: { locale: Locale }) {
           </div>
         </section>
 
-        {detailOpen && selectedSetup ? (
-          <PASetupDetailPanel
-            locale={locale}
-            onClose={() => {
-              setDetailOpen(false);
-              setSelectedSetupId(null);
-            }}
-            setup={selectedSetup}
-          />
-        ) : null}
       </section>
+      {detailOpen && selectedSetup ? (
+        <PASetupDetailPanel
+          locale={locale}
+          onClose={() => {
+            setDetailOpen(false);
+            setSelectedSetupId(null);
+          }}
+          setup={selectedSetup}
+        />
+      ) : null}
     </section>
   );
 }
