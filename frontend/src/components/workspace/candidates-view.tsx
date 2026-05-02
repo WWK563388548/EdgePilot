@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Eye, Target, TrendingUp } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CalendarDays, Eye, RefreshCw, Target, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CompactStat, DataState, StatusPill } from "@/components/workspace/common";
@@ -25,13 +25,33 @@ export function CandidatesView({
   locale: Locale;
 }) {
   const { labelFor, t } = useAppI18n();
+  const queryClient = useQueryClient();
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [scanSummary, setScanSummary] = useState<string | null>(null);
   const activeCandidateId = detailOpen ? selectedCandidateId ?? data[0]?.candidate_id ?? null : null;
   const detail = useQuery({
     queryKey: ["candidate-detail", activeCandidateId],
     queryFn: () => api.candidateDetail(activeCandidateId as string),
     enabled: Boolean(activeCandidateId)
+  });
+  const scan = useMutation({
+    mutationFn: () => api.scanAccountOneilCandidates({ recalculate_facts: true }),
+    onSuccess: async (response) => {
+      setScanSummary(
+        t("scanResultSummary", {
+          candidates: response.candidates.filter((candidate) => candidate.decision === "candidate").length,
+          total: response.candidates_written
+        })
+      );
+      setDetailOpen(false);
+      setSelectedCandidateId(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["candidates"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["pa-setups"] })
+      ]);
+    }
   });
   const topScore = useMemo(
     () => data.reduce<number | null>((best, row) => Math.max(best ?? 0, row.score_total ?? 0), null),
@@ -60,11 +80,32 @@ export function CandidatesView({
               <Target size={18} className="shrink-0 text-teal" />
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold text-ink">{t("candidates")}</h2>
-                <p className="text-xs text-slate-500">{t("reviewOnly")}</p>
+                <p className="text-xs text-slate-500">{t("accountScopedCandidates")}</p>
               </div>
             </div>
-            <DataState isLoading={loading} isError={error} locale={locale} />
+            <div className="flex shrink-0 items-center gap-2">
+              <DataState isLoading={loading || scan.isPending} isError={error || scan.isError} locale={locale} />
+              <button
+                className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={scan.isPending}
+                onClick={() => scan.mutate()}
+                type="button"
+              >
+                <RefreshCw size={16} className={scan.isPending ? "animate-spin" : ""} />
+                {scan.isPending ? t("scanning") : t("rescanCandidates")}
+              </button>
+            </div>
           </div>
+
+          {scanSummary || scan.isError ? (
+            <div
+              className={`border-b border-line px-4 py-3 text-sm ${
+                scan.isError ? "bg-rose-50 text-rose-700" : "bg-teal-50 text-teal-800"
+              }`}
+            >
+              {scan.isError ? t("scanFailed") : scanSummary}
+            </div>
+          ) : null}
 
           <div className="divide-y divide-line">
             {!data.length ? (

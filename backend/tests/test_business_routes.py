@@ -13,6 +13,7 @@ from backend.app.api.routes.business import (
     list_exit_alerts,
     list_journal_trades,
     list_positions,
+    run_account_us_etf_oneil_core_scanner,
     update_candidate,
     update_exit_alert,
     update_position,
@@ -38,6 +39,7 @@ from backend.app.schemas.business import (
     PositionCreate,
     PositionUpdate,
 )
+from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 
 
 def _candidate() -> Candidate:
@@ -152,6 +154,41 @@ def test_candidate_routes(monkeypatch) -> None:
         ).decision
         == "watch"
     )
+
+
+def test_account_scanner_route_uses_principal_account(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    captured = {}
+
+    def _fake_scan(session, principal, request):
+        captured["account_id"] = principal.account_id
+        captured["symbols"] = request.symbols
+        return ETFOneilScannerResponse(
+            account_id=principal.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=request.symbols or ["SPY"],
+            facts_written=0,
+            setups_written=1,
+            candidates_written=1,
+            candidates=[_candidate()],
+        )
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "run_account_oneil_core_scanner",
+        _fake_scan,
+    )
+
+    response = run_account_us_etf_oneil_core_scanner(
+        session=None,
+        principal=_principal(),
+        request=AccountETFOneilScannerRequest(symbols=["spy"]),
+    )
+
+    assert captured == {"account_id": "acct_local", "symbols": ["SPY"]}
+    assert response.account_id == "acct_local"
+    assert response.candidates_written == 1
 
 
 def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:

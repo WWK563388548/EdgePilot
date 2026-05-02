@@ -128,6 +128,24 @@ export type CandidateFilters = {
   limit?: number;
 };
 
+export type AccountScannerRequest = {
+  symbols?: string[];
+  min_score?: number;
+  max_candidates?: number;
+  recalculate_facts?: boolean;
+};
+
+export type ETFOneilScannerResponse = {
+  account_id: string;
+  timeframe: string;
+  symbols_scanned: string[];
+  facts_written: number;
+  setups_written: number;
+  candidates_written: number;
+  skipped_symbols: string[];
+  candidates: Candidate[];
+};
+
 export type CandidateDetail = {
   candidate: Candidate;
   pa_setup: PASetup | null;
@@ -220,11 +238,14 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function postJson<T>(path: string): Promise<T> {
+async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const token = accessTokenProvider ? await accessTokenProvider() : null;
   const headers: Record<string, string> = {
     Accept: "application/json"
   };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -232,6 +253,7 @@ async function postJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store"
   });
 
@@ -254,6 +276,8 @@ export const api = {
         limit: filters.limit ?? 100
       })}`
     ),
+  scanAccountOneilCandidates: (request: AccountScannerRequest = {}) =>
+    postJson<ETFOneilScannerResponse>("/api/candidates/scanners/us-etf/oneil-core", request),
   candidateDetail: (candidateId: string) =>
     getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
   paSetups: (filters: PASetupFilters = {}) =>

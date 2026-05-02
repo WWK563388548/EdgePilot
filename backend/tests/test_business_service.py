@@ -8,6 +8,7 @@ from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
 from backend.app.schemas.business import CandidateCreate, CandidateUpdate
+from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
 
@@ -113,6 +114,76 @@ def test_candidate_queries_can_filter_by_decision(session) -> None:
         row.candidate_id
         for row in BusinessService.list_candidates(session, principal, decision="candidate")
     ] == ["cand_ready"]
+
+
+def test_account_scanner_replaces_only_current_account_candidates(session, monkeypatch) -> None:
+    from backend.app.services import business_service
+
+    principal_a = _principal("user_a", "acct_a")
+    principal_b = _principal("user_b", "acct_b")
+    BusinessService.create_candidate(
+        session,
+        principal_a,
+        CandidateCreate(
+            candidate_id="cand_old_a",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal_b,
+        CandidateCreate(
+            candidate_id="cand_old_b",
+            symbol_id="QQQ",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+        ),
+    )
+
+    def _fake_scan(db_session, request):
+        assert request.account_id == "acct_a"
+        db_session.add(
+            db.Candidate(
+                candidate_id="cand_new_a",
+                account_id=request.account_id,
+                symbol_id="IWM",
+                scan_date=date(2026, 4, 27),
+                strategy_name="oneil_core_us_etf",
+                decision="candidate",
+            )
+        )
+        return ETFOneilScannerResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=["IWM"],
+            facts_written=0,
+            setups_written=1,
+            candidates_written=1,
+        )
+
+    monkeypatch.setattr(
+        business_service.ETFScannerService,
+        "run_us_etf_oneil_core_for_session",
+        _fake_scan,
+    )
+
+    response = BusinessService.run_account_oneil_core_scanner(
+        session,
+        principal_a,
+        AccountETFOneilScannerRequest(symbols=["iwm"], recalculate_facts=False),
+    )
+
+    assert response.account_id == "acct_a"
+    assert [row.candidate_id for row in BusinessService.list_candidates(session, principal_a)] == [
+        "cand_new_a"
+    ]
+    assert [row.candidate_id for row in BusinessService.list_candidates(session, principal_b)] == [
+        "cand_old_b"
+    ]
 
 
 def test_dashboard_candidate_count_only_counts_candidates(session) -> None:

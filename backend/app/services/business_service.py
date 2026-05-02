@@ -1,7 +1,7 @@
 import json
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -24,6 +24,14 @@ from backend.app.schemas.business import (
     PositionCreate,
     PositionUpdate,
 )
+from backend.app.schemas.pa import (
+    AccountETFOneilScannerRequest,
+    ETFOneilScannerRequest,
+    ETFOneilScannerResponse,
+)
+from backend.app.services.scanner_service import ETFScannerService
+
+ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
 
 
 class BusinessService:
@@ -89,6 +97,39 @@ class BusinessService:
             statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc()).limit(limit)
         ).all()
         return [BusinessService._candidate_response(session, row) for row in rows]
+
+    @staticmethod
+    def run_account_oneil_core_scanner(
+        session: Session,
+        principal: AuthPrincipal,
+        request: AccountETFOneilScannerRequest,
+    ) -> ETFOneilScannerResponse:
+        session.execute(
+            delete(db.Candidate).where(
+                db.Candidate.account_id == principal.account_id,
+                db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
+            )
+        )
+        response = ETFScannerService.run_us_etf_oneil_core_for_session(
+            session,
+            ETFOneilScannerRequest(
+                symbols=request.symbols,
+                timeframe=request.timeframe,
+                account_id=principal.account_id,
+                min_score=request.min_score,
+                max_candidates=request.max_candidates,
+                recalculate_facts=request.recalculate_facts,
+            ),
+        )
+        BusinessService._audit(
+            session,
+            principal,
+            "candidate.scan",
+            "scanner",
+            ONEIL_CORE_US_ETF_STRATEGY,
+        )
+        session.commit()
+        return response
 
     @staticmethod
     def get_candidate_detail(

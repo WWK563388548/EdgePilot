@@ -142,6 +142,12 @@ class ETFOneilScannerRequest(ETFUniverseFactsRequest):
     recalculate_facts: bool = True
 
 
+class AccountETFOneilScannerRequest(ETFUniverseFactsRequest):
+    min_score: float = Field(default=60.0, ge=0, le=100)
+    max_candidates: int = Field(default=25, ge=1, le=200)
+    recalculate_facts: bool = True
+
+
 class ETFOneilScannerResponse(BaseModel):
     account_id: str
     timeframe: str

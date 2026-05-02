@@ -17,6 +17,7 @@ from backend.app.schemas.business import (
     PositionStatus,
     PositionUpdate,
 )
+from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
 router = APIRouter(prefix="/api", tags=["business"])
@@ -52,6 +53,25 @@ def list_candidates(
         decision=decision,
         limit=limit,
     )
+
+
+@router.post(
+    "/candidates/scanners/us-etf/oneil-core",
+    response_model=ETFOneilScannerResponse,
+)
+def run_account_us_etf_oneil_core_scanner(
+    session: DbSession,
+    principal: TraderPrincipal,
+    request: AccountETFOneilScannerRequest | None = None,
+) -> ETFOneilScannerResponse:
+    try:
+        return BusinessService.run_account_oneil_core_scanner(
+            session=session,
+            principal=principal,
+            request=request or AccountETFOneilScannerRequest(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateDetail)
