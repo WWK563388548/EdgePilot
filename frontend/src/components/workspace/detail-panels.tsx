@@ -37,7 +37,14 @@ export function CandidateDetailPanel({
   const entryPlan = detail?.entry_plan ?? setup?.entry_plan;
   const exitPlan = detail?.exit_plan ?? setup?.exit_plan;
   const scoreBreakdown = detail?.score_breakdown ?? nestedRecord(entryPlan, "score_breakdown");
-  const scannerDecision = detail?.scanner_decision ?? nestedRecord(entryPlan, "scanner_decision");
+  const scannerDecision = detail?.scanner_decision ?? nestedRecord(entryPlan, "scanner_decision") ?? fallbackScannerDecision({
+    decision: candidate?.decision ?? setup?.status,
+    initialStop: numberFromRecord(exitPlan, "initial_stop") ?? candidate?.initial_stop ?? null,
+    scoreBreakdown,
+    setupGrade: setup?.setup_grade,
+    setupType: setup?.setup_type,
+    triggerPrice: numberFromRecord(entryPlan, "trigger_price") ?? candidate?.entry_trigger ?? null
+  });
   const explain = useQuery({
     queryKey: ["pa-setup-explain", setup?.setup_id],
     queryFn: () => api.paSetupExplain(setup?.setup_id as string),
@@ -103,7 +110,14 @@ export function PASetupDetailPanel({
 }) {
   const { labelFor, t } = useAppI18n();
   const scoreBreakdown = nestedRecord(setup?.entry_plan, "score_breakdown");
-  const scannerDecision = nestedRecord(setup?.entry_plan, "scanner_decision");
+  const scannerDecision = nestedRecord(setup?.entry_plan, "scanner_decision") ?? fallbackScannerDecision({
+    decision: setup?.status,
+    initialStop: numberFromRecord(setup?.exit_plan, "initial_stop"),
+    scoreBreakdown,
+    setupGrade: setup?.setup_grade,
+    setupType: setup?.setup_type,
+    triggerPrice: numberFromRecord(setup?.entry_plan, "trigger_price")
+  });
   const explain = useQuery({
     queryKey: ["pa-setup-explain", setup?.setup_id],
     queryFn: () => api.paSetupExplain(setup?.setup_id as string),
@@ -413,6 +427,94 @@ function KeyList({
       )}
     </div>
   );
+}
+
+function fallbackScannerDecision({
+  decision,
+  initialStop,
+  scoreBreakdown,
+  setupGrade,
+  setupType,
+  triggerPrice
+}: {
+  decision: string | null | undefined;
+  initialStop: number | null;
+  scoreBreakdown: Record<string, unknown> | null | undefined;
+  setupGrade: string | null | undefined;
+  setupType: string | null | undefined;
+  triggerPrice: number | null;
+}) {
+  if (!scoreBreakdown) {
+    return null;
+  }
+
+  const totalScore = numberFromRecord(scoreBreakdown, "total");
+  const normalizedDecision = decision ?? (totalScore !== null && totalScore >= 75 ? "candidate" : "watch");
+  const passedRules: Record<string, unknown>[] = [];
+  const failedRules: Record<string, unknown>[] = [];
+  addFallbackRule(passedRules, failedRules, scoreBreakdown, "trend", 18, 25, "trend_aligned", "trend_needs_alignment");
+  addFallbackRule(
+    passedRules,
+    failedRules,
+    scoreBreakdown,
+    "relative_strength",
+    12.5,
+    25,
+    "relative_strength_leader",
+    "relative_strength_lagging"
+  );
+  addFallbackRule(
+    passedRules,
+    failedRules,
+    scoreBreakdown,
+    "volume_liquidity",
+    8,
+    15,
+    "volume_liquidity",
+    "volume_confirmation_missing"
+  );
+  addFallbackRule(passedRules, failedRules, scoreBreakdown, "base_setup", 9, 15, "setup_location", "setup_location_unclear");
+  addFallbackRule(passedRules, failedRules, scoreBreakdown, "market_context", 8, 10, "market_support", "market_context_caution");
+
+  return {
+    decision: normalizedDecision,
+    failed_rules: failedRules,
+    initial_stop: initialStop,
+    passed_rules: passedRules,
+    risk_notes: ["initial_stop_required", "invalidates_below_stop"],
+    setup_grade: setupGrade,
+    setup_type: setupType,
+    strategy: "oneil_core_us_etf",
+    total_score: totalScore,
+    trigger_price: triggerPrice,
+    upgrade_conditions: ["break_above_trigger", "hold_above_20_50ma", "volume_expansion"],
+    validation_status: "shadow_only",
+    version: "legacy_score_breakdown_fallback",
+    watch_reasons: ["shadow_only", "needs_trigger_confirmation"]
+  };
+}
+
+function addFallbackRule(
+  passedRules: Record<string, unknown>[],
+  failedRules: Record<string, unknown>[],
+  scoreBreakdown: Record<string, unknown>,
+  scoreKey: string,
+  threshold: number,
+  maxScore: number,
+  passedKey: string,
+  failedKey: string
+) {
+  const score = numberFromRecord(scoreBreakdown, scoreKey);
+  if (score === null) {
+    return;
+  }
+  const target = score >= threshold ? passedRules : failedRules;
+  target.push({
+    key: score >= threshold ? passedKey : failedKey,
+    max_score: maxScore,
+    score,
+    threshold
+  });
 }
 
 const SCANNER_DECISION_TEXT_KEYS: Record<string, string> = {
