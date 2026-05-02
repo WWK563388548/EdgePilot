@@ -38,6 +38,7 @@ class ScoredETFSetup:
     exit_plan: dict[str, Any]
     invalidation: dict[str, Any]
     metrics: dict[str, Any]
+    scanner_decision: dict[str, Any]
 
 
 class ETFScannerService:
@@ -207,6 +208,7 @@ def _score_oneil_core_setup(
     followthrough_score = _followthrough_score(facts)
     setup_grade = _setup_grade(total_score)
     trigger_price = _trigger_price(setup_type=setup_type, close=close, high=high)
+    decision = "candidate" if total_score >= 75 else "watch"
     score_breakdown = {
         "trend": trend_score,
         "relative_strength": rs_score,
@@ -216,6 +218,22 @@ def _score_oneil_core_setup(
         "fundamental_lite": fundamental_lite_score,
         "total": total_score,
     }
+    scanner_decision = _scanner_decision(
+        base_score=base_score,
+        decision=decision,
+        distance_to_sma_20=distance_to_sma_20,
+        initial_stop=initial_stop,
+        market_score=market_score,
+        relative_volume=relative_volume,
+        risk_stop_score=risk_stop_score,
+        rs_score=rs_score,
+        setup_grade=setup_grade,
+        setup_type=setup_type,
+        total_score=total_score,
+        trend_score=trend_score,
+        trigger_price=trigger_price,
+        volume_score=volume_score,
+    )
 
     return ScoredETFSetup(
         symbol_id=fact.symbol_id,
@@ -238,6 +256,7 @@ def _score_oneil_core_setup(
             "trigger_price": trigger_price,
             "timeframe": fact.timeframe,
             "score_breakdown": score_breakdown,
+            "scanner_decision": scanner_decision,
         },
         exit_plan={
             "initial_stop": initial_stop,
@@ -250,6 +269,7 @@ def _score_oneil_core_setup(
         },
         metrics={
             "oneil_core": score_breakdown,
+            "scanner_decision": scanner_decision,
             "market_context": market_context,
             "facts_snapshot": {
                 key: facts.get(key)
@@ -264,6 +284,7 @@ def _score_oneil_core_setup(
                 )
             },
         },
+        scanner_decision=scanner_decision,
     )
 
 
@@ -383,6 +404,140 @@ def _followthrough_score(facts: dict[str, Any]) -> float:
     return score
 
 
+def _scanner_decision(
+    *,
+    base_score: float,
+    decision: str,
+    distance_to_sma_20: float | None,
+    initial_stop: float,
+    market_score: float,
+    relative_volume: float | None,
+    risk_stop_score: float,
+    rs_score: float,
+    setup_grade: str,
+    setup_type: str,
+    total_score: float,
+    trend_score: float,
+    trigger_price: float,
+    volume_score: float,
+) -> dict[str, Any]:
+    passed_rules: list[dict[str, Any]] = []
+    failed_rules: list[dict[str, Any]] = []
+
+    _add_score_rule(
+        passed_rules,
+        failed_rules,
+        score=trend_score,
+        max_score=25,
+        threshold=18,
+        passed_key="trend_aligned",
+        failed_key="trend_needs_alignment",
+    )
+    _add_score_rule(
+        passed_rules,
+        failed_rules,
+        score=rs_score,
+        max_score=25,
+        threshold=12.5,
+        passed_key="relative_strength_leader",
+        failed_key="relative_strength_lagging",
+    )
+    _add_score_rule(
+        passed_rules,
+        failed_rules,
+        score=volume_score,
+        max_score=15,
+        threshold=8,
+        passed_key="volume_liquidity",
+        failed_key="volume_confirmation_missing",
+    )
+    _add_score_rule(
+        passed_rules,
+        failed_rules,
+        score=base_score,
+        max_score=15,
+        threshold=9,
+        passed_key="setup_location",
+        failed_key="setup_location_unclear",
+    )
+    _add_score_rule(
+        passed_rules,
+        failed_rules,
+        score=market_score,
+        max_score=10,
+        threshold=8,
+        passed_key="market_support",
+        failed_key="market_context_caution",
+    )
+    _add_score_rule(
+        passed_rules,
+        failed_rules,
+        score=risk_stop_score,
+        max_score=10,
+        threshold=7,
+        passed_key="risk_contained",
+        failed_key="risk_too_wide",
+    )
+
+    watch_reasons = ["shadow_only", "needs_trigger_confirmation"]
+    if decision == "watch":
+        watch_reasons.insert(0, "score_below_candidate")
+    if volume_score < 8:
+        watch_reasons.append("volume_needs_confirmation")
+    if market_score < 8:
+        watch_reasons.append("market_context_caution")
+
+    upgrade_conditions = ["break_above_trigger", "hold_above_20_50ma"]
+    if volume_score < 8 or relative_volume is None or relative_volume < 1.2:
+        upgrade_conditions.append("volume_expansion")
+    if market_score < 8:
+        upgrade_conditions.append("market_context_green")
+
+    risk_notes = ["initial_stop_required", "invalidates_below_stop"]
+    if distance_to_sma_20 is not None and distance_to_sma_20 > 0.12:
+        risk_notes.append("extended_from_20ma")
+    if market_score < 8:
+        risk_notes.append("market_context_caution")
+
+    return {
+        "version": "oneil_core_us_etf_v2",
+        "strategy": "oneil_core_us_etf",
+        "decision": decision,
+        "setup_type": setup_type,
+        "setup_grade": setup_grade,
+        "total_score": total_score,
+        "validation_status": "shadow_only",
+        "trigger_price": trigger_price,
+        "initial_stop": initial_stop,
+        "passed_rules": passed_rules,
+        "failed_rules": failed_rules,
+        "watch_reasons": watch_reasons,
+        "upgrade_conditions": upgrade_conditions,
+        "risk_notes": risk_notes,
+    }
+
+
+def _add_score_rule(
+    passed_rules: list[dict[str, Any]],
+    failed_rules: list[dict[str, Any]],
+    *,
+    score: float,
+    max_score: float,
+    threshold: float,
+    passed_key: str,
+    failed_key: str,
+) -> None:
+    target = passed_rules if score >= threshold else failed_rules
+    target.append(
+        {
+            "key": passed_key if score >= threshold else failed_key,
+            "score": round(score, 2),
+            "max_score": max_score,
+            "threshold": threshold,
+        }
+    )
+
+
 def _trigger_price(*, setup_type: str, close: float, high: float) -> float:
     if setup_type == "pullback_to_20ma":
         return round(close * 1.005, 2)
@@ -472,6 +627,7 @@ def _candidate_ai_review_placeholder(scored: ScoredETFSetup, setup_id: str) -> s
             "pa_setup_id": setup_id,
             "validation_status": "shadow_only",
             "score_breakdown": scored.entry_plan["score_breakdown"],
+            "scanner_decision": scored.scanner_decision,
         },
         sort_keys=True,
     )

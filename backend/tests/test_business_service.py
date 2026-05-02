@@ -202,6 +202,11 @@ def test_candidate_detail_includes_linked_pa_setup(session) -> None:
             entry_plan={
                 "trigger_price": 510.5,
                 "score_breakdown": {"trend": 25, "total": 82},
+                "scanner_decision": {
+                    "decision": "candidate",
+                    "passed_rules": [{"key": "trend_aligned"}],
+                    "upgrade_conditions": ["break_above_trigger"],
+                },
             },
             exit_plan={"initial_stop": 480},
             invalidation={"price_below": 480},
@@ -228,3 +233,5 @@ def test_candidate_detail_includes_linked_pa_setup(session) -> None:
     assert detail.pa_setup is not None
     assert detail.pa_setup.setup_grade == "A"
     assert detail.score_breakdown == {"trend": 25, "total": 82}
+    assert detail.scanner_decision is not None
+    assert detail.scanner_decision["decision"] == "candidate"

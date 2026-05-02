@@ -103,6 +103,7 @@ class BusinessService:
             candidate=BusinessService._candidate_response(session, candidate, pa_setup),
             pa_setup=CandidatePASetup.model_validate(pa_setup) if pa_setup else None,
             score_breakdown=entry_plan.get("score_breakdown") if entry_plan else None,
+            scanner_decision=BusinessService._candidate_scanner_decision(candidate, entry_plan),
             entry_plan=entry_plan,
             exit_plan=pa_setup.exit_plan if pa_setup else None,
             invalidation=pa_setup.invalidation if pa_setup else None,
@@ -177,6 +178,23 @@ class BusinessService:
             return None
         setup_id = payload.get("pa_setup_id")
         return setup_id if isinstance(setup_id, str) else None
+
+    @staticmethod
+    def _candidate_scanner_decision(
+        candidate: db.Candidate,
+        entry_plan: dict | None,
+    ) -> dict | None:
+        scanner_decision = entry_plan.get("scanner_decision") if entry_plan else None
+        if isinstance(scanner_decision, dict):
+            return scanner_decision
+        if not candidate.ai_review_json:
+            return None
+        try:
+            payload = json.loads(candidate.ai_review_json)
+        except json.JSONDecodeError:
+            return None
+        scanner_decision = payload.get("scanner_decision")
+        return scanner_decision if isinstance(scanner_decision, dict) else None
 
     @staticmethod
     def _get_candidate_model(

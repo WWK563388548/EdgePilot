@@ -132,6 +132,7 @@ export type CandidateDetail = {
   candidate: Candidate;
   pa_setup: PASetup | null;
   score_breakdown: Record<string, unknown> | null;
+  scanner_decision: Record<string, unknown> | null;
   entry_plan: Record<string, unknown> | null;
   exit_plan: Record<string, unknown> | null;
   invalidation: Record<string, unknown> | null;

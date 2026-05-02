@@ -75,6 +75,7 @@ class CandidateDetail(BaseModel):
     candidate: Candidate
     pa_setup: CandidatePASetup | None = None
     score_breakdown: dict[str, Any] | None = None
+    scanner_decision: dict[str, Any] | None = None
     entry_plan: dict[str, Any] | None = None
     exit_plan: dict[str, Any] | None = None
     invalidation: dict[str, Any] | None = None

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -41,6 +42,8 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert response.candidates[0].decision == "candidate"
     assert response.candidates[0].pa_setup_id is not None
 
+    setup = session.scalar(select(db.PASetup).where(db.PASetup.symbol_id == "SPY"))
+    candidate = session.scalar(select(db.Candidate).where(db.Candidate.account_id == "acct_local"))
     setup_count = session.scalar(
         select(func.count()).select_from(db.PASetup).where(db.PASetup.symbol_id == "SPY")
     )
@@ -50,6 +53,13 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
 
     assert setup_count == 1
     assert candidate_count == 1
+    assert setup is not None
+    assert setup.entry_plan is not None
+    assert setup.entry_plan["scanner_decision"]["decision"] == "candidate"
+    assert setup.entry_plan["scanner_decision"]["passed_rules"]
+    assert candidate is not None
+    assert candidate.ai_review_json is not None
+    assert json.loads(candidate.ai_review_json)["scanner_decision"]["upgrade_conditions"]
 
 
 def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> None:
