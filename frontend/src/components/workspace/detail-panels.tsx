@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { DataState, Field } from "@/components/workspace/common";
 import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
@@ -41,35 +42,16 @@ export function CandidateDetailPanel({
     queryFn: () => api.paSetupExplain(setup?.setup_id as string),
     enabled: Boolean(setup?.setup_id)
   });
+  const title = candidate ? `${candidate.symbol_id} ${t("candidateDetail")}` : t("candidateDetail");
+  const subtitle = setup?.setup_id ?? candidate?.candidate_id ?? t("noSelection");
 
   return (
-    <>
-      <button
-        aria-label={t("closeDetail")}
-        className="fixed inset-0 z-40 bg-slate-950/25"
-        onClick={onClose}
-        type="button"
-      />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(1120px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border-l border-line bg-white shadow-2xl">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-5 py-4">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-ink">
-            {candidate ? `${candidate.symbol_id} ${t("candidateDetail")}` : t("candidateDetail")}
-          </h2>
-          <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? candidate?.candidate_id ?? t("noSelection")}</p>
-        </div>
-        <button
-          className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
-          disabled={!selected}
-          onClick={onClose}
-          title={t("closeDetail")}
-          type="button"
-        >
-          <X size={16} />
-        </button>
-      </div>
-
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+    <DetailDrawerShell
+      closeLabel={t("closeDetail")}
+      onClose={onClose}
+      subtitle={subtitle}
+      title={title}
+    >
         <DataState isLoading={loading} isError={error} locale={locale} />
         {!selected && <p className="text-sm text-slate-600">{t("noSelection")}</p>}
         {candidate ? (
@@ -104,9 +86,7 @@ export function CandidateDetailPanel({
             <PlanFields title={t("invalidation")} data={detail?.invalidation ?? setup?.invalidation} locale={locale} />
           </>
         ) : null}
-      </div>
-      </aside>
-    </>
+    </DetailDrawerShell>
   );
 }
 
@@ -126,37 +106,16 @@ export function PASetupDetailPanel({
     queryFn: () => api.paSetupExplain(setup?.setup_id as string),
     enabled: Boolean(setup?.setup_id)
   });
+  const title = setup ? `${setup.symbol_id} ${t("setupDetail")}` : t("setupDetail");
+  const subtitle = setup?.setup_id ?? t("noSelection");
 
   return (
-    <>
-      {onClose ? (
-        <button
-          aria-label={t("closeDetail")}
-          className="fixed inset-0 z-40 bg-slate-950/25"
-          onClick={onClose}
-          type="button"
-        />
-      ) : null}
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(1120px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col overflow-hidden border-l border-line bg-white shadow-2xl">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-5 py-4">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-ink">
-            {setup ? `${setup.symbol_id} ${t("setupDetail")}` : t("setupDetail")}
-          </h2>
-          <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? t("noSelection")}</p>
-        </div>
-        {onClose ? (
-          <button
-            className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
-            onClick={onClose}
-            title={t("closeDetail")}
-            type="button"
-          >
-            <X size={16} />
-          </button>
-        ) : null}
-      </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+    <DetailDrawerShell
+      closeLabel={t("closeDetail")}
+      onClose={onClose}
+      subtitle={subtitle}
+      title={title}
+    >
         {setup ? (
           <>
             <ExplanationBlock locale={locale} setup={setup} />
@@ -191,9 +150,73 @@ export function PASetupDetailPanel({
         ) : (
           <p className="text-sm text-slate-600">{t("noSetup")}</p>
         )}
-      </div>
+    </DetailDrawerShell>
+  );
+}
+
+function DetailDrawerShell({
+  children,
+  closeLabel,
+  onClose,
+  subtitle,
+  title
+}: {
+  children: ReactNode;
+  closeLabel: string;
+  onClose?: () => void;
+  subtitle: string;
+  title: string;
+}) {
+  const [closing, setClosing] = useState(false);
+
+  useEffect(() => {
+    setClosing(false);
+  }, [title, subtitle]);
+
+  const requestClose = () => {
+    if (!onClose || closing) {
+      return;
+    }
+    setClosing(true);
+    window.setTimeout(onClose, 180);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50">
+      {onClose ? (
+        <button
+          aria-label={closeLabel}
+          className={`absolute inset-0 bg-slate-950/30 backdrop-blur-[1px] ${
+            closing ? "drawer-backdrop-out" : "drawer-backdrop-in"
+          }`}
+          onClick={requestClose}
+          type="button"
+        />
+      ) : null}
+      <aside
+        className={`absolute bottom-0 right-0 top-0 flex w-[min(1120px,100vw)] flex-col overflow-hidden border-l border-line bg-white shadow-2xl ${
+          closing ? "drawer-panel-out" : "drawer-panel-in"
+        }`}
+      >
+        <div className="flex min-h-20 shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-6 py-4">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-ink">{title}</h2>
+            <p className="truncate text-sm text-slate-500">{subtitle}</p>
+          </div>
+          {onClose ? (
+            <button
+              className="focus-ring inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-700 transition-colors hover:border-slate-400 hover:bg-panel"
+              onClick={requestClose}
+              title={closeLabel}
+              type="button"
+            >
+              <X size={18} />
+            </button>
+          ) : null}
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">{children}</div>
       </aside>
-    </>
+    </div>
   );
 }
 
