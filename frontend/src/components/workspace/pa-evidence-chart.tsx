@@ -270,6 +270,7 @@ function PriceEvidenceSvg({
 }) {
   const { labelFor, t } = useAppI18n();
   const levels = explain.evidence.levels;
+  const [hoveredLevelId, setHoveredLevelId] = useState<string | null>(null);
   const priceValues = bars.flatMap((bar) => [bar.open, bar.high, bar.low, bar.close, bar.sma_20, bar.sma_50, bar.sma_200]);
   const levelValues = levels.map((level) => level.value);
   const finiteValues = [...priceValues, ...levelValues].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -296,6 +297,28 @@ function PriceEvidenceSvg({
     }
     return PRICE_BOTTOM - ((value - domainMin) / (domainMax - domainMin || 1)) * (PRICE_BOTTOM - PRICE_TOP);
   };
+  const levelMarkers = levels
+    .map((level) => {
+      const y = yFor(level.value);
+      if (y === null) {
+        return null;
+      }
+      const tone = level.key === "trigger_price" ? "#1d766c" : level.key === "initial_stop" ? "#8a5d13" : "#6b5ca5";
+      const label = labelFor("plan", level.key);
+      const shortLabel = level.key === "trigger_price" ? t("entry") : level.key === "initial_stop" ? t("stop") : label;
+      const valueLabel = formatNumber(level.value, 2, locale);
+      return {
+        id: `${level.source}-${level.key}`,
+        label,
+        labelY: Math.max(PRICE_TOP + 2, Math.min(PRICE_BOTTOM - 24, y - 12)),
+        shortLabel,
+        tone,
+        valueLabel,
+        y
+      };
+    })
+    .filter((marker): marker is NonNullable<typeof marker> => Boolean(marker));
+  const hoveredLevel = levelMarkers.find((marker) => marker.id === hoveredLevelId) ?? null;
 
   return (
     <div className="overflow-hidden rounded-md border border-line bg-white">
@@ -355,22 +378,64 @@ function PriceEvidenceSvg({
         <MovingAveragePath bars={bars} color="#7c6cbb" valueKey="sma_50" xFor={xFor} yFor={yFor} />
         <MovingAveragePath bars={bars} color="#8b97a5" valueKey="sma_200" xFor={xFor} yFor={yFor} />
 
-        {levels.map((level) => {
-          const y = yFor(level.value);
-          if (y === null) {
-            return null;
-          }
-          const tone = level.key === "trigger_price" ? "#1d766c" : level.key === "initial_stop" ? "#a44a3f" : "#8b6f2a";
-          const title = `${labelFor("plan", level.key)}: ${formatNumber(level.value, 2, locale)}`;
+        {levelMarkers.map((marker) => {
+          const isHovered = hoveredLevelId === marker.id;
           return (
-            <g className="cursor-help" key={`${level.source}-${level.key}`}>
-              <title>{title}</title>
-              <rect x={PLOT_LEFT} y={y - 6} width={PLOT_RIGHT - PLOT_LEFT + 10} height="12" fill="transparent" pointerEvents="all" />
-              <line x1={PLOT_LEFT} x2={PLOT_RIGHT} y1={y} y2={y} stroke={tone} strokeDasharray="5 5" strokeWidth="1.4" />
-              <circle cx={PLOT_RIGHT} cy={y} r="4.5" fill="#ffffff" stroke={tone} strokeWidth="1.6" />
+            <g
+              aria-label={`${marker.label}: ${marker.valueLabel}`}
+              className="cursor-help"
+              key={marker.id}
+              onBlur={() => setHoveredLevelId(null)}
+              onFocus={() => setHoveredLevelId(marker.id)}
+              onMouseEnter={() => setHoveredLevelId(marker.id)}
+              onMouseLeave={() => setHoveredLevelId(null)}
+              role="button"
+              tabIndex={0}
+            >
+              <rect
+                x={PLOT_LEFT}
+                y={marker.y - 8}
+                width={PLOT_RIGHT - PLOT_LEFT + 68}
+                height="16"
+                fill="transparent"
+                pointerEvents="all"
+              />
+              <line
+                x1={PLOT_LEFT}
+                x2={PLOT_RIGHT}
+                y1={marker.y}
+                y2={marker.y}
+                stroke={marker.tone}
+                strokeDasharray="5 5"
+                strokeOpacity={isHovered ? "1" : "0.88"}
+                strokeWidth={isHovered ? "2.2" : "1.6"}
+              />
+              <line x1={PLOT_RIGHT} x2={PLOT_RIGHT + 8} y1={marker.y} y2={marker.labelY + 12} stroke={marker.tone} strokeWidth="1.4" />
+              <circle cx={PLOT_RIGHT} cy={marker.y} r={isHovered ? "7" : "5.5"} fill={marker.tone} stroke="#ffffff" strokeWidth="2" />
+              <rect
+                x={PLOT_RIGHT + 10}
+                y={marker.labelY}
+                width="58"
+                height="24"
+                rx="6"
+                fill="#ffffff"
+                stroke={marker.tone}
+                strokeWidth={isHovered ? "2" : "1.5"}
+              />
+              <text
+                x={PLOT_RIGHT + 39}
+                y={marker.labelY + 16}
+                textAnchor="middle"
+                fill={marker.tone}
+                fontSize="11"
+                fontWeight="800"
+              >
+                {marker.shortLabel}
+              </text>
             </g>
           );
         })}
+        {hoveredLevel ? <LevelTooltip marker={hoveredLevel} /> : null}
 
         <text x={PLOT_LEFT} y="22" fill="#687383" fontSize="12">
           {bars[0] ? formatDateOnly(bars[0].ts, locale) : ""} - {bars[bars.length - 1] ? formatDateOnly(bars[bars.length - 1].ts, locale) : ""}
@@ -381,6 +446,35 @@ function PriceEvidenceSvg({
         <Legend />
       </svg>
     </div>
+  );
+}
+
+function LevelTooltip({
+  marker
+}: {
+  marker: {
+    label: string;
+    tone: string;
+    valueLabel: string;
+    y: number;
+  };
+}) {
+  const tooltipWidth = 170;
+  const tooltipHeight = 46;
+  const x = PLOT_RIGHT - tooltipWidth - 12;
+  const y = Math.max(PRICE_TOP + 4, Math.min(PRICE_BOTTOM - tooltipHeight - 4, marker.y - tooltipHeight - 10));
+
+  return (
+    <g pointerEvents="none">
+      <rect x={x} y={y} width={tooltipWidth} height={tooltipHeight} rx="7" fill="#16202a" opacity="0.96" />
+      <rect x={x} y={y} width="4" height={tooltipHeight} rx="2" fill={marker.tone} />
+      <text x={x + 14} y={y + 18} fill="#ffffff" fontSize="12" fontWeight="800">
+        {marker.label}
+      </text>
+      <text x={x + 14} y={y + 35} fill="#d8e0e7" fontSize="12" fontWeight="700">
+        {marker.valueLabel}
+      </text>
+    </g>
   );
 }
 
