@@ -1,7 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 
 import { DataState, Field } from "@/components/workspace/common";
+import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
 import type { Candidate, CandidateDetail, PASetup } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   formatDetailValue,
   formatNumber,
@@ -33,6 +36,11 @@ export function CandidateDetailPanel({
   const entryPlan = detail?.entry_plan ?? setup?.entry_plan;
   const exitPlan = detail?.exit_plan ?? setup?.exit_plan;
   const scoreBreakdown = detail?.score_breakdown ?? nestedRecord(entryPlan, "score_breakdown");
+  const explain = useQuery({
+    queryKey: ["pa-setup-explain", setup?.setup_id],
+    queryFn: () => api.paSetupExplain(setup?.setup_id as string),
+    enabled: Boolean(setup?.setup_id)
+  });
 
   return (
     <aside className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
@@ -77,6 +85,12 @@ export function CandidateDetailPanel({
               locale={locale}
               setup={setup}
             />
+            <PAEvidencePanel
+              error={explain.isError}
+              explain={explain.data}
+              loading={Boolean(setup?.setup_id) && explain.isLoading}
+              locale={locale}
+            />
             <ScoreBreakdownBlock data={scoreBreakdown} locale={locale} />
             <PlanFields title={t("entryPlan")} data={entryPlan} locale={locale} omitKeys={["score_breakdown"]} />
             <PlanFields title={t("exitPlan")} data={exitPlan} locale={locale} />
@@ -99,6 +113,11 @@ export function PASetupDetailPanel({
 }) {
   const { labelFor, t } = useAppI18n();
   const scoreBreakdown = nestedRecord(setup?.entry_plan, "score_breakdown");
+  const explain = useQuery({
+    queryKey: ["pa-setup-explain", setup?.setup_id],
+    queryFn: () => api.paSetupExplain(setup?.setup_id as string),
+    enabled: Boolean(setup?.setup_id)
+  });
 
   return (
     <aside className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
@@ -141,6 +160,12 @@ export function PASetupDetailPanel({
               <Field label={t("riskStop")} value={formatNumber(setup.risk_stop_score, 1, locale)} />
             </div>
             <KeyLevelsBlock entryPlan={setup.entry_plan} exitPlan={setup.exit_plan} locale={locale} setup={setup} />
+            <PAEvidencePanel
+              error={explain.isError}
+              explain={explain.data}
+              loading={Boolean(setup?.setup_id) && explain.isLoading}
+              locale={locale}
+            />
             <ScoreBreakdownBlock data={scoreBreakdown} locale={locale} />
             <PlanFields title={t("entryPlan")} data={setup.entry_plan} locale={locale} omitKeys={["score_breakdown"]} />
             <PlanFields title={t("exitPlan")} data={setup.exit_plan} locale={locale} />

@@ -52,7 +52,7 @@ export function PALabView({ locale }: { locale: Locale }) {
 
       <section
         className={`grid gap-4 ${
-          detailOpen && selectedSetup ? "xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]" : "xl:grid-cols-1"
+          detailOpen && selectedSetup ? "xl:grid-cols-[minmax(0,1fr)_minmax(460px,560px)]" : "xl:grid-cols-1"
         }`}
       >
         <section className="overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)]">

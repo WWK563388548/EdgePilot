@@ -79,6 +79,44 @@ class PACalibrationStat(BaseModel):
     updated_at: datetime | None = None
 
 
+class PAEvidenceBar(BaseModel):
+    ts: datetime
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: float | None = None
+    sma_20: float | None = None
+    sma_50: float | None = None
+    sma_200: float | None = None
+
+
+class PAEvidenceLevel(BaseModel):
+    key: str
+    value: float
+    source: str | None = None
+
+
+class PASetupEvidence(BaseModel):
+    bars: list[PAEvidenceBar] = Field(default_factory=list)
+    levels: list[PAEvidenceLevel] = Field(default_factory=list)
+    latest_facts: dict[str, Any] | None = None
+
+
+class PASetupExplain(BaseModel):
+    setup_id: str
+    symbol_id: str
+    timeframe: str
+    detected_ts: datetime
+    setup_type: str
+    validation_status: str | None = None
+    summary: str
+    strengths: list[str] = Field(default_factory=list)
+    watchouts: list[str] = Field(default_factory=list)
+    score_breakdown: dict[str, Any] | None = None
+    evidence: PASetupEvidence
+
+
 class ETFUniverseFactsRequest(BaseModel):
     symbols: list[str] | None = None
     timeframe: Timeframe = "1d"

@@ -79,6 +79,42 @@ export type PASetup = {
   updated_at: string | null;
 };
 
+export type PAEvidenceBar = {
+  ts: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+  sma_20: number | null;
+  sma_50: number | null;
+  sma_200: number | null;
+};
+
+export type PAEvidenceLevel = {
+  key: string;
+  value: number;
+  source: string | null;
+};
+
+export type PASetupExplain = {
+  setup_id: string;
+  symbol_id: string;
+  timeframe: string;
+  detected_ts: string;
+  setup_type: string;
+  validation_status: string | null;
+  summary: string;
+  strengths: string[];
+  watchouts: string[];
+  score_breakdown: Record<string, unknown> | null;
+  evidence: {
+    bars: PAEvidenceBar[];
+    levels: PAEvidenceLevel[];
+    latest_facts: Record<string, unknown> | null;
+  };
+};
+
 export type PASetupFilters = {
   symbol?: string;
   setupType?: string;
@@ -228,6 +264,12 @@ export const api = {
         status: filters.status,
         timeframe: "1d",
         limit: filters.limit ?? 100
+      })}`
+    ),
+  paSetupExplain: (setupId: string, barLimit = 90) =>
+    getJson<PASetupExplain>(
+      `/api/pa/setups/${encodeURIComponent(setupId)}/explain${queryString({
+        bar_limit: barLimit
       })}`
     ),
   positions: () => getJson<Position[]>("/api/positions?limit=100"),
