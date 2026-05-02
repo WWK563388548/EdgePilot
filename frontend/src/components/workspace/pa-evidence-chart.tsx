@@ -10,13 +10,14 @@ import type { Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
 const CHART_WIDTH = 980;
-const CHART_HEIGHT = 430;
+const CHART_HEIGHT = 468;
 const PLOT_LEFT = 54;
 const PLOT_RIGHT = CHART_WIDTH - 74;
 const PRICE_TOP = 34;
 const PRICE_BOTTOM = 326;
 const VOLUME_TOP = 346;
-const VOLUME_BOTTOM = 408;
+const VOLUME_BOTTOM = 398;
+const DATE_AXIS_Y = 424;
 const WINDOW_OPTIONS = [30, 60, 90];
 
 export function PAEvidencePanel({
@@ -319,6 +320,7 @@ function PriceEvidenceSvg({
     })
     .filter((marker): marker is NonNullable<typeof marker> => Boolean(marker));
   const hoveredLevel = levelMarkers.find((marker) => marker.id === hoveredLevelId) ?? null;
+  const dateTicks = buildDateTicks(bars);
 
   return (
     <div className="overflow-hidden rounded-md border border-line bg-white">
@@ -443,6 +445,7 @@ function PriceEvidenceSvg({
         <text x={PLOT_LEFT} y={VOLUME_TOP + 12} fill="#687383" fontSize="12">
           {t("volume")}
         </text>
+        <DateAxis ticks={dateTicks} xFor={xFor} locale={locale} />
         <Legend />
       </svg>
     </div>
@@ -476,6 +479,55 @@ function LevelTooltip({
       </text>
     </g>
   );
+}
+
+function DateAxis({
+  ticks,
+  xFor,
+  locale
+}: {
+  ticks: Array<{ index: number; ts: string }>;
+  xFor: (index: number) => number;
+  locale: Locale;
+}) {
+  if (!ticks.length) {
+    return null;
+  }
+
+  return (
+    <g>
+      <line x1={PLOT_LEFT} x2={PLOT_RIGHT} y1={DATE_AXIS_Y - 14} y2={DATE_AXIS_Y - 14} stroke="#edf1f4" strokeWidth="1" />
+      {ticks.map((tick, tickIndex) => {
+        const x = xFor(tick.index);
+        const anchor = tickIndex === 0 ? "start" : tickIndex === ticks.length - 1 ? "end" : "middle";
+        return (
+          <g key={`${tick.index}-${tick.ts}`}>
+            <line x1={x} x2={x} y1={DATE_AXIS_Y - 18} y2={DATE_AXIS_Y - 12} stroke="#cfd8e3" strokeWidth="1" />
+            <text x={x} y={DATE_AXIS_Y + 2} textAnchor={anchor} fill="#687383" fontSize="11" fontWeight="600">
+              {formatDateOnly(tick.ts, locale)}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+function buildDateTicks(bars: PAEvidenceBar[]) {
+  if (bars.length < 2) {
+    return [];
+  }
+
+  const targetCount = bars.length >= 80 ? 6 : bars.length >= 45 ? 5 : 4;
+  const tickCount = Math.min(targetCount, bars.length);
+  const indexes = new Set<number>();
+  for (let tick = 0; tick < tickCount; tick += 1) {
+    indexes.add(Math.round((tick / Math.max(1, tickCount - 1)) * (bars.length - 1)));
+  }
+
+  return Array.from(indexes)
+    .sort((a, b) => a - b)
+    .map((index) => ({ index, ts: bars[index].ts }));
 }
 
 function Legend() {
