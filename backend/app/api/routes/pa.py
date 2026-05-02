@@ -12,6 +12,7 @@ from backend.app.schemas.pa import (
     PAFactsCalculationResponse,
     PAStructure,
     PASetup,
+    PASetupExplain,
 )
 from backend.app.services.pa_service import PAService
 from backend.app.services.scanner_service import ETFScannerService
@@ -79,6 +80,18 @@ def get_pa_setup(setup_id: str, session: DbSession) -> PASetup:
     if setup is None:
         raise HTTPException(status_code=404, detail=f"PA setup not found: {setup_id}")
     return setup
+
+
+@router.get("/setups/{setup_id}/explain", response_model=PASetupExplain)
+def explain_pa_setup(
+    setup_id: str,
+    session: DbSession,
+    bar_limit: int = Query(default=90, ge=20, le=250),
+) -> PASetupExplain:
+    explain = PAService.explain_setup(session=session, setup_id=setup_id, bar_limit=bar_limit)
+    if explain is None:
+        raise HTTPException(status_code=404, detail=f"PA setup not found: {setup_id}")
+    return explain
 
 
 @router.get("/calibration", response_model=list[PACalibrationStat])

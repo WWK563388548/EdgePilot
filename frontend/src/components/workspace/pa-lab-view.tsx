@@ -18,7 +18,7 @@ export function PALabView({ locale }: { locale: Locale }) {
   const [setupType, setSetupType] = useState("");
   const [validationStatus, setValidationStatus] = useState("");
   const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(true);
+  const [detailOpen, setDetailOpen] = useState(false);
   const filters = {
     symbol: symbol.trim().toUpperCase() || undefined,
     setupType: setupType || undefined,
@@ -43,18 +43,14 @@ export function PALabView({ locale }: { locale: Locale }) {
   }, [rows, selectedSetupId]);
 
   return (
-    <section className="space-y-4">
+    <section className="flex flex-col gap-4">
       <div className="grid gap-3 md:grid-cols-3">
         <CompactStat icon={<Layers size={18} />} label={t("paUniverse")} value={rows.length} />
         <CompactStat icon={<SlidersHorizontal size={18} />} label={t("topScore")} value={formatNumber(topScore, 1, locale)} />
         <CompactStat icon={<Eye size={18} />} label={t("selected")} value={selectedSetup?.symbol_id ?? "-"} />
       </div>
 
-      <section
-        className={`grid gap-4 ${
-          detailOpen && selectedSetup ? "xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]" : "xl:grid-cols-1"
-        }`}
-      >
+      <section>
         <section className="overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)]">
           <div className="border-b border-line bg-white px-4 py-3">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -162,17 +158,17 @@ export function PALabView({ locale }: { locale: Locale }) {
           </div>
         </section>
 
-        {detailOpen && selectedSetup ? (
-          <PASetupDetailPanel
-            locale={locale}
-            onClose={() => {
-              setDetailOpen(false);
-              setSelectedSetupId(null);
-            }}
-            setup={selectedSetup}
-          />
-        ) : null}
       </section>
+      {detailOpen && selectedSetup ? (
+        <PASetupDetailPanel
+          locale={locale}
+          onClose={() => {
+            setDetailOpen(false);
+            setSelectedSetupId(null);
+          }}
+          setup={selectedSetup}
+        />
+      ) : null}
     </section>
   );
 }

@@ -26,7 +26,7 @@ export function CandidatesView({
 }) {
   const { labelFor, t } = useAppI18n();
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(true);
+  const [detailOpen, setDetailOpen] = useState(false);
   const activeCandidateId = detailOpen ? selectedCandidateId ?? data[0]?.candidate_id ?? null : null;
   const detail = useQuery({
     queryKey: ["candidate-detail", activeCandidateId],
@@ -46,20 +46,14 @@ export function CandidatesView({
   }, [data, selectedCandidateId]);
 
   return (
-    <section className="space-y-4">
+    <section className="flex flex-col gap-4">
       <div className="grid gap-3 md:grid-cols-3">
         <CompactStat icon={<Target size={18} />} label={t("candidatePool")} value={data.length} />
         <CompactStat icon={<TrendingUp size={18} />} label={t("topScore")} value={formatNumber(topScore, 1, locale)} />
         <CompactStat icon={<Eye size={18} />} label={t("selected")} value={activeCandidate?.symbol_id ?? "-"} />
       </div>
 
-      <section
-        className={`grid gap-4 ${
-          detailOpen && activeCandidateId
-            ? "xl:grid-cols-[minmax(420px,0.95fr)_minmax(420px,0.75fr)]"
-            : "xl:grid-cols-1"
-        }`}
-      >
+      <section>
         <section className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)]">
           <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -93,20 +87,20 @@ export function CandidatesView({
           </div>
         </section>
 
-        {detailOpen && activeCandidateId ? (
-          <CandidateDetailPanel
-            detail={detail.data}
-            error={detail.isError}
-            locale={locale}
-            loading={detail.isLoading}
-            onClose={() => {
-              setDetailOpen(false);
-              setSelectedCandidateId(null);
-            }}
-            selected={Boolean(activeCandidateId)}
-          />
-        ) : null}
       </section>
+      {detailOpen && activeCandidateId ? (
+        <CandidateDetailPanel
+          detail={detail.data}
+          error={detail.isError}
+          locale={locale}
+          loading={detail.isLoading}
+          onClose={() => {
+            setDetailOpen(false);
+            setSelectedCandidateId(null);
+          }}
+          selected={Boolean(activeCandidateId)}
+        />
+      ) : null}
     </section>
   );
 }

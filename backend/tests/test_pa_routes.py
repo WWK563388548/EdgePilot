@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from backend.app.api.routes.pa import (
     calculate_etf_daily_facts,
     get_pa_setup,
+    explain_pa_setup,
     list_pa_calibration,
     list_pa_facts,
     list_pa_setups,
@@ -19,6 +20,10 @@ from backend.app.schemas.pa import (
     PAFactsCalculationResponse,
     PAStructure,
     PASetup,
+    PAEvidenceBar,
+    PAEvidenceLevel,
+    PASetupEvidence,
+    PASetupExplain,
 )
 
 
@@ -43,6 +48,35 @@ def _setup() -> PASetup:
     )
 
 
+def _setup_explain() -> PASetupExplain:
+    return PASetupExplain(
+        setup_id="pasetup_spy_1d_2026-04-30_breakout",
+        symbol_id="SPY",
+        timeframe="1d",
+        detected_ts=datetime(2026, 4, 30, tzinfo=UTC),
+        setup_type="breakout",
+        validation_status="shadow_only",
+        summary="SPY is a breakout setup.",
+        strengths=["Price is holding above the 20MA and 50MA."],
+        watchouts=["This setup is shadow-only."],
+        score_breakdown={"total": 82},
+        evidence=PASetupEvidence(
+            bars=[
+                PAEvidenceBar(
+                    ts=datetime(2026, 4, 30, tzinfo=UTC),
+                    open=500,
+                    high=510,
+                    low=495,
+                    close=508,
+                    sma_20=490,
+                )
+            ],
+            levels=[PAEvidenceLevel(key="trigger_price", value=510.51, source="entry_plan")],
+            latest_facts={"close": 508},
+        ),
+    )
+
+
 def test_pa_read_routes(monkeypatch) -> None:
     from backend.app.api.routes import pa as pa_route
 
@@ -62,6 +96,7 @@ def test_pa_read_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(pa_route.PAService, "list_setups", lambda **kwargs: [_setup()])
     monkeypatch.setattr(pa_route.PAService, "get_setup", lambda **kwargs: _setup())
+    monkeypatch.setattr(pa_route.PAService, "explain_setup", lambda **kwargs: _setup_explain())
     monkeypatch.setattr(
         pa_route.PAService,
         "list_calibration_stats",
@@ -74,6 +109,7 @@ def test_pa_read_routes(monkeypatch) -> None:
     assert list_pa_structures("SPY", session=None)[0].structure_type == "uptrend"
     assert list_pa_setups(session=None)[0].validation_status == "shadow_only"
     assert get_pa_setup("setup_1", session=None).setup_type == "breakout"
+    assert explain_pa_setup("setup_1", session=None).evidence.levels[0].key == "trigger_price"
     assert list_pa_calibration(session=None)[0].sample_size == 10
 
 

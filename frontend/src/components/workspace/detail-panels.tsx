@@ -1,7 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { DataState, Field } from "@/components/workspace/common";
+import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
 import type { Candidate, CandidateDetail, PASetup } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   formatDetailValue,
   formatNumber,
@@ -33,28 +37,21 @@ export function CandidateDetailPanel({
   const entryPlan = detail?.entry_plan ?? setup?.entry_plan;
   const exitPlan = detail?.exit_plan ?? setup?.exit_plan;
   const scoreBreakdown = detail?.score_breakdown ?? nestedRecord(entryPlan, "score_breakdown");
+  const explain = useQuery({
+    queryKey: ["pa-setup-explain", setup?.setup_id],
+    queryFn: () => api.paSetupExplain(setup?.setup_id as string),
+    enabled: Boolean(setup?.setup_id)
+  });
+  const title = candidate ? `${candidate.symbol_id} ${t("candidateDetail")}` : t("candidateDetail");
+  const subtitle = setup?.setup_id ?? candidate?.candidate_id ?? t("noSelection");
 
   return (
-    <aside className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-      <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold text-ink">
-            {candidate ? `${candidate.symbol_id} ${t("candidateDetail")}` : t("candidateDetail")}
-          </h2>
-          <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? candidate?.candidate_id ?? t("noSelection")}</p>
-        </div>
-        <button
-          className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
-          disabled={!selected}
-          onClick={onClose}
-          title={t("closeDetail")}
-          type="button"
-        >
-          <X size={16} />
-        </button>
-      </div>
-
-      <div className="space-y-4 p-4">
+    <DetailModalShell
+      closeLabel={t("closeDetail")}
+      onClose={onClose}
+      subtitle={subtitle}
+      title={title}
+    >
         <DataState isLoading={loading} isError={error} locale={locale} />
         {!selected && <p className="text-sm text-slate-600">{t("noSelection")}</p>}
         {candidate ? (
@@ -77,14 +74,19 @@ export function CandidateDetailPanel({
               locale={locale}
               setup={setup}
             />
+            <PAEvidencePanel
+              error={explain.isError}
+              explain={explain.data}
+              loading={Boolean(setup?.setup_id) && explain.isLoading}
+              locale={locale}
+            />
             <ScoreBreakdownBlock data={scoreBreakdown} locale={locale} />
             <PlanFields title={t("entryPlan")} data={entryPlan} locale={locale} omitKeys={["score_breakdown"]} />
             <PlanFields title={t("exitPlan")} data={exitPlan} locale={locale} />
             <PlanFields title={t("invalidation")} data={detail?.invalidation ?? setup?.invalidation} locale={locale} />
           </>
         ) : null}
-      </div>
-    </aside>
+    </DetailModalShell>
   );
 }
 
@@ -99,28 +101,21 @@ export function PASetupDetailPanel({
 }) {
   const { labelFor, t } = useAppI18n();
   const scoreBreakdown = nestedRecord(setup?.entry_plan, "score_breakdown");
+  const explain = useQuery({
+    queryKey: ["pa-setup-explain", setup?.setup_id],
+    queryFn: () => api.paSetupExplain(setup?.setup_id as string),
+    enabled: Boolean(setup?.setup_id)
+  });
+  const title = setup ? `${setup.symbol_id} ${t("setupDetail")}` : t("setupDetail");
+  const subtitle = setup?.setup_id ?? t("noSelection");
 
   return (
-    <aside className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)] xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-      <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold text-ink">
-            {setup ? `${setup.symbol_id} ${t("setupDetail")}` : t("setupDetail")}
-          </h2>
-          <p className="truncate text-xs text-slate-500">{setup?.setup_id ?? t("noSelection")}</p>
-        </div>
-        {onClose ? (
-          <button
-            className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-700 hover:border-slate-400"
-            onClick={onClose}
-            title={t("closeDetail")}
-            type="button"
-          >
-            <X size={16} />
-          </button>
-        ) : null}
-      </div>
-      <div className="space-y-4 p-4">
+    <DetailModalShell
+      closeLabel={t("closeDetail")}
+      onClose={onClose}
+      subtitle={subtitle}
+      title={title}
+    >
         {setup ? (
           <>
             <ExplanationBlock locale={locale} setup={setup} />
@@ -141,6 +136,12 @@ export function PASetupDetailPanel({
               <Field label={t("riskStop")} value={formatNumber(setup.risk_stop_score, 1, locale)} />
             </div>
             <KeyLevelsBlock entryPlan={setup.entry_plan} exitPlan={setup.exit_plan} locale={locale} setup={setup} />
+            <PAEvidencePanel
+              error={explain.isError}
+              explain={explain.data}
+              loading={Boolean(setup?.setup_id) && explain.isLoading}
+              locale={locale}
+            />
             <ScoreBreakdownBlock data={scoreBreakdown} locale={locale} />
             <PlanFields title={t("entryPlan")} data={setup.entry_plan} locale={locale} omitKeys={["score_breakdown"]} />
             <PlanFields title={t("exitPlan")} data={setup.exit_plan} locale={locale} />
@@ -149,8 +150,90 @@ export function PASetupDetailPanel({
         ) : (
           <p className="text-sm text-slate-600">{t("noSetup")}</p>
         )}
-      </div>
-    </aside>
+    </DetailModalShell>
+  );
+}
+
+function DetailModalShell({
+  children,
+  closeLabel,
+  onClose,
+  subtitle,
+  title
+}: {
+  children: ReactNode;
+  closeLabel: string;
+  onClose?: () => void;
+  subtitle: string;
+  title: string;
+}) {
+  const [closing, setClosing] = useState(false);
+
+  const requestClose = useCallback(() => {
+    if (!onClose || closing) {
+      return;
+    }
+    setClosing(true);
+    window.setTimeout(onClose, 180);
+  }, [closing, onClose]);
+
+  useEffect(() => {
+    setClosing(false);
+  }, [title, subtitle]);
+
+  useEffect(() => {
+    if (!onClose) {
+      return undefined;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        requestClose();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, requestClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6">
+      {onClose ? (
+        <div
+          aria-hidden="true"
+          className={`absolute inset-0 cursor-default bg-transparent ${
+            closing ? "detail-backdrop-out" : "detail-backdrop-in"
+          }`}
+          onClick={requestClose}
+        />
+      ) : null}
+      <section
+        aria-label={title}
+        aria-modal="true"
+        className={`relative z-10 flex h-[92vh] w-[calc(100vw-1rem)] max-w-[1480px] flex-col overflow-hidden rounded-lg border border-line bg-white shadow-2xl sm:h-[85vh] sm:w-[85vw] ${
+          closing ? "detail-modal-out" : "detail-modal-in"
+        }`}
+        role="dialog"
+      >
+        <div className="flex min-h-20 shrink-0 items-center justify-between gap-3 border-b border-line bg-white px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-ink">{title}</h2>
+            <p className="truncate text-sm text-slate-500">{subtitle}</p>
+          </div>
+          {onClose ? (
+            <button
+              className="focus-ring inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-700 transition-colors hover:border-slate-400 hover:bg-panel"
+              onClick={requestClose}
+              title={closeLabel}
+              type="button"
+            >
+              <X size={18} />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+      </section>
+    </div>
   );
 }
 
