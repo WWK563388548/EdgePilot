@@ -10,10 +10,10 @@ import {
   Settings,
   ShieldCheck
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { AuthScreen } from "@/components/workspace/auth-screen";
-import { CandidatesView } from "@/components/workspace/candidates-view";
+import { CandidatesView, type CandidateDecisionFilter } from "@/components/workspace/candidates-view";
 import { DataState } from "@/components/workspace/common";
 import { OverviewView } from "@/components/workspace/overview-view";
 import { PALabView } from "@/components/workspace/pa-lab-view";
@@ -39,6 +39,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const { t } = useAppI18n();
   const auth = useAuth();
   const { view, setView } = useWorkspaceStore();
+  const [candidateDecision, setCandidateDecision] = useState<CandidateDecisionFilter>("candidate");
   const queriesEnabled = auth.ready && auth.isAuthenticated && auth.emailVerified;
 
   useEffect(() => {
@@ -51,8 +52,12 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     enabled: queriesEnabled
   });
   const candidates = useQuery({
-    queryKey: ["candidates", "candidate"],
-    queryFn: () => api.candidates({ decision: "candidate", limit: 100 }),
+    queryKey: ["candidates", candidateDecision],
+    queryFn: () =>
+      api.candidates({
+        decision: candidateDecision === "all" ? undefined : candidateDecision,
+        limit: 100
+      }),
     enabled: queriesEnabled
   });
   const positions = useQuery({
@@ -114,9 +119,11 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
         {view === "candidates" && (
           <CandidatesView
             data={candidates.data ?? []}
+            decisionFilter={candidateDecision}
             error={candidates.isError}
             loading={candidates.isLoading}
             locale={locale}
+            onDecisionFilterChange={setCandidateDecision}
           />
         )}
         {view === "pa_lab" && <PALabView locale={locale} />}

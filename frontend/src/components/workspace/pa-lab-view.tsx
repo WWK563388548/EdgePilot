@@ -56,7 +56,10 @@ export function PALabView({ locale }: { locale: Locale }) {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <Filter size={18} className="shrink-0 text-teal" />
-                <h2 className="truncate text-base font-semibold text-ink">{t("setupExplorer")}</h2>
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-semibold text-ink">{t("setupExplorer")}</h2>
+                  <p className="text-xs text-slate-500">{t("paLabDataBoundary")}</p>
+                </div>
               </div>
               <DataState isLoading={setups.isLoading} isError={setups.isError} locale={locale} />
             </div>

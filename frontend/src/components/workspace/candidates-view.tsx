@@ -13,13 +13,19 @@ import type { Locale } from "@/lib/i18n-config";
 import { decisionTone } from "@/lib/presentation";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
+export type CandidateDecisionFilter = "candidate" | "watch" | "all";
+
 export function CandidatesView({
   data,
+  decisionFilter,
+  onDecisionFilterChange,
   loading,
   error,
   locale
 }: {
   data: Candidate[];
+  decisionFilter: CandidateDecisionFilter;
+  onDecisionFilterChange: (filter: CandidateDecisionFilter) => void;
   loading: boolean;
   error: boolean;
   locale: Locale;
@@ -41,6 +47,7 @@ export function CandidatesView({
       setScanSummary(
         t("scanResultSummary", {
           candidates: response.candidates.filter((candidate) => candidate.decision === "candidate").length,
+          watch: response.candidates.filter((candidate) => candidate.decision === "watch").length,
           total: response.candidates_written
         })
       );
@@ -75,7 +82,7 @@ export function CandidatesView({
 
       <section>
         <section className="min-w-0 overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)]">
-          <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
+          <div className="flex flex-col gap-3 border-b border-line bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 items-center gap-2">
               <Target size={18} className="shrink-0 text-teal" />
               <div className="min-w-0">
@@ -83,7 +90,11 @@ export function CandidatesView({
                 <p className="text-xs text-slate-500">{t("accountScopedCandidates")}</p>
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <DecisionFilterControl
+                active={decisionFilter}
+                onChange={onDecisionFilterChange}
+              />
               <DataState isLoading={loading || scan.isPending} isError={error || scan.isError} locale={locale} />
               <button
                 className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
@@ -95,6 +106,10 @@ export function CandidatesView({
                 {scan.isPending ? t("scanning") : t("rescanCandidates")}
               </button>
             </div>
+          </div>
+
+          <div className="border-b border-line bg-panel/50 px-4 py-3 text-sm leading-6 text-slate-600">
+            {t("candidateDataBoundary")}
           </div>
 
           {scanSummary || scan.isError ? (
@@ -143,6 +158,43 @@ export function CandidatesView({
         />
       ) : null}
     </section>
+  );
+}
+
+function DecisionFilterControl({
+  active,
+  onChange
+}: {
+  active: CandidateDecisionFilter;
+  onChange: (filter: CandidateDecisionFilter) => void;
+}) {
+  const { labelFor, t } = useAppI18n();
+  const options: Array<{ value: CandidateDecisionFilter; label: string }> = [
+    { value: "candidate", label: labelFor("status", "candidate") },
+    { value: "watch", label: labelFor("status", "watch") },
+    { value: "all", label: t("allCandidateResults") }
+  ];
+
+  return (
+    <div
+      aria-label={t("candidateDecisionFilter")}
+      className="inline-flex h-9 rounded-md border border-line bg-panel p-1"
+      role="group"
+    >
+      {options.map((option) => (
+        <button
+          aria-pressed={active === option.value}
+          className={`focus-ring min-w-16 rounded px-3 text-sm font-semibold transition-colors ${
+            active === option.value ? "bg-ink text-white shadow-sm" : "text-slate-600 hover:text-ink"
+          }`}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
