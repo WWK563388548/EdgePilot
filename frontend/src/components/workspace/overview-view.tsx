@@ -9,7 +9,8 @@ import {
   ShieldCheck
 } from "lucide-react";
 
-import { Field, Metric } from "@/components/workspace/common";
+import { Field } from "@/components/workspace/atoms/field";
+import { Metric } from "@/components/workspace/atoms/stat-card";
 import type { DashboardSummary } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";

@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { DataState, Field } from "@/components/workspace/common";
+import { DataState } from "@/components/workspace/atoms/data-state";
+import { Field } from "@/components/workspace/atoms/field";
 import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
 import type { Candidate, CandidateDetail, PASetup } from "@/lib/api";
 import { api } from "@/lib/api";

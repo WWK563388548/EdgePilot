@@ -3,7 +3,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BarChart3, ChevronLeft, ChevronRight, LineChart, ZoomIn, ZoomOut } from "lucide-react";
 
-import { DataState, Field } from "@/components/workspace/common";
+import { DataState } from "@/components/workspace/atoms/data-state";
+import { Field } from "@/components/workspace/atoms/field";
 import type { PAEvidenceBar, PAEvidenceLevel, PASetupExplain } from "@/lib/api";
 import { formatDateOnly, formatNumber, formatValue, numberFromRecord } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";

@@ -14,10 +14,11 @@ import { useEffect, useState } from "react";
 
 import { AuthScreen } from "@/components/workspace/auth-screen";
 import { CandidatesView, type CandidateDecisionFilter } from "@/components/workspace/candidates-view";
-import { DataState } from "@/components/workspace/common";
+import { DataState } from "@/components/workspace/atoms/data-state";
 import { OverviewView } from "@/components/workspace/overview-view";
 import { PALabView } from "@/components/workspace/pa-lab-view";
-import { AlertsTable, JournalTable, PositionsTable, SettingsPanel } from "@/components/workspace/secondary-views";
+import { AlertsTable, JournalTable, PositionsTable } from "@/components/workspace/organisms/account-tables";
+import { SettingsPanel } from "@/components/workspace/secondary-views";
 import { WorkspaceFrame, WorkspaceHeader, WorkspaceNav, type WorkspaceNavItem } from "@/components/workspace/shell";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
