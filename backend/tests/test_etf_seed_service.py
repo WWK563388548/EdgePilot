@@ -70,6 +70,9 @@ def test_seed_us_etf_universe_populates_bars_facts_setups_and_candidates(session
     assert response.setups_written == 1
     assert response.candidates_written == 1
     assert response.candidates[0].symbol_id == "SPY"
+    assert response.decision_counts == {"candidate": 1}
+    assert response.latest_scan_date == response.candidates[0].scan_date
+    assert response.latest_bar_date == response.candidates[0].scan_date
 
     bar_count = session.scalar(select(func.count()).select_from(db.Bar))
     fact_count = session.scalar(select(func.count()).select_from(db.PAFact))

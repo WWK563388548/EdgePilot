@@ -78,6 +78,30 @@ class ETFUniverseSeedRequest(BaseModel):
         return self
 
 
+class AccountETFUniverseRefreshRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    symbols: list[str] | None = None
+    from_date: date | None = Field(default=None, alias="from")
+    to_date: date | None = Field(default=None, alias="to")
+    timeframe: Literal["1d"] = "1d"
+    lookback_days: int = Field(default=550, ge=30, le=3000)
+    min_score: float = Field(default=60.0, ge=0, le=100)
+    max_candidates: int = Field(default=25, ge=1, le=200)
+
+    @model_validator(mode="after")
+    def normalize_refresh_request(self) -> "AccountETFUniverseRefreshRequest":
+        if self.symbols is not None:
+            self.symbols = [symbol.strip().upper() for symbol in self.symbols if symbol.strip()]
+        if self.to_date is None:
+            self.to_date = datetime.now(UTC).date()
+        if self.from_date is None:
+            self.from_date = self.to_date - timedelta(days=self.lookback_days)
+        if self.to_date < self.from_date:
+            raise ValueError("to must be greater than or equal to from")
+        return self
+
+
 class ETFUniverseSeedSymbolResult(BaseModel):
     symbol: str
     status: Literal["success", "failed"]
@@ -95,6 +119,9 @@ class ETFUniverseSeedResponse(BaseModel):
     facts_written: int = 0
     setups_written: int = 0
     candidates_written: int = 0
+    decision_counts: dict[str, int] = Field(default_factory=dict)
+    latest_scan_date: date | None = None
+    latest_bar_date: date | None = None
     skipped_symbols: list[str] = Field(default_factory=list)
     symbol_results: list[ETFUniverseSeedSymbolResult] = Field(default_factory=list)
     candidates: list[Candidate] = Field(default_factory=list)

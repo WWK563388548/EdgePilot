@@ -13,6 +13,7 @@ from backend.app.api.routes.business import (
     list_exit_alerts,
     list_journal_trades,
     list_positions,
+    refresh_account_us_etf_oneil_core_scanner,
     run_account_us_etf_oneil_core_scanner,
     update_candidate,
     update_exit_alert,
@@ -39,6 +40,7 @@ from backend.app.schemas.business import (
     PositionCreate,
     PositionUpdate,
 )
+from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 
 
@@ -107,7 +109,7 @@ def test_candidate_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_candidates",
-        lambda session, principal, decision, limit: [_candidate()],
+        lambda session, principal, decision, limit, offset: [_candidate()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
@@ -140,7 +142,13 @@ def test_candidate_routes(monkeypatch) -> None:
         session=None,
         principal=_principal(),
     ).candidate_id == "cand_1"
-    assert list_candidates(session=None, principal=_principal(), decision="candidate", limit=10)[0].symbol_id == "SPY"
+    assert list_candidates(
+        session=None,
+        principal=_principal(),
+        decision="candidate",
+        limit=10,
+        offset=20,
+    )[0].symbol_id == "SPY"
     assert (
         get_candidate_detail("cand_1", session=None, principal=_principal()).pa_setup.setup_id
         == "pasetup_1"
@@ -191,6 +199,44 @@ def test_account_scanner_route_uses_principal_account(monkeypatch) -> None:
     assert response.candidates_written == 1
 
 
+def test_account_refresh_route_uses_principal_account(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    captured = {}
+
+    def _fake_refresh(session, principal, request):
+        captured["account_id"] = principal.account_id
+        captured["symbols"] = request.symbols
+        return ETFUniverseSeedResponse(
+            account_id=principal.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols or ["SPY"],
+            bars_written=260,
+            facts_written=260,
+            setups_written=1,
+            candidates_written=1,
+            candidates=[_candidate()],
+        )
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "refresh_account_oneil_core_universe",
+        _fake_refresh,
+    )
+
+    response = refresh_account_us_etf_oneil_core_scanner(
+        session=None,
+        principal=_principal(),
+        request=AccountETFUniverseRefreshRequest(symbols=["spy"]),
+    )
+
+    assert captured == {"account_id": "acct_local", "symbols": ["SPY"]}
+    assert response.account_id == "acct_local"
+    assert response.bars_written == 260
+
+
 def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:
     from fastapi import HTTPException
     from backend.app.api.routes import business as business_route
@@ -232,7 +278,7 @@ def test_position_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_positions",
-        lambda session, principal, status, limit: [_position()],
+        lambda session, principal, status, limit, offset: [_position()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
@@ -253,6 +299,7 @@ def test_position_routes(monkeypatch) -> None:
         principal=_principal(),
         status_filter="open",
         limit=10,
+        offset=20,
     )[0].status == "open"
     assert (
         update_position(
@@ -276,7 +323,7 @@ def test_exit_alert_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_exit_alerts",
-        lambda session, principal, acknowledged, limit: [_alert()],
+        lambda session, principal, acknowledged, limit, offset: [_alert()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
@@ -297,6 +344,7 @@ def test_exit_alert_routes(monkeypatch) -> None:
         principal=_principal(),
         acknowledged=False,
         limit=10,
+        offset=20,
     )[0].level == 2
     assert (
         update_exit_alert(
@@ -320,7 +368,7 @@ def test_journal_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_journal_trades",
-        lambda session, principal, limit: [_trade()],
+        lambda session, principal, limit, offset: [_trade()],
     )
 
     assert (
@@ -331,7 +379,12 @@ def test_journal_routes(monkeypatch) -> None:
         ).trade_id
         == "trade_1"
     )
-    assert list_journal_trades(session=None, principal=_principal(), limit=10)[0].net_pnl == 120.0
+    assert list_journal_trades(
+        session=None,
+        principal=_principal(),
+        limit=10,
+        offset=20,
+    )[0].net_pnl == 120.0
 
 
 def test_dashboard_summary_route(monkeypatch) -> None:

@@ -24,11 +24,17 @@ from backend.app.schemas.business import (
     PositionCreate,
     PositionUpdate,
 )
+from backend.app.schemas.ingestion import (
+    AccountETFUniverseRefreshRequest,
+    ETFUniverseSeedRequest,
+    ETFUniverseSeedResponse,
+)
 from backend.app.schemas.pa import (
     AccountETFOneilScannerRequest,
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
 )
+from backend.app.services.etf_seed_service import ETFSeedService
 from backend.app.services.scanner_service import ETFScannerService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
@@ -88,13 +94,16 @@ class BusinessService:
         principal: AuthPrincipal,
         decision: str | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[Candidate]:
         statement = select(db.Candidate).where(db.Candidate.account_id == principal.account_id)
         if decision:
             statement = statement.where(db.Candidate.decision == decision)
 
         rows = session.scalars(
-            statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc()).limit(limit)
+            statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc())
+            .offset(offset)
+            .limit(limit)
         ).all()
         return [BusinessService._candidate_response(session, row) for row in rows]
 
@@ -125,6 +134,44 @@ class BusinessService:
             session,
             principal,
             "candidate.scan",
+            "scanner",
+            ONEIL_CORE_US_ETF_STRATEGY,
+        )
+        session.commit()
+        return response
+
+    @staticmethod
+    def refresh_account_oneil_core_universe(
+        session: Session,
+        principal: AuthPrincipal,
+        request: AccountETFUniverseRefreshRequest,
+    ) -> ETFUniverseSeedResponse:
+        session.execute(
+            delete(db.Candidate).where(
+                db.Candidate.account_id == principal.account_id,
+                db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
+            )
+        )
+        response = ETFSeedService.seed_us_etf_universe_for_session(
+            session=session,
+            client=ETFSeedService._client(),
+            request=ETFUniverseSeedRequest(
+                symbols=request.symbols,
+                from_date=request.from_date,
+                to_date=request.to_date,
+                timeframe=request.timeframe,
+                lookback_days=request.lookback_days,
+                account_id=principal.account_id,
+                run_pa_facts=True,
+                run_scanner=True,
+                min_score=request.min_score,
+                max_candidates=request.max_candidates,
+            ),
+        )
+        BusinessService._audit(
+            session,
+            principal,
+            "candidate.refresh_scan",
             "scanner",
             ONEIL_CORE_US_ETF_STRATEGY,
         )
@@ -287,11 +334,14 @@ class BusinessService:
         principal: AuthPrincipal,
         status: str | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[Position]:
         statement = select(db.Position).where(db.Position.account_id == principal.account_id)
         if status:
             statement = statement.where(db.Position.status == status)
-        rows = session.scalars(statement.order_by(db.Position.updated_at.desc()).limit(limit)).all()
+        rows = session.scalars(
+            statement.order_by(db.Position.updated_at.desc()).offset(offset).limit(limit)
+        ).all()
         return [Position.model_validate(row) for row in rows]
 
     @staticmethod
@@ -357,11 +407,14 @@ class BusinessService:
         principal: AuthPrincipal,
         acknowledged: bool | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[ExitAlert]:
         statement = select(db.ExitAlert).where(db.ExitAlert.account_id == principal.account_id)
         if acknowledged is not None:
             statement = statement.where(db.ExitAlert.acknowledged == acknowledged)
-        rows = session.scalars(statement.order_by(db.ExitAlert.alert_ts.desc()).limit(limit)).all()
+        rows = session.scalars(
+            statement.order_by(db.ExitAlert.alert_ts.desc()).offset(offset).limit(limit)
+        ).all()
         return [ExitAlert.model_validate(row) for row in rows]
 
     @staticmethod
@@ -434,11 +487,13 @@ class BusinessService:
         session: Session,
         principal: AuthPrincipal,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[JournalTrade]:
         rows = session.scalars(
             select(db.TradeJournal)
             .where(db.TradeJournal.account_id == principal.account_id)
             .order_by(db.TradeJournal.entry_ts.desc().nulls_last())
+            .offset(offset)
             .limit(limit)
         ).all()
         return [JournalTrade.model_validate(row) for row in rows]

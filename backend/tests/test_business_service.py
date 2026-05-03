@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -8,6 +9,7 @@ from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
 from backend.app.schemas.business import CandidateCreate, CandidateUpdate
+from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
@@ -116,6 +118,27 @@ def test_candidate_queries_can_filter_by_decision(session) -> None:
     ] == ["cand_ready"]
 
 
+def test_candidate_queries_support_offset_pagination(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    for index, symbol in enumerate(("AAA", "BBB", "CCC")):
+        BusinessService.create_candidate(
+            session,
+            principal,
+            CandidateCreate(
+                candidate_id=f"cand_{index}",
+                symbol_id=symbol,
+                scan_date=date(2026, 4, 26) + timedelta(days=index),
+                strategy_name="breakout",
+                decision="candidate",
+            ),
+        )
+
+    assert [
+        row.candidate_id
+        for row in BusinessService.list_candidates(session, principal, limit=1, offset=1)
+    ] == ["cand_1"]
+
+
 def test_account_scanner_replaces_only_current_account_candidates(session, monkeypatch) -> None:
     from backend.app.services import business_service
 
@@ -183,6 +206,66 @@ def test_account_scanner_replaces_only_current_account_candidates(session, monke
     ]
     assert [row.candidate_id for row in BusinessService.list_candidates(session, principal_b)] == [
         "cand_old_b"
+    ]
+
+
+def test_account_refresh_replaces_current_account_candidates(session, monkeypatch) -> None:
+    from backend.app.services import business_service
+
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_old",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+        ),
+    )
+
+    def _fake_seed(*, session, client, request):
+        assert request.account_id == "acct_a"
+        session.add(
+            db.Candidate(
+                candidate_id="cand_refresh",
+                account_id=request.account_id,
+                symbol_id="IWM",
+                scan_date=date(2026, 4, 27),
+                strategy_name="oneil_core_us_etf",
+                decision="candidate",
+            )
+        )
+        return ETFUniverseSeedResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols or ["IWM"],
+            bars_written=260,
+            facts_written=260,
+            setups_written=1,
+            candidates_written=1,
+        )
+
+    monkeypatch.setattr(business_service.ETFSeedService, "_client", lambda: object())
+    monkeypatch.setattr(
+        business_service.ETFSeedService,
+        "seed_us_etf_universe_for_session",
+        _fake_seed,
+    )
+
+    response = BusinessService.refresh_account_oneil_core_universe(
+        session,
+        principal,
+        AccountETFUniverseRefreshRequest(symbols=["iwm"]),
+    )
+
+    assert response.account_id == "acct_a"
+    assert response.bars_written == 260
+    assert [row.candidate_id for row in BusinessService.list_candidates(session, principal)] == [
+        "cand_refresh"
     ]
 
 

@@ -62,6 +62,7 @@ def list_pa_setups(
     status: str | None = None,
     validation_status: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> list[PASetup]:
     return PAService.list_setups(
         session=session,
@@ -71,6 +72,7 @@ def list_pa_setups(
         status=status,
         validation_status=validation_status,
         limit=limit,
+        offset=offset,
     )
 
 

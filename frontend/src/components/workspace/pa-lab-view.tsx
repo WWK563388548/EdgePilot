@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Eye, Filter, Layers, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { CompactStat, DataState, StatusPill } from "@/components/workspace/common";
+import { CompactStat, DataState, PaginationControls, StatusPill } from "@/components/workspace/common";
 import { PASetupDetailPanel } from "@/components/workspace/detail-panels";
 import { api } from "@/lib/api";
 import { formatDate, formatNumber, formatValue } from "@/lib/format";
@@ -12,24 +12,30 @@ import type { Locale } from "@/lib/i18n-config";
 import { decisionTone } from "@/lib/presentation";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
+const PA_LAB_PAGE_SIZE = 10;
+
 export function PALabView({ locale }: { locale: Locale }) {
   const { labelFor, t } = useAppI18n();
   const [symbol, setSymbol] = useState("");
   const [setupType, setSetupType] = useState("");
   const [validationStatus, setValidationStatus] = useState("");
+  const [page, setPage] = useState(0);
   const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const filters = {
     symbol: symbol.trim().toUpperCase() || undefined,
     setupType: setupType || undefined,
     validationStatus: validationStatus || undefined,
-    limit: 200
+    limit: PA_LAB_PAGE_SIZE + 1,
+    offset: page * PA_LAB_PAGE_SIZE
   };
   const setups = useQuery({
     queryKey: ["pa-setups", filters],
     queryFn: () => api.paSetups(filters)
   });
-  const rows = setups.data ?? [];
+  const rawRows = setups.data ?? [];
+  const rows = rawRows.slice(0, PA_LAB_PAGE_SIZE);
+  const hasNextPage = rawRows.length > PA_LAB_PAGE_SIZE;
   const selectedSetup = detailOpen ? rows.find((setup) => setup.setup_id === selectedSetupId) ?? rows[0] ?? null : null;
   const topScore = useMemo(
     () => rows.reduce<number | null>((best, row) => Math.max(best ?? 0, row.pa_quality_score ?? 0), null),
@@ -39,6 +45,7 @@ export function PALabView({ locale }: { locale: Locale }) {
   useEffect(() => {
     if (selectedSetupId && !rows.some((setup) => setup.setup_id === selectedSetupId)) {
       setSelectedSetupId(null);
+      setDetailOpen(false);
     }
   }, [rows, selectedSetupId]);
 
@@ -66,13 +73,19 @@ export function PALabView({ locale }: { locale: Locale }) {
             <div className="grid gap-2 md:grid-cols-[minmax(120px,180px)_minmax(160px,220px)_minmax(160px,220px)]">
               <input
                 className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
-                onChange={(event) => setSymbol(event.target.value)}
+                onChange={(event) => {
+                  setSymbol(event.target.value);
+                  setPage(0);
+                }}
                 placeholder={t("symbol")}
                 value={symbol}
               />
               <select
                 className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
-                onChange={(event) => setSetupType(event.target.value)}
+                onChange={(event) => {
+                  setSetupType(event.target.value);
+                  setPage(0);
+                }}
                 value={setupType}
               >
                 <option value="">{t("allSetups")}</option>
@@ -83,7 +96,10 @@ export function PALabView({ locale }: { locale: Locale }) {
               </select>
               <select
                 className="focus-ring rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
-                onChange={(event) => setValidationStatus(event.target.value)}
+                onChange={(event) => {
+                  setValidationStatus(event.target.value);
+                  setPage(0);
+                }}
                 value={validationStatus}
               >
                 <option value="">{t("allValidation")}</option>
@@ -159,6 +175,13 @@ export function PALabView({ locale }: { locale: Locale }) {
               </tbody>
             </table>
           </div>
+          <PaginationControls
+            hasNext={hasNextPage}
+            itemCount={rows.length}
+            onPageChange={setPage}
+            page={page}
+            pageSize={PA_LAB_PAGE_SIZE}
+          />
         </section>
 
       </section>

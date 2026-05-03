@@ -71,6 +71,7 @@ class PAService:
         status: str | None = None,
         validation_status: str | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[PASetup]:
         statement = select(db.PASetup)
         if symbol:
@@ -84,7 +85,7 @@ class PAService:
         if validation_status:
             statement = statement.where(db.PASetup.validation_status == validation_status)
         rows = session.scalars(
-            statement.order_by(db.PASetup.detected_ts.desc()).limit(limit)
+            statement.order_by(db.PASetup.detected_ts.desc()).offset(offset).limit(limit)
         ).all()
         return [PASetup.model_validate(row) for row in rows]
 

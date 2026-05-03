@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Eye, RefreshCw, Target, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { CompactStat, DataState, StatusPill } from "@/components/workspace/common";
+import { CompactStat, DataState, PaginationControls, StatusPill } from "@/components/workspace/common";
 import { CandidateDetailPanel } from "@/components/workspace/detail-panels";
-import type { Candidate, ETFOneilScannerResponse } from "@/lib/api";
+import type { Candidate, ETFOneilScannerResponse, ETFUniverseSeedResponse } from "@/lib/api";
 import { api } from "@/lib/api";
 import { formatDateOnly, formatNumber, formatValue } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
@@ -14,11 +14,16 @@ import { decisionTone } from "@/lib/presentation";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
 export type CandidateDecisionFilter = "candidate" | "watch" | "all";
+type AccountScanResult = ETFOneilScannerResponse | ETFUniverseSeedResponse;
 
 export function CandidatesView({
   data,
   decisionFilter,
   onDecisionFilterChange,
+  page,
+  pageSize,
+  hasNextPage,
+  onPageChange,
   loading,
   error,
   locale
@@ -26,6 +31,10 @@ export function CandidatesView({
   data: Candidate[];
   decisionFilter: CandidateDecisionFilter;
   onDecisionFilterChange: (filter: CandidateDecisionFilter) => void;
+  page: number;
+  pageSize: number;
+  hasNextPage: boolean;
+  onPageChange: (page: number) => void;
   loading: boolean;
   error: boolean;
   locale: Locale;
@@ -34,19 +43,20 @@ export function CandidatesView({
   const queryClient = useQueryClient();
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [scanResult, setScanResult] = useState<ETFOneilScannerResponse | null>(null);
+  const [scanResult, setScanResult] = useState<AccountScanResult | null>(null);
   const activeCandidateId = detailOpen ? selectedCandidateId ?? data[0]?.candidate_id ?? null : null;
   const detail = useQuery({
     queryKey: ["candidate-detail", activeCandidateId],
     queryFn: () => api.candidateDetail(activeCandidateId as string),
     enabled: Boolean(activeCandidateId)
   });
-  const scan = useMutation({
+  const quickScan = useMutation({
     mutationFn: () => api.scanAccountOneilCandidates({ recalculate_facts: true }),
     onSuccess: async (response) => {
       setScanResult(response);
       setDetailOpen(false);
       setSelectedCandidateId(null);
+      onPageChange(0);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["candidates"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
@@ -54,22 +64,40 @@ export function CandidatesView({
       ]);
     }
   });
+  const marketRefreshScan = useMutation({
+    mutationFn: () => api.refreshAccountOneilCandidates(),
+    onSuccess: async (response) => {
+      setScanResult(response);
+      setDetailOpen(false);
+      setSelectedCandidateId(null);
+      onPageChange(0);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["candidates"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["pa-setups"] })
+      ]);
+    }
+  });
+  const scanPending = quickScan.isPending || marketRefreshScan.isPending;
+  const scanError = quickScan.isError || marketRefreshScan.isError;
   const topScore = useMemo(
     () => data.reduce<number | null>((best, row) => Math.max(best ?? 0, row.score_total ?? 0), null),
     [data]
   );
   const activeCandidate = data.find((row) => row.candidate_id === activeCandidateId);
+  const candidateCount = hasNextPage ? `${page * pageSize + data.length}+` : page * pageSize + data.length;
 
   useEffect(() => {
     if (selectedCandidateId && !data.some((row) => row.candidate_id === selectedCandidateId)) {
       setSelectedCandidateId(null);
+      setDetailOpen(false);
     }
   }, [data, selectedCandidateId]);
 
   return (
     <section className="flex flex-col gap-4">
       <div className="grid gap-3 md:grid-cols-3">
-        <CompactStat icon={<Target size={18} />} label={t("candidatePool")} value={data.length} />
+        <CompactStat icon={<Target size={18} />} label={t("candidatePool")} value={candidateCount} />
         <CompactStat icon={<TrendingUp size={18} />} label={t("topScore")} value={formatNumber(topScore, 1, locale)} />
         <CompactStat icon={<Eye size={18} />} label={t("selected")} value={activeCandidate?.symbol_id ?? "-"} />
       </div>
@@ -89,15 +117,24 @@ export function CandidatesView({
                 active={decisionFilter}
                 onChange={onDecisionFilterChange}
               />
-              <DataState isLoading={loading || scan.isPending} isError={error || scan.isError} locale={locale} />
+              <DataState isLoading={loading || scanPending} isError={error || scanError} locale={locale} />
               <button
                 className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={scan.isPending}
-                onClick={() => scan.mutate()}
+                disabled={scanPending}
+                onClick={() => quickScan.mutate()}
                 type="button"
               >
-                <RefreshCw size={16} className={scan.isPending ? "animate-spin" : ""} />
-                {scan.isPending ? t("scanning") : t("rescanCandidates")}
+                <RefreshCw size={16} className={quickScan.isPending ? "animate-spin" : ""} />
+                {quickScan.isPending ? t("scanning") : t("quickRescan")}
+              </button>
+              <button
+                className="focus-ring inline-flex h-9 items-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={scanPending}
+                onClick={() => marketRefreshScan.mutate()}
+                type="button"
+              >
+                <RefreshCw size={16} className={marketRefreshScan.isPending ? "animate-spin" : ""} />
+                {marketRefreshScan.isPending ? t("refreshingMarketData") : t("refreshBarsAndRescan")}
               </button>
             </div>
           </div>
@@ -113,13 +150,13 @@ export function CandidatesView({
             </p>
           </div>
 
-          {scanResult || scan.isError ? (
+          {scanResult || scanError ? (
             <div
               className={`border-b border-line px-4 py-3 ${
-                scan.isError ? "bg-rose-50 text-rose-700" : "bg-teal-50 text-teal-800"
+                scanError ? "bg-rose-50 text-rose-700" : "bg-teal-50 text-teal-800"
               }`}
             >
-              {scan.isError ? (
+              {scanError ? (
                 <p className="text-sm">{t("scanFailed")}</p>
               ) : scanResult ? (
                 <ScanResultPanel locale={locale} result={scanResult} />
@@ -150,6 +187,13 @@ export function CandidatesView({
               />
             ))}
           </div>
+          <PaginationControls
+            hasNext={hasNextPage}
+            itemCount={data.length}
+            onPageChange={onPageChange}
+            page={page}
+            pageSize={pageSize}
+          />
         </section>
 
       </section>
@@ -174,16 +218,22 @@ function ScanResultPanel({
   result,
   locale
 }: {
-  result: ETFOneilScannerResponse;
+  result: AccountScanResult;
   locale: Locale;
 }) {
   const { labelFor, t } = useAppI18n();
-  const candidateCount = result.decision_counts.candidate ?? 0;
-  const watchCount = result.decision_counts.watch ?? 0;
-  const symbols = result.symbols_scanned.join(", ");
+  const candidateCount = result.decision_counts?.candidate ?? 0;
+  const watchCount = result.decision_counts?.watch ?? 0;
+  const isMarketRefresh = "bars_written" in result;
+  const scannedSymbols = "symbols_scanned" in result ? result.symbols_scanned : result.symbols_requested;
+  const symbols = scannedSymbols.join(", ");
   const skippedSymbols = result.skipped_symbols.length ? result.skipped_symbols.join(", ") : t("none");
   const metrics = [
-    { label: t("symbolsScanned"), value: formatNumber(result.symbols_scanned.length, 0, locale) },
+    { label: t("scanMode"), value: isMarketRefresh ? t("marketRefreshMode") : t("quickRescanMode") },
+    ...(isMarketRefresh
+      ? [{ label: t("barsWritten"), value: formatNumber(result.bars_written, 0, locale) }]
+      : []),
+    { label: t("symbolsScanned"), value: formatNumber(scannedSymbols.length, 0, locale) },
     { label: t("factsWritten"), value: formatNumber(result.facts_written, 0, locale) },
     { label: t("setupsWritten"), value: formatNumber(result.setups_written, 0, locale) },
     { label: t("candidatesWritten"), value: formatNumber(result.candidates_written, 0, locale) },

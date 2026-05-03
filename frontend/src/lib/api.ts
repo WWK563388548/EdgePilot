@@ -121,11 +121,13 @@ export type PASetupFilters = {
   validationStatus?: string;
   status?: string;
   limit?: number;
+  offset?: number;
 };
 
 export type CandidateFilters = {
   decision?: string;
   limit?: number;
+  offset?: number;
 };
 
 export type AccountScannerRequest = {
@@ -133,6 +135,13 @@ export type AccountScannerRequest = {
   min_score?: number;
   max_candidates?: number;
   recalculate_facts?: boolean;
+};
+
+export type AccountRefreshRequest = {
+  symbols?: string[];
+  lookback_days?: number;
+  min_score?: number;
+  max_candidates?: number;
 };
 
 export type ETFOneilScannerResponse = {
@@ -146,6 +155,31 @@ export type ETFOneilScannerResponse = {
   latest_scan_date: string | null;
   latest_bar_date: string | null;
   skipped_symbols: string[];
+  candidates: Candidate[];
+};
+
+export type ETFUniverseSeedSymbolResult = {
+  symbol: string;
+  status: "success" | "failed";
+  bars_written: number;
+  error_message: string | null;
+};
+
+export type ETFUniverseSeedResponse = {
+  account_id: string;
+  timeframe: string;
+  from_date: string;
+  to_date: string;
+  symbols_requested: string[];
+  bars_written: number;
+  facts_written: number;
+  setups_written: number;
+  candidates_written: number;
+  decision_counts: Record<string, number>;
+  latest_scan_date: string | null;
+  latest_bar_date: string | null;
+  skipped_symbols: string[];
+  symbol_results: ETFUniverseSeedSymbolResult[];
   candidates: Candidate[];
 };
 
@@ -276,11 +310,17 @@ export const api = {
     getJson<Candidate[]>(
       `/api/candidates${queryString({
         decision: filters.decision,
-        limit: filters.limit ?? 100
+        limit: filters.limit ?? 100,
+        offset: filters.offset
       })}`
     ),
   scanAccountOneilCandidates: (request: AccountScannerRequest = {}) =>
     postJson<ETFOneilScannerResponse>("/api/candidates/scanners/us-etf/oneil-core", request),
+  refreshAccountOneilCandidates: (request: AccountRefreshRequest = {}) =>
+    postJson<ETFUniverseSeedResponse>(
+      "/api/candidates/scanners/us-etf/oneil-core/refresh",
+      request
+    ),
   candidateDetail: (candidateId: string) =>
     getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
   paSetups: (filters: PASetupFilters = {}) =>
@@ -291,7 +331,8 @@ export const api = {
         validation_status: filters.validationStatus,
         status: filters.status,
         timeframe: "1d",
-        limit: filters.limit ?? 100
+        limit: filters.limit ?? 100,
+        offset: filters.offset
       })}`
     ),
   paSetupExplain: (setupId: string, barLimit = 90) =>
@@ -300,7 +341,26 @@ export const api = {
         bar_limit: barLimit
       })}`
     ),
-  positions: () => getJson<Position[]>("/api/positions?limit=100"),
-  alerts: () => getJson<ExitAlert[]>("/api/exit-alerts?acknowledged=false&limit=100"),
-  journal: () => getJson<JournalTrade[]>("/api/journal/trades?limit=100")
+  positions: (pagination: { limit?: number; offset?: number } = {}) =>
+    getJson<Position[]>(
+      `/api/positions${queryString({
+        limit: pagination.limit ?? 100,
+        offset: pagination.offset
+      })}`
+    ),
+  alerts: (pagination: { limit?: number; offset?: number } = {}) =>
+    getJson<ExitAlert[]>(
+      `/api/exit-alerts${queryString({
+        acknowledged: "false",
+        limit: pagination.limit ?? 100,
+        offset: pagination.offset
+      })}`
+    ),
+  journal: (pagination: { limit?: number; offset?: number } = {}) =>
+    getJson<JournalTrade[]>(
+      `/api/journal/trades${queryString({
+        limit: pagination.limit ?? 100,
+        offset: pagination.offset
+      })}`
+    )
 };

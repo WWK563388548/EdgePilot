@@ -35,11 +35,17 @@ const views: WorkspaceNavItem[] = [
   { id: "settings", labelKey: "settings", icon: Settings }
 ];
 
+const LIST_PAGE_SIZE = 10;
+
 export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const { t } = useAppI18n();
   const auth = useAuth();
   const { view, setView } = useWorkspaceStore();
   const [candidateDecision, setCandidateDecision] = useState<CandidateDecisionFilter>("candidate");
+  const [candidatePage, setCandidatePage] = useState(0);
+  const [positionPage, setPositionPage] = useState(0);
+  const [alertPage, setAlertPage] = useState(0);
+  const [journalPage, setJournalPage] = useState(0);
   const queriesEnabled = auth.ready && auth.isAuthenticated && auth.emailVerified;
 
   useEffect(() => {
@@ -52,32 +58,49 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     enabled: queriesEnabled
   });
   const candidates = useQuery({
-    queryKey: ["candidates", candidateDecision],
+    queryKey: ["candidates", candidateDecision, candidatePage],
     queryFn: () =>
       api.candidates({
         decision: candidateDecision === "all" ? undefined : candidateDecision,
-        limit: 100
+        limit: LIST_PAGE_SIZE + 1,
+        offset: candidatePage * LIST_PAGE_SIZE
       }),
     enabled: queriesEnabled
   });
   const positions = useQuery({
-    queryKey: ["positions"],
-    queryFn: api.positions,
+    queryKey: ["positions", positionPage],
+    queryFn: () =>
+      api.positions({
+        limit: LIST_PAGE_SIZE + 1,
+        offset: positionPage * LIST_PAGE_SIZE
+      }),
     enabled: queriesEnabled
   });
   const alerts = useQuery({
-    queryKey: ["alerts"],
-    queryFn: api.alerts,
+    queryKey: ["alerts", alertPage],
+    queryFn: () =>
+      api.alerts({
+        limit: LIST_PAGE_SIZE + 1,
+        offset: alertPage * LIST_PAGE_SIZE
+      }),
     enabled: queriesEnabled
   });
   const journal = useQuery({
-    queryKey: ["journal"],
-    queryFn: api.journal,
+    queryKey: ["journal", journalPage],
+    queryFn: () =>
+      api.journal({
+        limit: LIST_PAGE_SIZE + 1,
+        offset: journalPage * LIST_PAGE_SIZE
+      }),
     enabled: queriesEnabled
   });
 
   const summary = dashboard.data;
   const riskTone = summary?.risk_mode === "normal" ? "good" : summary?.risk_mode === "shock" ? "bad" : "warn";
+  const candidateRows = (candidates.data ?? []).slice(0, LIST_PAGE_SIZE);
+  const positionRows = (positions.data ?? []).slice(0, LIST_PAGE_SIZE);
+  const alertRows = (alerts.data ?? []).slice(0, LIST_PAGE_SIZE);
+  const journalRows = (journal.data ?? []).slice(0, LIST_PAGE_SIZE);
 
   if (!auth.configured) {
     return <AuthScreen locale={locale} status={t("authNotConfigured")} />;
@@ -118,37 +141,56 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
         {view === "overview" && <OverviewView locale={locale} summary={summary} />}
         {view === "candidates" && (
           <CandidatesView
-            data={candidates.data ?? []}
+            data={candidateRows}
             decisionFilter={candidateDecision}
             error={candidates.isError}
+            hasNextPage={(candidates.data ?? []).length > LIST_PAGE_SIZE}
             loading={candidates.isLoading}
             locale={locale}
-            onDecisionFilterChange={setCandidateDecision}
+            onDecisionFilterChange={(filter) => {
+              setCandidateDecision(filter);
+              setCandidatePage(0);
+            }}
+            onPageChange={setCandidatePage}
+            page={candidatePage}
+            pageSize={LIST_PAGE_SIZE}
           />
         )}
         {view === "pa_lab" && <PALabView locale={locale} />}
         {view === "positions" && (
           <PositionsTable
-            data={positions.data ?? []}
+            data={positionRows}
             error={positions.isError}
+            hasNextPage={(positions.data ?? []).length > LIST_PAGE_SIZE}
             loading={positions.isLoading}
             locale={locale}
+            onPageChange={setPositionPage}
+            page={positionPage}
+            pageSize={LIST_PAGE_SIZE}
           />
         )}
         {view === "alerts" && (
           <AlertsTable
-            data={alerts.data ?? []}
+            data={alertRows}
             error={alerts.isError}
+            hasNextPage={(alerts.data ?? []).length > LIST_PAGE_SIZE}
             loading={alerts.isLoading}
             locale={locale}
+            onPageChange={setAlertPage}
+            page={alertPage}
+            pageSize={LIST_PAGE_SIZE}
           />
         )}
         {view === "journal" && (
           <JournalTable
-            data={journal.data ?? []}
+            data={journalRows}
             error={journal.isError}
+            hasNextPage={(journal.data ?? []).length > LIST_PAGE_SIZE}
             loading={journal.isLoading}
             locale={locale}
+            onPageChange={setJournalPage}
+            page={journalPage}
+            pageSize={LIST_PAGE_SIZE}
           />
         )}
         {view === "settings" && <SettingsPanel locale={locale} />}

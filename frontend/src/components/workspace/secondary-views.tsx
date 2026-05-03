@@ -2,7 +2,7 @@
 
 import { PlugZap, Settings } from "lucide-react";
 
-import { Field, StatusPill, TableShell } from "@/components/workspace/common";
+import { Field, PaginationControls, StatusPill, TableShell } from "@/components/workspace/common";
 import type { ExitAlert, JournalTrade, Position } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatValue } from "@/lib/format";
@@ -58,11 +58,19 @@ export function PositionsTable({
   data,
   loading,
   error,
+  page,
+  pageSize,
+  hasNextPage,
+  onPageChange,
   locale
 }: {
   data: Position[];
   loading: boolean;
   error: boolean;
+  page: number;
+  pageSize: number;
+  hasNextPage: boolean;
+  onPageChange: (page: number) => void;
   locale: Locale;
 }) {
   const { t } = useAppI18n();
@@ -93,6 +101,13 @@ export function PositionsTable({
           ))}
         </tbody>
       </table>
+      <PaginationControls
+        hasNext={hasNextPage}
+        itemCount={data.length}
+        onPageChange={onPageChange}
+        page={page}
+        pageSize={pageSize}
+      />
     </TableShell>
   );
 }
@@ -101,11 +116,19 @@ export function AlertsTable({
   data,
   loading,
   error,
+  page,
+  pageSize,
+  hasNextPage,
+  onPageChange,
   locale
 }: {
   data: ExitAlert[];
   loading: boolean;
   error: boolean;
+  page: number;
+  pageSize: number;
+  hasNextPage: boolean;
+  onPageChange: (page: number) => void;
   locale: Locale;
 }) {
   const { t } = useAppI18n();
@@ -134,6 +157,13 @@ export function AlertsTable({
           ))}
         </tbody>
       </table>
+      <PaginationControls
+        hasNext={hasNextPage}
+        itemCount={data.length}
+        onPageChange={onPageChange}
+        page={page}
+        pageSize={pageSize}
+      />
     </TableShell>
   );
 }
@@ -142,11 +172,19 @@ export function JournalTable({
   data,
   loading,
   error,
+  page,
+  pageSize,
+  hasNextPage,
+  onPageChange,
   locale
 }: {
   data: JournalTrade[];
   loading: boolean;
   error: boolean;
+  page: number;
+  pageSize: number;
+  hasNextPage: boolean;
+  onPageChange: (page: number) => void;
   locale: Locale;
 }) {
   const { t } = useAppI18n();
@@ -177,6 +215,13 @@ export function JournalTable({
           ))}
         </tbody>
       </table>
+      <PaginationControls
+        hasNext={hasNextPage}
+        itemCount={data.length}
+        onPageChange={onPageChange}
+        page={page}
+        pageSize={pageSize}
+      />
     </TableShell>
   );
 }
