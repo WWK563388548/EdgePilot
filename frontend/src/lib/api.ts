@@ -142,6 +142,9 @@ export type ETFOneilScannerResponse = {
   facts_written: number;
   setups_written: number;
   candidates_written: number;
+  decision_counts: Record<string, number>;
+  latest_scan_date: string | null;
+  latest_bar_date: string | null;
   skipped_symbols: string[];
   candidates: Candidate[];
 };

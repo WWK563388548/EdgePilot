@@ -41,6 +41,9 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert response.candidates[0].strategy_name == "oneil_core_us_etf"
     assert response.candidates[0].decision == "candidate"
     assert response.candidates[0].pa_setup_id is not None
+    assert response.decision_counts == {"candidate": 1}
+    assert response.latest_scan_date == response.candidates[0].scan_date
+    assert response.latest_bar_date == response.candidates[0].scan_date
 
     setup = session.scalar(select(db.PASetup).where(db.PASetup.symbol_id == "SPY"))
     candidate = session.scalar(select(db.Candidate).where(db.Candidate.account_id == "acct_local"))
@@ -86,6 +89,9 @@ def test_us_etf_oneil_core_scanner_treats_explicit_empty_symbols_as_noop(session
     assert response.facts_written == 0
     assert response.setups_written == 0
     assert response.candidates_written == 0
+    assert response.decision_counts == {}
+    assert response.latest_scan_date is None
+    assert response.latest_bar_date is None
     assert response.skipped_symbols == []
 
     candidate_count = session.scalar(

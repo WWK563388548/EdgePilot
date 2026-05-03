@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CompactStat, DataState, StatusPill } from "@/components/workspace/common";
 import { CandidateDetailPanel } from "@/components/workspace/detail-panels";
-import type { Candidate } from "@/lib/api";
+import type { Candidate, ETFOneilScannerResponse } from "@/lib/api";
 import { api } from "@/lib/api";
 import { formatDateOnly, formatNumber, formatValue } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
@@ -34,7 +34,7 @@ export function CandidatesView({
   const queryClient = useQueryClient();
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [scanSummary, setScanSummary] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<ETFOneilScannerResponse | null>(null);
   const activeCandidateId = detailOpen ? selectedCandidateId ?? data[0]?.candidate_id ?? null : null;
   const detail = useQuery({
     queryKey: ["candidate-detail", activeCandidateId],
@@ -44,13 +44,7 @@ export function CandidatesView({
   const scan = useMutation({
     mutationFn: () => api.scanAccountOneilCandidates({ recalculate_facts: true }),
     onSuccess: async (response) => {
-      setScanSummary(
-        t("scanResultSummary", {
-          candidates: response.candidates.filter((candidate) => candidate.decision === "candidate").length,
-          watch: response.candidates.filter((candidate) => candidate.decision === "watch").length,
-          total: response.candidates_written
-        })
-      );
+      setScanResult(response);
       setDetailOpen(false);
       setSelectedCandidateId(null);
       await Promise.all([
@@ -109,23 +103,38 @@ export function CandidatesView({
           </div>
 
           <div className="border-b border-line bg-panel/50 px-4 py-3 text-sm leading-6 text-slate-600">
-            {t("candidateDataBoundary")}
+            <p>{t("candidateDataBoundary")}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {t("scanParameterSummary", {
+                maxCandidates: 25,
+                minScore: 60,
+                universe: "US ETF"
+              })}
+            </p>
           </div>
 
-          {scanSummary || scan.isError ? (
+          {scanResult || scan.isError ? (
             <div
-              className={`border-b border-line px-4 py-3 text-sm ${
+              className={`border-b border-line px-4 py-3 ${
                 scan.isError ? "bg-rose-50 text-rose-700" : "bg-teal-50 text-teal-800"
               }`}
             >
-              {scan.isError ? t("scanFailed") : scanSummary}
+              {scan.isError ? (
+                <p className="text-sm">{t("scanFailed")}</p>
+              ) : scanResult ? (
+                <ScanResultPanel locale={locale} result={scanResult} />
+              ) : null}
             </div>
           ) : null}
 
           <div className="divide-y divide-line">
             {!data.length ? (
               <div className="px-4 py-6 text-sm text-slate-600">
-                {loading || error ? <DataState isLoading={loading} isError={error} locale={locale} /> : t("noCandidate")}
+                {loading || error ? (
+                  <DataState isLoading={loading} isError={error} locale={locale} />
+                ) : (
+                  <EmptyCandidateState decisionFilter={decisionFilter} />
+                )}
               </div>
             ) : null}
             {data.map((row) => (
@@ -158,6 +167,84 @@ export function CandidatesView({
         />
       ) : null}
     </section>
+  );
+}
+
+function ScanResultPanel({
+  result,
+  locale
+}: {
+  result: ETFOneilScannerResponse;
+  locale: Locale;
+}) {
+  const { labelFor, t } = useAppI18n();
+  const candidateCount = result.decision_counts.candidate ?? 0;
+  const watchCount = result.decision_counts.watch ?? 0;
+  const symbols = result.symbols_scanned.join(", ");
+  const skippedSymbols = result.skipped_symbols.length ? result.skipped_symbols.join(", ") : t("none");
+  const metrics = [
+    { label: t("symbolsScanned"), value: formatNumber(result.symbols_scanned.length, 0, locale) },
+    { label: t("factsWritten"), value: formatNumber(result.facts_written, 0, locale) },
+    { label: t("setupsWritten"), value: formatNumber(result.setups_written, 0, locale) },
+    { label: t("candidatesWritten"), value: formatNumber(result.candidates_written, 0, locale) },
+    { label: t("latestScanDate"), value: formatDateOnly(result.latest_scan_date, locale) },
+    { label: t("latestBarDate"), value: formatDateOnly(result.latest_bar_date, locale) }
+  ];
+
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <div>
+        <p className="font-semibold text-teal-900">
+          {t("scanResultSummary", {
+            candidates: candidateCount,
+            watch: watchCount,
+            total: result.candidates_written
+          })}
+        </p>
+        <p className="mt-1 text-xs text-teal-700">
+          {labelFor("status", "candidate")}: {formatNumber(candidateCount, 0, locale)}
+          {" · "}
+          {labelFor("status", "watch")}: {formatNumber(watchCount, 0, locale)}
+        </p>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {metrics.map((metric) => (
+          <div className="rounded-md border border-teal-100 bg-white/70 px-3 py-2" key={metric.label}>
+            <div className="text-xs text-slate-500">{metric.label}</div>
+            <div className="mt-0.5 font-semibold text-ink">{metric.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-2 text-xs leading-5 text-slate-700 lg:grid-cols-2">
+        <div>
+          <span className="font-semibold text-ink">{t("symbolsScanned")}:</span>{" "}
+          <span>{symbols || "-"}</span>
+        </div>
+        <div>
+          <span className="font-semibold text-ink">{t("skippedSymbols")}:</span>{" "}
+          <span>{skippedSymbols}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyCandidateState({ decisionFilter }: { decisionFilter: CandidateDecisionFilter }) {
+  const { t } = useAppI18n();
+  const message =
+    decisionFilter === "candidate"
+      ? t("emptyCandidatesHint")
+      : decisionFilter === "watch"
+        ? t("emptyWatchHint")
+        : t("emptyAllCandidatesHint");
+
+  return (
+    <div>
+      <p className="font-medium text-ink">{t("noCandidate")}</p>
+      <p className="mt-1 text-slate-600">{message}</p>
+    </div>
   );
 }
 

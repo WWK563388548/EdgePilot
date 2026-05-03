@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -111,6 +112,10 @@ class ETFScannerService:
             candidate_schema.validation_status = setup.validation_status
             candidates.append(candidate_schema)
 
+        decision_counts = Counter(candidate.decision or "unknown" for candidate in candidates)
+        latest_scan_date = max((candidate.scan_date for candidate in candidates), default=None)
+        latest_bar_date = max((fact.ts.date() for fact in latest_facts.values()), default=None)
+
         return ETFOneilScannerResponse(
             account_id=request.account_id,
             timeframe=request.timeframe,
@@ -118,6 +123,9 @@ class ETFScannerService:
             facts_written=facts_result.facts_written,
             setups_written=len(selected_setups),
             candidates_written=len(candidates),
+            decision_counts=dict(decision_counts),
+            latest_scan_date=latest_scan_date,
+            latest_bar_date=latest_bar_date,
             skipped_symbols=skipped_symbols,
             candidates=candidates,
         )
