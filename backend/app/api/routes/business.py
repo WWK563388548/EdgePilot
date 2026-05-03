@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
 from backend.app.api.dependencies import DbSession, TraderPrincipal, VerifiedPrincipal
+from backend.app.schemas.common import CountResponse
 from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
@@ -55,6 +56,21 @@ def list_candidates(
         decision=decision,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/candidates/count", response_model=CountResponse)
+def count_candidates(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    decision: str | None = None,
+) -> CountResponse:
+    return CountResponse(
+        total=BusinessService.count_candidates(
+            session=session,
+            principal=principal,
+            decision=decision,
+        )
     )
 
 
@@ -156,6 +172,21 @@ def list_positions(
     )
 
 
+@router.get("/positions/count", response_model=CountResponse)
+def count_positions(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    status_filter: PositionStatus | None = Query(default=None, alias="status"),
+) -> CountResponse:
+    return CountResponse(
+        total=BusinessService.count_positions(
+            session=session,
+            principal=principal,
+            status=status_filter,
+        )
+    )
+
+
 @router.patch("/positions/{position_id}", response_model=Position)
 def update_position(
     position_id: str,
@@ -203,6 +234,21 @@ def list_exit_alerts(
     )
 
 
+@router.get("/exit-alerts/count", response_model=CountResponse)
+def count_exit_alerts(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    acknowledged: bool | None = None,
+) -> CountResponse:
+    return CountResponse(
+        total=BusinessService.count_exit_alerts(
+            session=session,
+            principal=principal,
+            acknowledged=acknowledged,
+        )
+    )
+
+
 @router.patch("/exit-alerts/{alert_id}", response_model=ExitAlert)
 def update_exit_alert(
     alert_id: str,
@@ -245,4 +291,17 @@ def list_journal_trades(
         principal=principal,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/journal/trades/count", response_model=CountResponse)
+def count_journal_trades(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> CountResponse:
+    return CountResponse(
+        total=BusinessService.count_journal_trades(
+            session=session,
+            principal=principal,
+        )
     )

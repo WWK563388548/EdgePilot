@@ -96,16 +96,33 @@ class BusinessService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[Candidate]:
-        statement = select(db.Candidate).where(db.Candidate.account_id == principal.account_id)
-        if decision:
-            statement = statement.where(db.Candidate.decision == decision)
-
+        statement = BusinessService._candidate_list_statement(principal=principal, decision=decision)
         rows = session.scalars(
             statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc())
             .offset(offset)
             .limit(limit)
         ).all()
         return [BusinessService._candidate_response(session, row) for row in rows]
+
+    @staticmethod
+    def count_candidates(
+        session: Session,
+        principal: AuthPrincipal,
+        decision: str | None = None,
+    ) -> int:
+        statement = BusinessService._candidate_list_statement(principal=principal, decision=decision)
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def _candidate_list_statement(
+        *,
+        principal: AuthPrincipal,
+        decision: str | None = None,
+    ):
+        statement = select(db.Candidate).where(db.Candidate.account_id == principal.account_id)
+        if decision:
+            statement = statement.where(db.Candidate.decision == decision)
+        return statement
 
     @staticmethod
     def run_account_oneil_core_scanner(
@@ -336,13 +353,31 @@ class BusinessService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[Position]:
-        statement = select(db.Position).where(db.Position.account_id == principal.account_id)
-        if status:
-            statement = statement.where(db.Position.status == status)
+        statement = BusinessService._position_list_statement(principal=principal, status=status)
         rows = session.scalars(
             statement.order_by(db.Position.updated_at.desc()).offset(offset).limit(limit)
         ).all()
         return [Position.model_validate(row) for row in rows]
+
+    @staticmethod
+    def count_positions(
+        session: Session,
+        principal: AuthPrincipal,
+        status: str | None = None,
+    ) -> int:
+        statement = BusinessService._position_list_statement(principal=principal, status=status)
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def _position_list_statement(
+        *,
+        principal: AuthPrincipal,
+        status: str | None = None,
+    ):
+        statement = select(db.Position).where(db.Position.account_id == principal.account_id)
+        if status:
+            statement = statement.where(db.Position.status == status)
+        return statement
 
     @staticmethod
     def update_position(
@@ -409,13 +444,37 @@ class BusinessService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[ExitAlert]:
-        statement = select(db.ExitAlert).where(db.ExitAlert.account_id == principal.account_id)
-        if acknowledged is not None:
-            statement = statement.where(db.ExitAlert.acknowledged == acknowledged)
+        statement = BusinessService._exit_alert_list_statement(
+            principal=principal,
+            acknowledged=acknowledged,
+        )
         rows = session.scalars(
             statement.order_by(db.ExitAlert.alert_ts.desc()).offset(offset).limit(limit)
         ).all()
         return [ExitAlert.model_validate(row) for row in rows]
+
+    @staticmethod
+    def count_exit_alerts(
+        session: Session,
+        principal: AuthPrincipal,
+        acknowledged: bool | None = None,
+    ) -> int:
+        statement = BusinessService._exit_alert_list_statement(
+            principal=principal,
+            acknowledged=acknowledged,
+        )
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def _exit_alert_list_statement(
+        *,
+        principal: AuthPrincipal,
+        acknowledged: bool | None = None,
+    ):
+        statement = select(db.ExitAlert).where(db.ExitAlert.account_id == principal.account_id)
+        if acknowledged is not None:
+            statement = statement.where(db.ExitAlert.acknowledged == acknowledged)
+        return statement
 
     @staticmethod
     def update_exit_alert(
@@ -490,13 +549,24 @@ class BusinessService:
         offset: int = 0,
     ) -> list[JournalTrade]:
         rows = session.scalars(
-            select(db.TradeJournal)
-            .where(db.TradeJournal.account_id == principal.account_id)
+            BusinessService._journal_trade_list_statement(principal=principal)
             .order_by(db.TradeJournal.entry_ts.desc().nulls_last())
             .offset(offset)
             .limit(limit)
         ).all()
         return [JournalTrade.model_validate(row) for row in rows]
+
+    @staticmethod
+    def count_journal_trades(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> int:
+        statement = BusinessService._journal_trade_list_statement(principal=principal)
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def _journal_trade_list_statement(*, principal: AuthPrincipal):
+        return select(db.TradeJournal).where(db.TradeJournal.account_id == principal.account_id)
 
     @staticmethod
     def dashboard_summary(session: Session, principal: AuthPrincipal) -> DashboardSummary:

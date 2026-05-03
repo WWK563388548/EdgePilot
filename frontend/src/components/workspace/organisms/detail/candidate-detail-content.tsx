@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { DataState } from "@/components/workspace/atoms/data-state";
 import { Field } from "@/components/workspace/atoms/field";
 import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
+import { DetailFieldPanel } from "@/components/workspace/organisms/detail/detail-field-panel";
 import { ExplanationBlock } from "@/components/workspace/organisms/detail/explanation-block";
 import { KeyLevelsBlock } from "@/components/workspace/organisms/detail/key-levels-block";
 import { PlanFields } from "@/components/workspace/organisms/detail/plan-fields";
@@ -50,14 +51,14 @@ export function CandidateDetailContent({
         <>
           <ExplanationBlock locale={locale} setup={setup} candidate={candidate} />
 
-          <div className="grid grid-cols-2 gap-3">
+          <DetailFieldPanel title={t("overviewDetails")}>
             <Field label={t("setup")} value={candidate.setup_type ? labelFor("setup", candidate.setup_type) : "-"} />
             <Field label={t("grade")} value={setup?.setup_grade} />
             <Field label={t("validation")} value={labelFor("status", setup?.validation_status)} />
             <Field label={t("status")} value={labelFor("status", setup?.status ?? candidate.decision)} />
             <Field label={t("quality")} value={formatNumber(setup?.pa_quality_score ?? candidate.score_total, 1, locale)} />
             <Field label={t("timeframe")} value={labelFor("plan", setup?.timeframe)} />
-          </div>
+          </DetailFieldPanel>
 
           <KeyLevelsBlock
             candidate={candidate}

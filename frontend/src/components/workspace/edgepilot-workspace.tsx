@@ -68,6 +68,14 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
       }),
     enabled: queriesEnabled
   });
+  const candidatesCount = useQuery({
+    queryKey: ["candidates-count", candidateDecision],
+    queryFn: () =>
+      api.candidateCount({
+        decision: candidateDecision === "all" ? undefined : candidateDecision
+      }),
+    enabled: queriesEnabled
+  });
   const positions = useQuery({
     queryKey: ["positions", positionPage],
     queryFn: () =>
@@ -75,6 +83,11 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
         limit: LIST_PAGE_SIZE + 1,
         offset: positionPage * LIST_PAGE_SIZE
       }),
+    enabled: queriesEnabled
+  });
+  const positionsCount = useQuery({
+    queryKey: ["positions-count"],
+    queryFn: api.positionsCount,
     enabled: queriesEnabled
   });
   const alerts = useQuery({
@@ -86,6 +99,11 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
       }),
     enabled: queriesEnabled
   });
+  const alertsCount = useQuery({
+    queryKey: ["alerts-count"],
+    queryFn: api.alertsCount,
+    enabled: queriesEnabled
+  });
   const journal = useQuery({
     queryKey: ["journal", journalPage],
     queryFn: () =>
@@ -95,6 +113,11 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
       }),
     enabled: queriesEnabled
   });
+  const journalCount = useQuery({
+    queryKey: ["journal-count"],
+    queryFn: api.journalCount,
+    enabled: queriesEnabled
+  });
 
   const summary = dashboard.data;
   const riskTone = summary?.risk_mode === "normal" ? "good" : summary?.risk_mode === "shock" ? "bad" : "warn";
@@ -102,6 +125,22 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const positionRows = (positions.data ?? []).slice(0, LIST_PAGE_SIZE);
   const alertRows = (alerts.data ?? []).slice(0, LIST_PAGE_SIZE);
   const journalRows = (journal.data ?? []).slice(0, LIST_PAGE_SIZE);
+  const hasCandidateNextPage =
+    candidatesCount.data?.total !== undefined
+      ? (candidatePage + 1) * LIST_PAGE_SIZE < candidatesCount.data.total
+      : (candidates.data ?? []).length > LIST_PAGE_SIZE;
+  const hasPositionNextPage =
+    positionsCount.data?.total !== undefined
+      ? (positionPage + 1) * LIST_PAGE_SIZE < positionsCount.data.total
+      : (positions.data ?? []).length > LIST_PAGE_SIZE;
+  const hasAlertNextPage =
+    alertsCount.data?.total !== undefined
+      ? (alertPage + 1) * LIST_PAGE_SIZE < alertsCount.data.total
+      : (alerts.data ?? []).length > LIST_PAGE_SIZE;
+  const hasJournalNextPage =
+    journalCount.data?.total !== undefined
+      ? (journalPage + 1) * LIST_PAGE_SIZE < journalCount.data.total
+      : (journal.data ?? []).length > LIST_PAGE_SIZE;
 
   if (!auth.configured) {
     return <AuthScreen locale={locale} status={t("authNotConfigured")} />;
@@ -145,7 +184,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
             data={candidateRows}
             decisionFilter={candidateDecision}
             error={candidates.isError}
-            hasNextPage={(candidates.data ?? []).length > LIST_PAGE_SIZE}
+            hasNextPage={hasCandidateNextPage}
             loading={candidates.isLoading}
             locale={locale}
             onDecisionFilterChange={(filter) => {
@@ -155,6 +194,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
             onPageChange={setCandidatePage}
             page={candidatePage}
             pageSize={LIST_PAGE_SIZE}
+            totalCount={candidatesCount.data?.total}
           />
         )}
         {view === "pa_lab" && <PALabView locale={locale} />}
@@ -162,36 +202,39 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
           <PositionsTable
             data={positionRows}
             error={positions.isError}
-            hasNextPage={(positions.data ?? []).length > LIST_PAGE_SIZE}
+            hasNextPage={hasPositionNextPage}
             loading={positions.isLoading}
             locale={locale}
             onPageChange={setPositionPage}
             page={positionPage}
             pageSize={LIST_PAGE_SIZE}
+            totalCount={positionsCount.data?.total}
           />
         )}
         {view === "alerts" && (
           <AlertsTable
             data={alertRows}
             error={alerts.isError}
-            hasNextPage={(alerts.data ?? []).length > LIST_PAGE_SIZE}
+            hasNextPage={hasAlertNextPage}
             loading={alerts.isLoading}
             locale={locale}
             onPageChange={setAlertPage}
             page={alertPage}
             pageSize={LIST_PAGE_SIZE}
+            totalCount={alertsCount.data?.total}
           />
         )}
         {view === "journal" && (
           <JournalTable
             data={journalRows}
             error={journal.isError}
-            hasNextPage={(journal.data ?? []).length > LIST_PAGE_SIZE}
+            hasNextPage={hasJournalNextPage}
             loading={journal.isLoading}
             locale={locale}
             onPageChange={setJournalPage}
             page={journalPage}
             pageSize={LIST_PAGE_SIZE}
+            totalCount={journalCount.data?.total}
           />
         )}
         {view === "settings" && <SettingsPanel locale={locale} />}

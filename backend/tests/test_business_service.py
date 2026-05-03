@@ -116,6 +116,7 @@ def test_candidate_queries_can_filter_by_decision(session) -> None:
         row.candidate_id
         for row in BusinessService.list_candidates(session, principal, decision="candidate")
     ] == ["cand_ready"]
+    assert BusinessService.count_candidates(session, principal, decision="candidate") == 1
 
 
 def test_candidate_queries_support_offset_pagination(session) -> None:
@@ -137,6 +138,7 @@ def test_candidate_queries_support_offset_pagination(session) -> None:
         row.candidate_id
         for row in BusinessService.list_candidates(session, principal, limit=1, offset=1)
     ] == ["cand_1"]
+    assert BusinessService.count_candidates(session, principal) == 3
 
 
 def test_account_scanner_replaces_only_current_account_candidates(session, monkeypatch) -> None:

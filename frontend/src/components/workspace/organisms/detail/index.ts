@@ -1,4 +1,5 @@
 export { CandidateDetailContent } from "@/components/workspace/organisms/detail/candidate-detail-content";
+export { DetailFieldPanel } from "@/components/workspace/organisms/detail/detail-field-panel";
 export { ExplanationBlock } from "@/components/workspace/organisms/detail/explanation-block";
 export { KeyLevelsBlock } from "@/components/workspace/organisms/detail/key-levels-block";
 export { PASetupDetailContent } from "@/components/workspace/organisms/detail/pa-setup-detail-content";

@@ -31,6 +31,7 @@ export function CandidatesView({
   onDecisionFilterChange,
   page,
   pageSize,
+  totalCount,
   hasNextPage,
   onPageChange,
   loading,
@@ -42,6 +43,7 @@ export function CandidatesView({
   onDecisionFilterChange: (filter: CandidateDecisionFilter) => void;
   page: number;
   pageSize: number;
+  totalCount?: number;
   hasNextPage: boolean;
   onPageChange: (page: number) => void;
   loading: boolean;
@@ -68,8 +70,10 @@ export function CandidatesView({
       onPageChange(0);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["candidates"] }),
+        queryClient.invalidateQueries({ queryKey: ["candidates-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["pa-setups"] })
+        queryClient.invalidateQueries({ queryKey: ["pa-setups"] }),
+        queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] })
       ]);
     }
   });
@@ -82,8 +86,10 @@ export function CandidatesView({
       onPageChange(0);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["candidates"] }),
+        queryClient.invalidateQueries({ queryKey: ["candidates-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["pa-setups"] })
+        queryClient.invalidateQueries({ queryKey: ["pa-setups"] }),
+        queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] })
       ]);
     }
   });
@@ -94,7 +100,8 @@ export function CandidatesView({
     [data]
   );
   const activeCandidate = data.find((row) => row.candidate_id === activeCandidateId);
-  const candidateCount = hasNextPage ? `${page * pageSize + data.length}+` : page * pageSize + data.length;
+  const candidateCount =
+    totalCount !== undefined ? totalCount : hasNextPage ? `${page * pageSize + data.length}+` : page * pageSize + data.length;
 
   useEffect(() => {
     if (selectedCandidateId && !data.some((row) => row.candidate_id === selectedCandidateId)) {
@@ -189,6 +196,7 @@ export function CandidatesView({
             }}
             page={page}
             pageSize={pageSize}
+            totalCount={totalCount}
           />
         </section>
 

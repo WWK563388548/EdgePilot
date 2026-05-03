@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Field } from "@/components/workspace/atoms/field";
 import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
+import { DetailFieldPanel } from "@/components/workspace/organisms/detail/detail-field-panel";
 import { ExplanationBlock } from "@/components/workspace/organisms/detail/explanation-block";
 import { KeyLevelsBlock } from "@/components/workspace/organisms/detail/key-levels-block";
 import { PlanFields } from "@/components/workspace/organisms/detail/plan-fields";
@@ -38,22 +39,22 @@ export function PASetupDetailContent({
   return (
     <>
       <ExplanationBlock locale={locale} setup={setup} />
-      <div className="grid grid-cols-2 gap-3">
+      <DetailFieldPanel title={t("overviewDetails")}>
         <Field label={t("setup")} value={labelFor("setup", setup.setup_type)} />
         <Field label={t("grade")} value={setup.setup_grade} />
         <Field label={t("quality")} value={formatNumber(setup.pa_quality_score, 1, locale)} />
         <Field label={t("timeframe")} value={labelFor("plan", setup.timeframe)} />
         <Field label={t("validation")} value={labelFor("status", setup.validation_status)} />
         <Field label={t("status")} value={labelFor("status", setup.status)} />
-      </div>
-      <div className="grid grid-cols-2 gap-3 border-t border-line pt-3">
+      </DetailFieldPanel>
+      <DetailFieldPanel title={t("scoreSnapshot")}>
         <Field label={t("structure")} value={formatNumber(setup.structure_score, 1, locale)} />
         <Field label={t("location")} value={formatNumber(setup.location_score, 1, locale)} />
         <Field label={t("volume")} value={formatNumber(setup.volume_score, 1, locale)} />
         <Field label={t("trendRs")} value={formatNumber(setup.trend_rs_score, 1, locale)} />
         <Field label={t("context")} value={formatNumber(setup.context_score, 1, locale)} />
         <Field label={t("riskStop")} value={formatNumber(setup.risk_stop_score, 1, locale)} />
-      </div>
+      </DetailFieldPanel>
       <KeyLevelsBlock entryPlan={setup.entry_plan} exitPlan={setup.exit_plan} locale={locale} setup={setup} />
       <ScannerDecisionBlock data={scannerDecision} locale={locale} />
       <PAEvidencePanel

@@ -1,5 +1,6 @@
 "use client";
 
+import { DataState } from "@/components/workspace/atoms/data-state";
 import { PaginationControls } from "@/components/workspace/molecules/pagination-controls";
 import { TableShell } from "@/components/workspace/molecules/table-shell";
 import type { ExitAlert, JournalTrade, Position } from "@/lib/api";
@@ -13,6 +14,7 @@ type PaginatedTableProps<T> = {
   error: boolean;
   page: number;
   pageSize: number;
+  totalCount?: number;
   hasNextPage: boolean;
   onPageChange: (page: number) => void;
   locale: Locale;
@@ -24,6 +26,7 @@ export function PositionsTable({
   error,
   page,
   pageSize,
+  totalCount,
   hasNextPage,
   onPageChange,
   locale
@@ -44,6 +47,15 @@ export function PositionsTable({
           </tr>
         </thead>
         <tbody>
+          {!data.length ? (
+            <EmptyTableRow
+              colSpan={6}
+              error={error}
+              loading={loading}
+              locale={locale}
+              message={t("noPositions")}
+            />
+          ) : null}
           {data.map((row) => (
             <tr key={row.position_id} className="border-t border-line">
               <td className="px-4 py-3 font-medium text-ink">{row.symbol_id}</td>
@@ -62,6 +74,7 @@ export function PositionsTable({
         onPageChange={onPageChange}
         page={page}
         pageSize={pageSize}
+        totalCount={totalCount}
       />
     </TableShell>
   );
@@ -73,6 +86,7 @@ export function AlertsTable({
   error,
   page,
   pageSize,
+  totalCount,
   hasNextPage,
   onPageChange,
   locale
@@ -92,6 +106,15 @@ export function AlertsTable({
           </tr>
         </thead>
         <tbody>
+          {!data.length ? (
+            <EmptyTableRow
+              colSpan={5}
+              error={error}
+              loading={loading}
+              locale={locale}
+              message={t("noAlerts")}
+            />
+          ) : null}
           {data.map((row) => (
             <tr key={row.alert_id} className="border-t border-line">
               <td className="px-4 py-3">{formatValue(row.level)}</td>
@@ -109,6 +132,7 @@ export function AlertsTable({
         onPageChange={onPageChange}
         page={page}
         pageSize={pageSize}
+        totalCount={totalCount}
       />
     </TableShell>
   );
@@ -120,6 +144,7 @@ export function JournalTable({
   error,
   page,
   pageSize,
+  totalCount,
   hasNextPage,
   onPageChange,
   locale
@@ -140,6 +165,15 @@ export function JournalTable({
           </tr>
         </thead>
         <tbody>
+          {!data.length ? (
+            <EmptyTableRow
+              colSpan={6}
+              error={error}
+              loading={loading}
+              locale={locale}
+              message={t("noJournal")}
+            />
+          ) : null}
           {data.map((row) => (
             <tr key={row.trade_id} className="border-t border-line">
               <td className="px-4 py-3 font-medium text-ink">{formatValue(row.symbol_id)}</td>
@@ -158,7 +192,30 @@ export function JournalTable({
         onPageChange={onPageChange}
         page={page}
         pageSize={pageSize}
+        totalCount={totalCount}
       />
     </TableShell>
+  );
+}
+
+function EmptyTableRow({
+  colSpan,
+  error,
+  loading,
+  locale,
+  message
+}: {
+  colSpan: number;
+  error: boolean;
+  loading: boolean;
+  locale: Locale;
+  message: string;
+}) {
+  return (
+    <tr>
+      <td className="border-t border-line px-4 py-6 text-sm text-slate-600" colSpan={colSpan}>
+        {loading || error ? <DataState isLoading={loading} isError={error} locale={locale} /> : message}
+      </td>
+    </tr>
   );
 }

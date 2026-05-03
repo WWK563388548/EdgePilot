@@ -3,6 +3,10 @@ from datetime import UTC, date, datetime
 from fastapi.testclient import TestClient
 
 from backend.app.api.routes.business import (
+    count_candidates,
+    count_exit_alerts,
+    count_journal_trades,
+    count_positions,
     create_candidate,
     create_exit_alert,
     create_journal_trade,
@@ -113,6 +117,11 @@ def test_candidate_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "count_candidates",
+        lambda session, principal, decision: 1,
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "update_candidate",
         lambda session, principal, candidate_id, request: _candidate(),
     )
@@ -149,6 +158,7 @@ def test_candidate_routes(monkeypatch) -> None:
         limit=10,
         offset=20,
     )[0].symbol_id == "SPY"
+    assert count_candidates(session=None, principal=_principal(), decision="candidate").total == 1
     assert (
         get_candidate_detail("cand_1", session=None, principal=_principal()).pa_setup.setup_id
         == "pasetup_1"
@@ -282,6 +292,11 @@ def test_position_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "count_positions",
+        lambda session, principal, status: 1,
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "update_position",
         lambda session, principal, position_id, request: _position(),
     )
@@ -301,6 +316,7 @@ def test_position_routes(monkeypatch) -> None:
         limit=10,
         offset=20,
     )[0].status == "open"
+    assert count_positions(session=None, principal=_principal(), status_filter="open").total == 1
     assert (
         update_position(
             "pos_1",
@@ -327,6 +343,11 @@ def test_exit_alert_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "count_exit_alerts",
+        lambda session, principal, acknowledged: 1,
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "update_exit_alert",
         lambda session, principal, alert_id, request: _alert(),
     )
@@ -346,6 +367,7 @@ def test_exit_alert_routes(monkeypatch) -> None:
         limit=10,
         offset=20,
     )[0].level == 2
+    assert count_exit_alerts(session=None, principal=_principal(), acknowledged=False).total == 1
     assert (
         update_exit_alert(
             "alert_1",
@@ -370,6 +392,11 @@ def test_journal_routes(monkeypatch) -> None:
         "list_journal_trades",
         lambda session, principal, limit, offset: [_trade()],
     )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_journal_trades",
+        lambda session, principal: 1,
+    )
 
     assert (
         create_journal_trade(
@@ -385,6 +412,7 @@ def test_journal_routes(monkeypatch) -> None:
         limit=10,
         offset=20,
     )[0].net_pnl == 120.0
+    assert count_journal_trades(session=None, principal=_principal()).total == 1
 
 
 def test_dashboard_summary_route(monkeypatch) -> None:

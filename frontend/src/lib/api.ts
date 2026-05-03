@@ -117,6 +117,7 @@ export type PASetupExplain = {
 
 export type PASetupFilters = {
   symbol?: string;
+  timeframe?: string;
   setupType?: string;
   validationStatus?: string;
   status?: string;
@@ -128,6 +129,10 @@ export type CandidateFilters = {
   decision?: string;
   limit?: number;
   offset?: number;
+};
+
+export type CountResponse = {
+  total: number;
 };
 
 export type AccountScannerRequest = {
@@ -314,6 +319,12 @@ export const api = {
         offset: filters.offset
       })}`
     ),
+  candidateCount: (filters: CandidateFilters = {}) =>
+    getJson<CountResponse>(
+      `/api/candidates/count${queryString({
+        decision: filters.decision
+      })}`
+    ),
   scanAccountOneilCandidates: (request: AccountScannerRequest = {}) =>
     postJson<ETFOneilScannerResponse>("/api/candidates/scanners/us-etf/oneil-core", request),
   refreshAccountOneilCandidates: (request: AccountRefreshRequest = {}) =>
@@ -330,9 +341,19 @@ export const api = {
         setup_type: filters.setupType,
         validation_status: filters.validationStatus,
         status: filters.status,
-        timeframe: "1d",
+        timeframe: filters.timeframe ?? "1d",
         limit: filters.limit ?? 100,
         offset: filters.offset
+      })}`
+    ),
+  paSetupsCount: (filters: PASetupFilters = {}) =>
+    getJson<CountResponse>(
+      `/api/pa/setups/count${queryString({
+        symbol: filters.symbol,
+        setup_type: filters.setupType,
+        validation_status: filters.validationStatus,
+        status: filters.status,
+        timeframe: filters.timeframe ?? "1d"
       })}`
     ),
   paSetupExplain: (setupId: string, barLimit = 90) =>
@@ -348,6 +369,7 @@ export const api = {
         offset: pagination.offset
       })}`
     ),
+  positionsCount: () => getJson<CountResponse>("/api/positions/count"),
   alerts: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<ExitAlert[]>(
       `/api/exit-alerts${queryString({
@@ -356,11 +378,18 @@ export const api = {
         offset: pagination.offset
       })}`
     ),
+  alertsCount: () =>
+    getJson<CountResponse>(
+      `/api/exit-alerts/count${queryString({
+        acknowledged: "false"
+      })}`
+    ),
   journal: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<JournalTrade[]>(
       `/api/journal/trades${queryString({
         limit: pagination.limit ?? 100,
         offset: pagination.offset
       })}`
-    )
+    ),
+  journalCount: () => getJson<CountResponse>("/api/journal/trades/count")
 };

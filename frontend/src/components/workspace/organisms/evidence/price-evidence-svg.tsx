@@ -20,6 +20,16 @@ import {
 } from "@/components/workspace/organisms/evidence/chart-constants";
 import { buildDateTicks } from "@/components/workspace/organisms/evidence/chart-utils";
 
+type LevelMarker = {
+  id: string;
+  label: string;
+  labelY: number;
+  shortLabel: string;
+  tone: string;
+  valueLabel: string;
+  y: number;
+};
+
 export function PriceEvidenceSvg({
   bars,
   explain,
@@ -58,7 +68,7 @@ export function PriceEvidenceSvg({
     }
     return PRICE_BOTTOM - ((value - domainMin) / (domainMax - domainMin || 1)) * (PRICE_BOTTOM - PRICE_TOP);
   };
-  const levelMarkers = levels
+  const rawLevelMarkers = levels
     .map((level) => {
       const y = yFor(level.value);
       if (y === null) {
@@ -78,7 +88,8 @@ export function PriceEvidenceSvg({
         y
       };
     })
-    .filter((marker): marker is NonNullable<typeof marker> => Boolean(marker));
+    .filter((marker): marker is LevelMarker => Boolean(marker));
+  const levelMarkers = distributeLevelLabelY(rawLevelMarkers);
   const hoveredLevel = levelMarkers.find((marker) => marker.id === hoveredLevelId) ?? null;
   const dateTicks = buildDateTicks(bars);
 
@@ -154,12 +165,14 @@ export function PriceEvidenceSvg({
               role="button"
               tabIndex={0}
             >
+              <title>{`${marker.label}: ${marker.valueLabel}`}</title>
               <rect
                 x={PLOT_LEFT}
-                y={marker.y - 8}
-                width={PLOT_RIGHT - PLOT_LEFT + 68}
-                height="16"
-                fill="transparent"
+                y={marker.y - 14}
+                width={PLOT_RIGHT - PLOT_LEFT + 92}
+                height="28"
+                fill="#ffffff"
+                fillOpacity="0"
                 pointerEvents="all"
               />
               <line
@@ -173,11 +186,20 @@ export function PriceEvidenceSvg({
                 strokeWidth={isHovered ? "2.2" : "1.6"}
               />
               <line x1={PLOT_RIGHT} x2={PLOT_RIGHT + 8} y1={marker.y} y2={marker.labelY + 12} stroke={marker.tone} strokeWidth="1.4" />
-              <circle cx={PLOT_RIGHT} cy={marker.y} r={isHovered ? "7" : "5.5"} fill={marker.tone} stroke="#ffffff" strokeWidth="2" />
+              <circle
+                cx={PLOT_RIGHT}
+                cy={marker.y}
+                r={isHovered ? "13" : "10"}
+                fill="none"
+                stroke={marker.tone}
+                strokeOpacity={isHovered ? "0.24" : "0.16"}
+                strokeWidth="5"
+              />
+              <circle cx={PLOT_RIGHT} cy={marker.y} r={isHovered ? "7.5" : "6.5"} fill={marker.tone} stroke="#ffffff" strokeWidth="2.4" />
               <rect
                 x={PLOT_RIGHT + 10}
                 y={marker.labelY}
-                width="58"
+                width="70"
                 height="24"
                 rx="6"
                 fill="#ffffff"
@@ -185,7 +207,7 @@ export function PriceEvidenceSvg({
                 strokeWidth={isHovered ? "2" : "1.5"}
               />
               <text
-                x={PLOT_RIGHT + 39}
+                x={PLOT_RIGHT + 45}
                 y={marker.labelY + 16}
                 textAnchor="middle"
                 fill={marker.tone}
@@ -210,6 +232,33 @@ export function PriceEvidenceSvg({
       </svg>
     </div>
   );
+}
+
+function distributeLevelLabelY(markers: LevelMarker[]) {
+  if (markers.length < 2) {
+    return markers;
+  }
+
+  const minGap = 30;
+  const labelTop = PRICE_TOP + 2;
+  const labelBottom = PRICE_BOTTOM - 24;
+  let nextY = labelTop;
+  const sorted = [...markers].sort((left, right) => left.labelY - right.labelY);
+  let adjusted = sorted.map((marker) => {
+    const labelY = Math.max(marker.labelY, nextY);
+    nextY = labelY + minGap;
+    return { ...marker, labelY };
+  });
+  const overflow = Math.max(0, (adjusted.at(-1)?.labelY ?? labelBottom) - labelBottom);
+  if (overflow > 0) {
+    adjusted = adjusted.map((marker) => ({
+      ...marker,
+      labelY: Math.max(labelTop, marker.labelY - overflow)
+    }));
+  }
+
+  const byId = new Map(adjusted.map((marker) => [marker.id, marker]));
+  return markers.map((marker) => byId.get(marker.id) ?? marker);
 }
 
 function LevelTooltip({

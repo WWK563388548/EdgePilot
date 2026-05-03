@@ -22,6 +22,7 @@ export function CandidateList({
   locale,
   page,
   pageSize,
+  totalCount,
   hasNextPage,
   onPageChange,
   onSelect
@@ -34,6 +35,7 @@ export function CandidateList({
   locale: Locale;
   page: number;
   pageSize: number;
+  totalCount?: number;
   hasNextPage: boolean;
   onPageChange: (page: number) => void;
   onSelect: (candidateId: string) => void;
@@ -66,6 +68,7 @@ export function CandidateList({
         onPageChange={onPageChange}
         page={page}
         pageSize={pageSize}
+        totalCount={totalCount}
       />
     </>
   );

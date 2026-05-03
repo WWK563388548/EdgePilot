@@ -19,6 +19,7 @@ export function PASetupTable({
   locale,
   page,
   pageSize,
+  totalCount,
   hasNextPage,
   onPageChange,
   onSelect
@@ -30,6 +31,7 @@ export function PASetupTable({
   locale: Locale;
   page: number;
   pageSize: number;
+  totalCount?: number;
   hasNextPage: boolean;
   onPageChange: (page: number) => void;
   onSelect: (setupId: string) => void;
@@ -106,6 +108,7 @@ export function PASetupTable({
         onPageChange={onPageChange}
         page={page}
         pageSize={pageSize}
+        totalCount={totalCount}
       />
     </>
   );

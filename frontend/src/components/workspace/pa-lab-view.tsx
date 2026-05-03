@@ -23,10 +23,14 @@ export function PALabView({ locale }: { locale: Locale }) {
   const [page, setPage] = useState(0);
   const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const filters = {
+  const baseFilters = {
     symbol: symbol.trim().toUpperCase() || undefined,
     setupType: setupType || undefined,
     validationStatus: validationStatus || undefined,
+    timeframe: "1d"
+  };
+  const filters = {
+    ...baseFilters,
     limit: PA_LAB_PAGE_SIZE + 1,
     offset: page * PA_LAB_PAGE_SIZE
   };
@@ -34,9 +38,16 @@ export function PALabView({ locale }: { locale: Locale }) {
     queryKey: ["pa-setups", filters],
     queryFn: () => api.paSetups(filters)
   });
+  const setupsCount = useQuery({
+    queryKey: ["pa-setups-count", baseFilters],
+    queryFn: () => api.paSetupsCount(baseFilters)
+  });
   const rawRows = setups.data ?? [];
   const rows = rawRows.slice(0, PA_LAB_PAGE_SIZE);
-  const hasNextPage = rawRows.length > PA_LAB_PAGE_SIZE;
+  const hasNextPage =
+    setupsCount.data?.total !== undefined
+      ? (page + 1) * PA_LAB_PAGE_SIZE < setupsCount.data.total
+      : rawRows.length > PA_LAB_PAGE_SIZE;
   const selectedSetup = detailOpen ? rows.find((setup) => setup.setup_id === selectedSetupId) ?? rows[0] ?? null : null;
   const topScore = useMemo(
     () => rows.reduce<number | null>((best, row) => Math.max(best ?? 0, row.pa_quality_score ?? 0), null),
@@ -53,7 +64,7 @@ export function PALabView({ locale }: { locale: Locale }) {
   return (
     <section className="flex flex-col gap-4">
       <div className="grid gap-3 md:grid-cols-3">
-        <CompactStat icon={<Layers size={18} />} label={t("paUniverse")} value={rows.length} />
+        <CompactStat icon={<Layers size={18} />} label={t("paUniverse")} value={setupsCount.data?.total ?? rows.length} />
         <CompactStat icon={<SlidersHorizontal size={18} />} label={t("topScore")} value={formatNumber(topScore, 1, locale)} />
         <CompactStat icon={<Eye size={18} />} label={t("selected")} value={selectedSetup?.symbol_id ?? "-"} />
       </div>
@@ -94,6 +105,7 @@ export function PALabView({ locale }: { locale: Locale }) {
             pageSize={PA_LAB_PAGE_SIZE}
             rows={rows}
             selectedSetupId={selectedSetup?.setup_id ?? null}
+            totalCount={setupsCount.data?.total}
           />
         </section>
 

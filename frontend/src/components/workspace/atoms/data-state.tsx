@@ -15,10 +15,18 @@ export function DataState({
   const { t } = useAppI18n();
 
   if (isLoading) {
-    return <span className="text-sm text-slate-500">{t("loading")}</span>;
+    return (
+      <span className="text-sm text-slate-500" role="status">
+        {t("loading")}
+      </span>
+    );
   }
   if (isError) {
-    return <span className="text-sm text-rose-700">{t("apiUnavailable")}</span>;
+    return (
+      <span className="text-sm text-rose-700" role="alert">
+        {t("apiUnavailable")}
+      </span>
+    );
   }
   return null;
 }

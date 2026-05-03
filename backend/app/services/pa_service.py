@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -73,6 +73,46 @@ class PAService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[PASetup]:
+        statement = PAService._setup_list_statement(
+            symbol=symbol,
+            timeframe=timeframe,
+            setup_type=setup_type,
+            status=status,
+            validation_status=validation_status,
+        )
+        rows = session.scalars(
+            statement.order_by(db.PASetup.detected_ts.desc()).offset(offset).limit(limit)
+        ).all()
+        return [PASetup.model_validate(row) for row in rows]
+
+    @staticmethod
+    def count_setups(
+        session: Session,
+        *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        setup_type: str | None = None,
+        status: str | None = None,
+        validation_status: str | None = None,
+    ) -> int:
+        statement = PAService._setup_list_statement(
+            symbol=symbol,
+            timeframe=timeframe,
+            setup_type=setup_type,
+            status=status,
+            validation_status=validation_status,
+        )
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def _setup_list_statement(
+        *,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        setup_type: str | None = None,
+        status: str | None = None,
+        validation_status: str | None = None,
+    ):
         statement = select(db.PASetup)
         if symbol:
             statement = statement.where(db.PASetup.symbol_id == symbol.upper())
@@ -84,10 +124,7 @@ class PAService:
             statement = statement.where(db.PASetup.status == status)
         if validation_status:
             statement = statement.where(db.PASetup.validation_status == validation_status)
-        rows = session.scalars(
-            statement.order_by(db.PASetup.detected_ts.desc()).offset(offset).limit(limit)
-        ).all()
-        return [PASetup.model_validate(row) for row in rows]
+        return statement
 
     @staticmethod
     def get_setup(session: Session, *, setup_id: str) -> PASetup | None:
