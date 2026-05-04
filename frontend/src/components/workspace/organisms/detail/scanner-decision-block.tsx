@@ -203,29 +203,47 @@ function KeyList({
 }
 
 const SCANNER_DECISION_TEXT_KEYS: Record<string, string> = {
+  base_depth_healthy: "ruleBaseDepthHealthy",
+  base_too_deep: "ruleBaseTooDeep",
   break_above_trigger: "conditionBreakAboveTrigger",
+  breakout_close_near_high: "ruleBreakoutCloseNearHigh",
+  breakout_near_pivot: "ruleBreakoutNearPivot",
+  breakout_volume_confirmed: "ruleBreakoutVolumeConfirmed",
+  breakout_volume_missing: "ruleBreakoutVolumeMissing",
   extended_from_20ma: "riskExtendedFrom20ma",
   hold_above_20_50ma: "conditionHoldAboveMas",
+  hold_above_20ma: "ruleHoldAbove20ma",
   initial_stop_required: "riskInitialStopRequired",
   invalidates_below_stop: "riskInvalidatesBelowStop",
+  leader_near_high: "ruleLeaderNearHigh",
   market_context_caution: "ruleMarketContextCaution",
   market_context_green: "conditionMarketContextGreen",
   market_support: "ruleMarketSupport",
   needs_trigger_confirmation: "reasonNeedsTriggerConfirmation",
+  pullback_near_20ma: "rulePullbackNear20ma",
+  pullback_volume_heavy: "rulePullbackVolumeHeavy",
+  pullback_volume_quiet: "rulePullbackVolumeQuiet",
+  reclaim_50ma: "ruleReclaim50ma",
+  reclaim_volume_confirmed: "ruleReclaimVolumeConfirmed",
   relative_strength_lagging: "ruleRelativeStrengthLagging",
   relative_strength_leader: "ruleRelativeStrengthLeader",
   risk_contained: "ruleRiskContained",
   risk_too_wide: "ruleRiskTooWide",
+  rs_not_leading: "ruleRsNotLeading",
+  rs_top_quartile: "ruleRsTopQuartile",
   score_below_candidate: "reasonScoreBelowCandidate",
   setup_location: "ruleSetupLocation",
   setup_location_unclear: "ruleSetupLocationUnclear",
   shadow_only: "reasonShadowOnly",
+  supportive_close_position: "ruleSupportiveClosePosition",
   trend_aligned: "ruleTrendAligned",
   trend_needs_alignment: "ruleTrendNeedsAlignment",
+  volatility_contraction: "ruleVolatilityContraction",
   volume_confirmation_missing: "ruleVolumeConfirmationMissing",
   volume_expansion: "conditionVolumeExpansion",
   volume_liquidity: "ruleVolumeLiquidity",
-  volume_needs_confirmation: "reasonVolumeNeedsConfirmation"
+  volume_needs_confirmation: "reasonVolumeNeedsConfirmation",
+  weak_close_position: "ruleWeakClosePosition"
 };
 
 function scannerDecisionText(t: ReturnType<typeof useAppI18n>["t"], key: string) {

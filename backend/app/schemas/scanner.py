@@ -27,6 +27,7 @@ class ScannerDecision(BaseModel):
     watch_reasons: list[str] = Field(default_factory=list)
     upgrade_conditions: list[str] = Field(default_factory=list)
     risk_notes: list[str] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod

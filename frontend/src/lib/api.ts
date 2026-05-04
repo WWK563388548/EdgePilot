@@ -79,6 +79,7 @@ export type ScannerDecision = {
   watch_reasons: string[];
   upgrade_conditions: string[];
   risk_notes: string[];
+  metrics: Record<string, unknown>;
 };
 
 export type PASetup = {

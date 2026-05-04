@@ -65,6 +65,14 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert scanner_decision["trigger_price"]
     assert scanner_decision["initial_stop"]
     assert scanner_decision["passed_rules"]
+    passed_keys = {rule["key"] for rule in scanner_decision["passed_rules"]}
+    failed_keys = {rule["key"] for rule in scanner_decision["failed_rules"]}
+    assert "rs_top_quartile" in passed_keys
+    assert "breakout_close_near_high" in passed_keys
+    assert "base_depth_healthy" in passed_keys
+    assert "breakout_volume_missing" in failed_keys
+    assert scanner_decision["metrics"]["rs_percentile_3m"] == 100
+    assert scanner_decision["metrics"]["rs_percentile_6m"] == 100
     assert all(rule["passed"] for rule in scanner_decision["passed_rules"])
     assert candidate is not None
     assert candidate.ai_review_json is not None
