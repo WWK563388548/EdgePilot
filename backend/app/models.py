@@ -56,6 +56,23 @@ class AccountMembership(Base):
     )
 
 
+class AccountRiskSettings(Base):
+    __tablename__ = "account_risk_settings"
+
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"), primary_key=True)
+    account_equity: Mapped[float | None] = mapped_column(Float)
+    max_risk_per_trade_pct: Mapped[float | None] = mapped_column(Float)
+    max_open_positions: Mapped[int | None] = mapped_column(Integer)
+    max_risk_distance_pct: Mapped[float | None] = mapped_column(Float)
+    shadow_only_requires_paper: Mapped[bool | None] = mapped_column(Boolean, server_default=text("true"))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

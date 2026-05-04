@@ -9,6 +9,7 @@ from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
 from backend.app.schemas.business import (
+    AccountRiskSettingsUpdate,
     CandidateCreate,
     CandidatePlanCreate,
     CandidateUpdate,
@@ -164,6 +165,31 @@ def test_candidate_queries_support_offset_pagination(session) -> None:
         for row in BusinessService.list_candidates(session, principal, limit=1, offset=1)
     ] == ["cand_1"]
     assert BusinessService.count_candidates(session, principal) == 3
+
+
+def test_account_risk_settings_default_and_update(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    defaults = BusinessService.get_account_risk_settings(session, principal)
+    updated = BusinessService.update_account_risk_settings(
+        session,
+        principal,
+        AccountRiskSettingsUpdate(
+            account_equity=25_000,
+            max_risk_per_trade_pct=0.01,
+            max_open_positions=4,
+            max_risk_distance_pct=0.08,
+            shadow_only_requires_paper=False,
+        ),
+    )
+
+    assert defaults.account_equity == 10_000
+    assert defaults.max_risk_per_trade_pct == 0.005
+    assert updated.account_equity == 25_000
+    assert updated.max_risk_per_trade_pct == 0.01
+    assert updated.max_open_positions == 4
+    assert updated.max_risk_distance_pct == 0.08
+    assert updated.shadow_only_requires_paper is False
 
 
 def test_account_scanner_replaces_only_current_account_candidates(session, monkeypatch) -> None:
@@ -655,6 +681,102 @@ def test_create_candidate_plan_from_candidate_is_planned_and_idempotent(session)
     assert BusinessService.count_positions(session, principal) == 1
     assert BusinessService.count_positions(session, principal, status="planned") == 1
     assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
+
+
+def test_candidate_plan_preview_sizes_quantity_and_guardrails(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.update_account_risk_settings(
+        session,
+        principal,
+        AccountRiskSettingsUpdate(
+            account_equity=20_000,
+            max_risk_per_trade_pct=0.01,
+            max_open_positions=1,
+            max_risk_distance_pct=0.05,
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_spy_sized",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            setup_type="breakout",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=90,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_open_guardrail",
+            symbol_id="QQQ",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=1,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    preview = BusinessService.preview_candidate_plan(
+        session,
+        principal,
+        "cand_spy_sized",
+    )
+    position = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_spy_sized",
+        CandidatePlanCreate(),
+    )
+
+    assert preview.max_risk_amount == 200
+    assert preview.risk_per_unit == 10
+    assert preview.suggested_quantity == 20
+    assert preview.planned_risk_amount == 200
+    assert preview.planned_risk_pct == 0.01
+    assert {notice.code for notice in preview.guardrails} == {
+        "risk_distance_wide",
+        "max_open_positions_reached",
+    }
+    assert position.quantity == 20
+    assert position.risk_amount == 200
+    assert position.risk_pct == 0.01
+
+
+def test_candidate_plan_blocks_invalid_stop(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_invalid_stop",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=101,
+        ),
+    )
+
+    preview = BusinessService.preview_candidate_plan(session, principal, "cand_invalid_stop")
+    with pytest.raises(ValueError, match="stop_not_below_entry"):
+        BusinessService.create_candidate_plan(
+            session,
+            principal,
+            "cand_invalid_stop",
+            CandidatePlanCreate(),
+        )
+
+    assert preview.guardrails[0].level == "block"
+    assert preview.guardrails[0].code == "stop_not_below_entry"
 
 
 def test_create_candidate_plan_requires_entry_and_stop(session) -> None:

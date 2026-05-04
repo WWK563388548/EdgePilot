@@ -7,6 +7,36 @@ from backend.app.schemas.scanner import ScannerDecision
 
 CandidateDecision = Literal["candidate", "watch", "avoid"]
 PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed"]
+GuardrailLevel = Literal["block", "warning", "info"]
+
+
+class AccountRiskSettingsBase(BaseModel):
+    account_equity: float = Field(default=10_000, gt=0)
+    max_risk_per_trade_pct: float = Field(default=0.005, gt=0, le=0.1)
+    max_open_positions: int = Field(default=3, ge=1, le=50)
+    max_risk_distance_pct: float = Field(default=0.12, gt=0, le=0.5)
+    shadow_only_requires_paper: bool = True
+
+
+class AccountRiskSettingsUpdate(BaseModel):
+    account_equity: float | None = Field(default=None, gt=0)
+    max_risk_per_trade_pct: float | None = Field(default=None, gt=0, le=0.1)
+    max_open_positions: int | None = Field(default=None, ge=1, le=50)
+    max_risk_distance_pct: float | None = Field(default=None, gt=0, le=0.5)
+    shadow_only_requires_paper: bool | None = None
+
+
+class AccountRiskSettings(AccountRiskSettingsBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    account_id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class GuardrailNotice(BaseModel):
+    level: GuardrailLevel
+    code: str
 
 
 class CandidateBase(BaseModel):
@@ -83,6 +113,26 @@ class CandidateDetail(BaseModel):
     invalidation: dict[str, Any] | None = None
 
 
+class CandidatePlanPreview(BaseModel):
+    account_id: str
+    candidate_id: str
+    entry_price: float | None = None
+    initial_stop: float | None = None
+    risk_per_unit: float | None = None
+    risk_distance_pct: float | None = None
+    account_equity: float
+    max_risk_per_trade_pct: float
+    max_risk_amount: float
+    suggested_quantity: int | None = None
+    planned_quantity: float | None = None
+    planned_risk_amount: float | None = None
+    planned_risk_pct: float | None = None
+    max_open_positions: int
+    active_position_count: int
+    validation_status: str | None = None
+    guardrails: list[GuardrailNotice] = Field(default_factory=list)
+
+
 class PositionBase(BaseModel):
     symbol_id: str = Field(..., min_length=1)
     asset_type: str = Field(..., min_length=1)
@@ -148,6 +198,9 @@ class Position(PositionBase):
     model_config = ConfigDict(from_attributes=True)
 
     position_id: str
+    risk_per_unit: float | None = None
+    risk_amount: float | None = None
+    risk_pct: float | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

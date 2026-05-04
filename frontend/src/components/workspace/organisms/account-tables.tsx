@@ -49,6 +49,8 @@ export function PositionsTable({
             <th className="px-4 py-3">{t("qty")}</th>
             <th className="px-4 py-3">{t("entry")}</th>
             <th className="px-4 py-3">{t("stop")}</th>
+            <th className="px-4 py-3">{t("riskAmount")}</th>
+            <th className="px-4 py-3">{t("riskPercent")}</th>
             <th className="px-4 py-3">{t("status")}</th>
             <th className="px-4 py-3">{t("action")}</th>
           </tr>
@@ -56,7 +58,7 @@ export function PositionsTable({
         <tbody>
           {!data.length ? (
             <EmptyTableRow
-              colSpan={7}
+              colSpan={9}
               error={error}
               loading={loading}
               locale={locale}
