@@ -35,11 +35,25 @@ from backend.app.schemas.pa import (
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
 )
+from backend.app.schemas.outcome import ScannerOutcome, ScannerOutcomeSummary
 from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.etf_seed_service import ETFSeedService
 from backend.app.services.scanner_service import ETFScannerService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
+
+
+def _average(values) -> float | None:
+    numbers = [value for value in values if value is not None]
+    if not numbers:
+        return None
+    return round(sum(numbers) / len(numbers), 6)
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    if denominator == 0:
+        return None
+    return round(numerator / denominator, 6)
 
 
 class BusinessService:
@@ -132,12 +146,7 @@ class BusinessService:
         principal: AuthPrincipal,
         request: AccountETFOneilScannerRequest,
     ) -> ETFOneilScannerResponse:
-        session.execute(
-            delete(db.Candidate).where(
-                db.Candidate.account_id == principal.account_id,
-                db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
-            )
-        )
+        BusinessService._delete_account_oneil_candidates_and_outcomes(session, principal)
         response = ETFScannerService.run_us_etf_oneil_core_for_session(
             session,
             ETFOneilScannerRequest(
@@ -165,12 +174,7 @@ class BusinessService:
         principal: AuthPrincipal,
         request: AccountETFUniverseRefreshRequest,
     ) -> ETFUniverseSeedResponse:
-        session.execute(
-            delete(db.Candidate).where(
-                db.Candidate.account_id == principal.account_id,
-                db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
-            )
-        )
+        BusinessService._delete_account_oneil_candidates_and_outcomes(session, principal)
         response = ETFSeedService.seed_us_etf_universe_for_session(
             session=session,
             client=ETFSeedService._client(),
@@ -196,6 +200,106 @@ class BusinessService:
         )
         session.commit()
         return response
+
+    @staticmethod
+    def list_scanner_outcomes(
+        session: Session,
+        principal: AuthPrincipal,
+        evaluation_status: str | None = None,
+        symbol: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ScannerOutcome]:
+        statement = BusinessService._scanner_outcome_statement(
+            principal=principal,
+            evaluation_status=evaluation_status,
+            symbol=symbol,
+        )
+        rows = session.scalars(
+            statement.order_by(db.ScannerOutcome.detected_ts.desc(), db.ScannerOutcome.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        ).all()
+        return [ScannerOutcome.model_validate(row) for row in rows]
+
+    @staticmethod
+    def count_scanner_outcomes(
+        session: Session,
+        principal: AuthPrincipal,
+        evaluation_status: str | None = None,
+        symbol: str | None = None,
+    ) -> int:
+        statement = BusinessService._scanner_outcome_statement(
+            principal=principal,
+            evaluation_status=evaluation_status,
+            symbol=symbol,
+        )
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def scanner_outcome_summary(
+        session: Session,
+        principal: AuthPrincipal,
+        evaluation_status: str | None = None,
+        symbol: str | None = None,
+    ) -> ScannerOutcomeSummary:
+        statement = BusinessService._scanner_outcome_statement(
+            principal=principal,
+            evaluation_status=evaluation_status,
+            symbol=symbol,
+        )
+        rows = list(session.scalars(statement).all())
+        total = len(rows)
+        pending_count = sum(row.evaluation_status == "pending" for row in rows)
+        matured_count = sum(row.evaluation_status.startswith("matured") for row in rows)
+        triggered_count = sum(row.triggered_entry is True for row in rows)
+        stopped_count = sum(row.stopped_out is True for row in rows)
+        false_breakout_count = sum(row.false_breakout is True for row in rows)
+        positive_20d_count = sum((row.forward_return_20d or 0) > 0 for row in rows)
+        positive_60d_count = sum((row.forward_return_60d or 0) > 0 for row in rows)
+        return ScannerOutcomeSummary(
+            total=total,
+            pending_count=pending_count,
+            matured_count=matured_count,
+            triggered_count=triggered_count,
+            stopped_count=stopped_count,
+            false_breakout_count=false_breakout_count,
+            positive_20d_count=positive_20d_count,
+            positive_60d_count=positive_60d_count,
+            trigger_rate=_rate(triggered_count, total),
+            stop_rate=_rate(stopped_count, triggered_count),
+            false_breakout_rate=_rate(false_breakout_count, triggered_count),
+            positive_20d_rate=_rate(
+                positive_20d_count,
+                sum(row.forward_return_20d is not None for row in rows),
+            ),
+            positive_60d_rate=_rate(
+                positive_60d_count,
+                sum(row.forward_return_60d is not None for row in rows),
+            ),
+            avg_forward_return_20d=_average(row.forward_return_20d for row in rows),
+            avg_forward_return_60d=_average(row.forward_return_60d for row in rows),
+            avg_mfe_20d=_average(row.mfe_20d for row in rows),
+            avg_mfe_60d=_average(row.mfe_60d for row in rows),
+            avg_mae_20d=_average(row.mae_20d for row in rows),
+            avg_mae_60d=_average(row.mae_60d for row in rows),
+        )
+
+    @staticmethod
+    def get_candidate_outcome(
+        session: Session,
+        principal: AuthPrincipal,
+        candidate_id: str,
+    ) -> ScannerOutcome:
+        outcome = session.scalar(
+            select(db.ScannerOutcome).where(
+                db.ScannerOutcome.account_id == principal.account_id,
+                db.ScannerOutcome.candidate_id == candidate_id,
+            )
+        )
+        if outcome is None:
+            raise ValueError(f"Scanner outcome not found for candidate: {candidate_id}")
+        return ScannerOutcome.model_validate(outcome)
 
     @staticmethod
     def get_candidate_detail(
@@ -329,6 +433,39 @@ class BusinessService:
         if candidate is None:
             raise ValueError(f"Candidate not found: {candidate_id}")
         return candidate
+
+    @staticmethod
+    def _scanner_outcome_statement(
+        *,
+        principal: AuthPrincipal,
+        evaluation_status: str | None = None,
+        symbol: str | None = None,
+    ):
+        statement = select(db.ScannerOutcome).where(db.ScannerOutcome.account_id == principal.account_id)
+        if evaluation_status:
+            statement = statement.where(db.ScannerOutcome.evaluation_status == evaluation_status)
+        if symbol:
+            statement = statement.where(db.ScannerOutcome.symbol_id == symbol.strip().upper())
+        return statement
+
+    @staticmethod
+    def _delete_account_oneil_candidates_and_outcomes(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> None:
+        candidate_ids = select(db.Candidate.candidate_id).where(
+            db.Candidate.account_id == principal.account_id,
+            db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
+        )
+        session.execute(
+            delete(db.ScannerOutcome).where(db.ScannerOutcome.candidate_id.in_(candidate_ids))
+        )
+        session.execute(
+            delete(db.Candidate).where(
+                db.Candidate.account_id == principal.account_id,
+                db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
+            )
+        )
 
     @staticmethod
     def create_position(

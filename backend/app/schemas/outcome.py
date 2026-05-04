@@ -42,3 +42,25 @@ class ScannerOutcome(BaseModel):
     mae_60d: float | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class ScannerOutcomeSummary(BaseModel):
+    total: int
+    pending_count: int
+    matured_count: int
+    triggered_count: int
+    stopped_count: int
+    false_breakout_count: int
+    positive_20d_count: int
+    positive_60d_count: int
+    trigger_rate: float | None = None
+    stop_rate: float | None = None
+    false_breakout_rate: float | None = None
+    positive_20d_rate: float | None = None
+    positive_60d_rate: float | None = None
+    avg_forward_return_20d: float | None = None
+    avg_forward_return_60d: float | None = None
+    avg_mfe_20d: float | None = None
+    avg_mfe_60d: float | None = None
+    avg_mae_20d: float | None = None
+    avg_mae_60d: float | None = None

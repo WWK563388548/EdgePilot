@@ -168,6 +168,29 @@ def test_account_scanner_replaces_only_current_account_candidates(session, monke
             decision="candidate",
         ),
     )
+    session.add(
+        db.ScannerOutcome(
+            outcome_id="outcome_old_a",
+            account_id="acct_a",
+            candidate_id="cand_old_a",
+            symbol_id="SPY",
+            timeframe="1d",
+            detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+            evaluation_status="pending",
+        )
+    )
+    session.add(
+        db.ScannerOutcome(
+            outcome_id="outcome_old_b",
+            account_id="acct_b",
+            candidate_id="cand_old_b",
+            symbol_id="QQQ",
+            timeframe="1d",
+            detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+            evaluation_status="pending",
+        )
+    )
+    session.commit()
 
     def _fake_scan(db_session, request):
         assert request.account_id == "acct_a"
@@ -209,6 +232,101 @@ def test_account_scanner_replaces_only_current_account_candidates(session, monke
     assert [row.candidate_id for row in BusinessService.list_candidates(session, principal_b)] == [
         "cand_old_b"
     ]
+    assert session.get(db.ScannerOutcome, "outcome_old_a") is None
+    assert session.get(db.ScannerOutcome, "outcome_old_b") is not None
+
+
+def test_scanner_outcomes_are_account_scoped_and_summarized(session) -> None:
+    principal_a = _principal("user_a", "acct_a")
+    principal_b = _principal("user_b", "acct_b")
+    for principal, candidate_id, symbol in (
+        (principal_a, "cand_a1", "SPY"),
+        (principal_a, "cand_a2", "QQQ"),
+        (principal_b, "cand_b1", "IWM"),
+    ):
+        BusinessService.create_candidate(
+            session,
+            principal,
+            CandidateCreate(
+                candidate_id=candidate_id,
+                symbol_id=symbol,
+                scan_date=date(2026, 4, 26),
+                strategy_name="oneil_core_us_etf",
+                decision="candidate",
+            ),
+        )
+    session.add(
+        db.ScannerOutcome(
+            outcome_id="outcome_a1",
+            account_id="acct_a",
+            candidate_id="cand_a1",
+            symbol_id="SPY",
+            timeframe="1d",
+            detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+            evaluation_status="matured_60d",
+            triggered_entry=True,
+            stopped_out=False,
+            false_breakout=False,
+            forward_return_20d=0.12,
+            forward_return_60d=0.18,
+            mfe_20d=0.16,
+            mfe_60d=0.24,
+            mae_20d=-0.03,
+            mae_60d=-0.04,
+        )
+    )
+    session.add(
+        db.ScannerOutcome(
+            outcome_id="outcome_a2",
+            account_id="acct_a",
+            candidate_id="cand_a2",
+            symbol_id="QQQ",
+            timeframe="1d",
+            detected_ts=datetime(2026, 4, 27, tzinfo=UTC),
+            evaluation_status="pending",
+            triggered_entry=True,
+            stopped_out=True,
+            false_breakout=True,
+            forward_return_20d=-0.02,
+        )
+    )
+    session.add(
+        db.ScannerOutcome(
+            outcome_id="outcome_b1",
+            account_id="acct_b",
+            candidate_id="cand_b1",
+            symbol_id="IWM",
+            timeframe="1d",
+            detected_ts=datetime(2026, 4, 28, tzinfo=UTC),
+            evaluation_status="matured_60d",
+            triggered_entry=True,
+            stopped_out=False,
+            false_breakout=False,
+            forward_return_20d=0.2,
+        )
+    )
+    session.commit()
+
+    outcomes = BusinessService.list_scanner_outcomes(session, principal_a)
+    summary = BusinessService.scanner_outcome_summary(session, principal_a)
+
+    assert [row.outcome_id for row in outcomes] == ["outcome_a2", "outcome_a1"]
+    assert BusinessService.count_scanner_outcomes(session, principal_a) == 2
+    assert BusinessService.count_scanner_outcomes(session, principal_a, symbol="spy") == 1
+    assert BusinessService.get_candidate_outcome(session, principal_a, "cand_a1").outcome_id == "outcome_a1"
+    assert summary.total == 2
+    assert summary.pending_count == 1
+    assert summary.matured_count == 1
+    assert summary.triggered_count == 2
+    assert summary.false_breakout_count == 1
+    assert summary.positive_20d_count == 1
+    assert summary.trigger_rate == 1
+    assert summary.false_breakout_rate == 0.5
+    assert summary.positive_20d_rate == 0.5
+    assert summary.avg_forward_return_20d == 0.05
+
+    with pytest.raises(ValueError):
+        BusinessService.get_candidate_outcome(session, principal_a, "cand_b1")
 
 
 def test_account_refresh_replaces_current_account_candidates(session, monkeypatch) -> None:

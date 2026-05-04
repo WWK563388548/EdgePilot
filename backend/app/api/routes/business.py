@@ -19,6 +19,7 @@ from backend.app.schemas.business import (
     PositionUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
+from backend.app.schemas.outcome import ScannerOutcome, ScannerOutcomeSummary
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
@@ -110,6 +111,73 @@ def refresh_account_us_etf_oneil_core_scanner(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/candidates/outcomes", response_model=list[ScannerOutcome])
+def list_scanner_outcomes(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    evaluation_status: str | None = None,
+    symbol: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[ScannerOutcome]:
+    return BusinessService.list_scanner_outcomes(
+        session=session,
+        principal=principal,
+        evaluation_status=evaluation_status,
+        symbol=symbol,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/candidates/outcomes/count", response_model=CountResponse)
+def count_scanner_outcomes(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    evaluation_status: str | None = None,
+    symbol: str | None = None,
+) -> CountResponse:
+    return CountResponse(
+        total=BusinessService.count_scanner_outcomes(
+            session=session,
+            principal=principal,
+            evaluation_status=evaluation_status,
+            symbol=symbol,
+        )
+    )
+
+
+@router.get("/candidates/outcomes/summary", response_model=ScannerOutcomeSummary)
+def get_scanner_outcome_summary(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    evaluation_status: str | None = None,
+    symbol: str | None = None,
+) -> ScannerOutcomeSummary:
+    return BusinessService.scanner_outcome_summary(
+        session=session,
+        principal=principal,
+        evaluation_status=evaluation_status,
+        symbol=symbol,
+    )
+
+
+@router.get("/candidates/{candidate_id}/outcome", response_model=ScannerOutcome)
+def get_candidate_outcome(
+    candidate_id: str,
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> ScannerOutcome:
+    try:
+        return BusinessService.get_candidate_outcome(
+            session=session,
+            principal=principal,
+            candidate_id=candidate_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateDetail)

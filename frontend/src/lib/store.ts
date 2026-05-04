@@ -4,6 +4,7 @@ export type WorkspaceView =
   | "overview"
   | "candidates"
   | "pa_lab"
+  | "outcomes"
   | "positions"
   | "alerts"
   | "journal"

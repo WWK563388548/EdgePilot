@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
+  Activity,
   AlertTriangle,
   BarChart3,
   BookOpen,
@@ -16,6 +17,7 @@ import { AuthScreen } from "@/components/workspace/auth-screen";
 import { CandidatesView, type CandidateDecisionFilter } from "@/components/workspace/candidates-view";
 import { DataState } from "@/components/workspace/atoms/data-state";
 import { OverviewView } from "@/components/workspace/overview-view";
+import { OutcomesView } from "@/components/workspace/outcomes-view";
 import { PALabView } from "@/components/workspace/pa-lab-view";
 import { AlertsTable, JournalTable, PositionsTable } from "@/components/workspace/organisms/account-tables";
 import { SettingsPanel } from "@/components/workspace/secondary-views";
@@ -30,6 +32,7 @@ const views: WorkspaceNavItem[] = [
   { id: "overview", labelKey: "overview", icon: BarChart3 },
   { id: "candidates", labelKey: "candidates", icon: ListChecks },
   { id: "pa_lab", labelKey: "paLab", icon: ShieldCheck },
+  { id: "outcomes", labelKey: "outcomes", icon: Activity },
   { id: "positions", labelKey: "positions", icon: BriefcaseBusiness },
   { id: "alerts", labelKey: "alerts", icon: AlertTriangle },
   { id: "journal", labelKey: "journal", icon: BookOpen },
@@ -198,6 +201,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
           />
         )}
         {view === "pa_lab" && <PALabView locale={locale} />}
+        {view === "outcomes" && <OutcomesView locale={locale} />}
         {view === "positions" && (
           <PositionsTable
             data={positionRows}

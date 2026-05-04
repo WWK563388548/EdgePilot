@@ -12,7 +12,10 @@ from backend.app.api.routes.business import (
     create_journal_trade,
     create_position,
     get_dashboard_summary,
+    get_candidate_outcome,
+    get_scanner_outcome_summary,
     get_candidate_detail,
+    list_scanner_outcomes,
     list_candidates,
     list_exit_alerts,
     list_journal_trades,
@@ -22,6 +25,7 @@ from backend.app.api.routes.business import (
     update_candidate,
     update_exit_alert,
     update_position,
+    count_scanner_outcomes,
 )
 from backend.app.api.dependencies import require_verified_user
 from backend.app.core.auth import AuthPrincipal
@@ -45,6 +49,7 @@ from backend.app.schemas.business import (
     PositionUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
+from backend.app.schemas.outcome import ScannerOutcome, ScannerOutcomeSummary
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 
 
@@ -99,6 +104,24 @@ def _trade() -> JournalTrade:
         entry_ts=datetime(2026, 4, 20, tzinfo=UTC),
         exit_ts=datetime(2026, 4, 26, tzinfo=UTC),
         net_pnl=120.0,
+    )
+
+
+def _scanner_outcome() -> ScannerOutcome:
+    return ScannerOutcome(
+        outcome_id="outcome_1",
+        account_id="acct_local",
+        candidate_id="cand_1",
+        symbol_id="SPY",
+        timeframe="1d",
+        detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+        evaluation_status="matured_60d",
+        bars_available=60,
+        triggered_entry=True,
+        stopped_out=False,
+        false_breakout=False,
+        forward_return_20d=0.12,
+        forward_return_60d=0.18,
     )
 
 
@@ -171,6 +194,83 @@ def test_candidate_routes(monkeypatch) -> None:
             principal=_principal(),
         ).decision
         == "watch"
+    )
+
+
+def test_scanner_outcome_routes(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "list_scanner_outcomes",
+        lambda session, principal, evaluation_status, symbol, limit, offset: [_scanner_outcome()],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_scanner_outcomes",
+        lambda session, principal, evaluation_status, symbol: 1,
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "scanner_outcome_summary",
+        lambda session, principal, evaluation_status, symbol: ScannerOutcomeSummary(
+            total=1,
+            pending_count=0,
+            matured_count=1,
+            triggered_count=1,
+            stopped_count=0,
+            false_breakout_count=0,
+            positive_20d_count=1,
+            positive_60d_count=1,
+            trigger_rate=1,
+            positive_20d_rate=1,
+            positive_60d_rate=1,
+            avg_forward_return_20d=0.12,
+            avg_forward_return_60d=0.18,
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_candidate_outcome",
+        lambda session, principal, candidate_id: _scanner_outcome(),
+    )
+
+    assert (
+        list_scanner_outcomes(
+            session=None,
+            principal=_principal(),
+            evaluation_status="matured_60d",
+            symbol="SPY",
+            limit=10,
+            offset=20,
+        )[0].outcome_id
+        == "outcome_1"
+    )
+    assert (
+        count_scanner_outcomes(
+            session=None,
+            principal=_principal(),
+            evaluation_status="matured_60d",
+            symbol="SPY",
+        ).total
+        == 1
+    )
+    assert (
+        get_scanner_outcome_summary(
+            session=None,
+            principal=_principal(),
+            evaluation_status="matured_60d",
+            symbol="SPY",
+        ).avg_forward_return_20d
+        == 0.12
+    )
+    assert (
+        get_candidate_outcome(
+            "cand_1",
+            session=None,
+            principal=_principal(),
+        ).outcome_id
+        == "outcome_1"
     )
 
 

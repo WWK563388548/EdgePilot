@@ -73,7 +73,10 @@ export function CandidatesView({
         queryClient.invalidateQueries({ queryKey: ["candidates-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["pa-setups"] }),
-        queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] })
+        queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-summary"] })
       ]);
     }
   });
@@ -89,7 +92,10 @@ export function CandidatesView({
         queryClient.invalidateQueries({ queryKey: ["candidates-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["pa-setups"] }),
-        queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] })
+        queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-summary"] })
       ]);
     }
   });
