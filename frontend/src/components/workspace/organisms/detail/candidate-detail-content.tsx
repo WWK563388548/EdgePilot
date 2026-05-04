@@ -36,7 +36,7 @@ export function CandidateDetailContent({
   const entryPlan = detail?.entry_plan ?? setup?.entry_plan;
   const exitPlan = detail?.exit_plan ?? setup?.exit_plan;
   const scoreBreakdown = detail?.score_breakdown ?? nestedRecord(entryPlan, "score_breakdown");
-  const scannerDecision = detail?.scanner_decision ?? nestedRecord(entryPlan, "scanner_decision");
+  const scannerDecision = detail?.scanner_decision;
   const explain = useQuery({
     queryKey: ["pa-setup-explain", setup?.setup_id],
     queryFn: () => api.paSetupExplain(setup?.setup_id as string),

@@ -360,6 +360,8 @@ def test_candidate_detail_includes_linked_pa_setup(session) -> None:
                 "score_breakdown": {"trend": 25, "total": 82},
                 "scanner_decision": {
                     "decision": "candidate",
+                    "score": 82,
+                    "total_score": 82,
                     "passed_rules": [{"key": "trend_aligned"}],
                     "upgrade_conditions": ["break_above_trigger"],
                 },
@@ -390,4 +392,5 @@ def test_candidate_detail_includes_linked_pa_setup(session) -> None:
     assert detail.pa_setup.setup_grade == "A"
     assert detail.score_breakdown == {"trend": 25, "total": 82}
     assert detail.scanner_decision is not None
-    assert detail.scanner_decision["decision"] == "candidate"
+    assert detail.scanner_decision.decision == "candidate"
+    assert detail.scanner_decision.score == detail.scanner_decision.total_score == 82

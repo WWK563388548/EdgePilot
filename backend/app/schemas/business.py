@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.schemas.scanner import ScannerDecision
+
 CandidateDecision = Literal["candidate", "watch", "avoid"]
 PositionStatus = Literal["open", "reduce", "exit_pending", "closed"]
 
@@ -75,7 +77,7 @@ class CandidateDetail(BaseModel):
     candidate: Candidate
     pa_setup: CandidatePASetup | None = None
     score_breakdown: dict[str, Any] | None = None
-    scanner_decision: dict[str, Any] | None = None
+    scanner_decision: ScannerDecision | None = None
     entry_plan: dict[str, Any] | None = None
     exit_plan: dict[str, Any] | None = None
     invalidation: dict[str, Any] | None = None

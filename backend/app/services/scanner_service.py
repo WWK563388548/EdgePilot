@@ -15,6 +15,7 @@ from backend.app.schemas.pa import (
     ETFOneilScannerResponse,
     PAFactsCalculationResponse,
 )
+from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.pa_service import PAService
 from backend.app.services.universes import default_symbols_when_omitted
 
@@ -507,22 +508,21 @@ def _scanner_decision(
     if market_score < 8:
         risk_notes.append("market_context_caution")
 
-    return {
-        "version": "oneil_core_us_etf_v2",
-        "strategy": "oneil_core_us_etf",
-        "decision": decision,
-        "setup_type": setup_type,
-        "setup_grade": setup_grade,
-        "total_score": total_score,
-        "validation_status": "shadow_only",
-        "trigger_price": trigger_price,
-        "initial_stop": initial_stop,
-        "passed_rules": passed_rules,
-        "failed_rules": failed_rules,
-        "watch_reasons": watch_reasons,
-        "upgrade_conditions": upgrade_conditions,
-        "risk_notes": risk_notes,
-    }
+    return ScannerDecision(
+        decision=decision,
+        failed_rules=failed_rules,
+        initial_stop=initial_stop,
+        passed_rules=passed_rules,
+        risk_notes=risk_notes,
+        score=total_score,
+        setup_grade=setup_grade,
+        setup_type=setup_type,
+        total_score=total_score,
+        trigger_price=trigger_price,
+        upgrade_conditions=upgrade_conditions,
+        validation_status="shadow_only",
+        watch_reasons=watch_reasons,
+    ).model_dump(exclude_none=True)
 
 
 def _add_score_rule(
@@ -535,12 +535,14 @@ def _add_score_rule(
     passed_key: str,
     failed_key: str,
 ) -> None:
-    target = passed_rules if score >= threshold else failed_rules
+    passed = score >= threshold
+    target = passed_rules if passed else failed_rules
     target.append(
         {
-            "key": passed_key if score >= threshold else failed_key,
+            "key": passed_key if passed else failed_key,
             "score": round(score, 2),
             "max_score": max_score,
+            "passed": passed,
             "threshold": threshold,
         }
     )
@@ -631,7 +633,7 @@ def _upsert_candidate(
 def _candidate_ai_review_placeholder(scored: ScoredETFSetup, setup_id: str) -> str:
     return json.dumps(
         {
-            "source": "pa_scanner_v1",
+            "source": "pa_scanner_v2",
             "pa_setup_id": setup_id,
             "validation_status": "shadow_only",
             "score_breakdown": scored.entry_plan["score_breakdown"],

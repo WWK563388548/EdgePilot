@@ -1,6 +1,7 @@
 import json
 from uuid import uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -34,6 +35,7 @@ from backend.app.schemas.pa import (
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
 )
+from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.etf_seed_service import ETFSeedService
 from backend.app.services.scanner_service import ETFScannerService
 
@@ -288,10 +290,10 @@ class BusinessService:
     def _candidate_scanner_decision(
         candidate: db.Candidate,
         entry_plan: dict | None,
-    ) -> dict | None:
+    ) -> ScannerDecision | None:
         scanner_decision = entry_plan.get("scanner_decision") if entry_plan else None
         if isinstance(scanner_decision, dict):
-            return scanner_decision
+            return BusinessService._normalize_scanner_decision(scanner_decision)
         if not candidate.ai_review_json:
             return None
         try:
@@ -299,7 +301,18 @@ class BusinessService:
         except json.JSONDecodeError:
             return None
         scanner_decision = payload.get("scanner_decision")
-        return scanner_decision if isinstance(scanner_decision, dict) else None
+        return (
+            BusinessService._normalize_scanner_decision(scanner_decision)
+            if isinstance(scanner_decision, dict)
+            else None
+        )
+
+    @staticmethod
+    def _normalize_scanner_decision(payload: dict) -> ScannerDecision | None:
+        try:
+            return ScannerDecision.from_payload(payload)
+        except ValidationError:
+            return None
 
     @staticmethod
     def _get_candidate_model(

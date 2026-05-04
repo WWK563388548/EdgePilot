@@ -58,11 +58,19 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert candidate_count == 1
     assert setup is not None
     assert setup.entry_plan is not None
-    assert setup.entry_plan["scanner_decision"]["decision"] == "candidate"
-    assert setup.entry_plan["scanner_decision"]["passed_rules"]
+    scanner_decision = setup.entry_plan["scanner_decision"]
+    assert scanner_decision["version"] == "oneil_core_us_etf_v2"
+    assert scanner_decision["decision"] == "candidate"
+    assert scanner_decision["score"] == scanner_decision["total_score"]
+    assert scanner_decision["trigger_price"]
+    assert scanner_decision["initial_stop"]
+    assert scanner_decision["passed_rules"]
+    assert all(rule["passed"] for rule in scanner_decision["passed_rules"])
     assert candidate is not None
     assert candidate.ai_review_json is not None
-    assert json.loads(candidate.ai_review_json)["scanner_decision"]["upgrade_conditions"]
+    candidate_decision = json.loads(candidate.ai_review_json)["scanner_decision"]
+    assert candidate_decision["score"] == scanner_decision["score"]
+    assert candidate_decision["upgrade_conditions"]
 
 
 def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> None:

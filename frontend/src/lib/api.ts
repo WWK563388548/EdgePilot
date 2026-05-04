@@ -55,6 +55,32 @@ export type Candidate = {
   validation_status: string | null;
 };
 
+export type ScannerDecisionRule = {
+  key: string;
+  score?: number | null;
+  max_score?: number | null;
+  threshold?: number | null;
+  passed?: boolean | null;
+};
+
+export type ScannerDecision = {
+  version: string;
+  strategy: string;
+  decision: string;
+  score?: number | null;
+  total_score?: number | null;
+  setup_type?: string | null;
+  setup_grade?: string | null;
+  validation_status?: string | null;
+  trigger_price?: number | null;
+  initial_stop?: number | null;
+  passed_rules: ScannerDecisionRule[];
+  failed_rules: ScannerDecisionRule[];
+  watch_reasons: string[];
+  upgrade_conditions: string[];
+  risk_notes: string[];
+};
+
 export type PASetup = {
   setup_id: string;
   symbol_id: string;
@@ -192,7 +218,7 @@ export type CandidateDetail = {
   candidate: Candidate;
   pa_setup: PASetup | null;
   score_breakdown: Record<string, unknown> | null;
-  scanner_decision: Record<string, unknown> | null;
+  scanner_decision: ScannerDecision | null;
   entry_plan: Record<string, unknown> | null;
   exit_plan: Record<string, unknown> | null;
   invalidation: Record<string, unknown> | null;
