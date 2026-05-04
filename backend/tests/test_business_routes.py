@@ -11,6 +11,7 @@ from backend.app.api.routes.business import (
     create_candidate,
     create_candidate_plan,
     create_exit_alert,
+    close_position,
     evaluate_exit_alerts,
     create_journal_trade,
     create_position,
@@ -24,12 +25,14 @@ from backend.app.api.routes.business import (
     list_exit_alerts,
     list_journal_trades,
     list_positions,
+    reduce_position,
     refresh_account_us_etf_oneil_core_scanner,
     recalculate_scanner_outcomes,
     run_account_us_etf_oneil_core_scanner,
     update_candidate,
     update_exit_alert,
     update_position,
+    update_position_stop,
     count_scanner_outcomes,
 )
 from backend.app.api.dependencies import require_verified_user
@@ -54,7 +57,11 @@ from backend.app.schemas.business import (
     MarketContextSummary,
     Position,
     PositionActivate,
+    PositionClose,
+    PositionCloseResponse,
     PositionCreate,
+    PositionReduce,
+    PositionStopUpdate,
     PositionUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
@@ -454,6 +461,28 @@ def test_position_routes(monkeypatch) -> None:
             update={"position_id": position_id, "status": "open", "entry_price": request.entry_price}
         ),
     )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "update_position_stop",
+        lambda session, principal, position_id, request: _position().model_copy(
+            update={"position_id": position_id, "current_stop": request.new_stop}
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "reduce_position",
+        lambda session, principal, position_id, request: _position().model_copy(
+            update={"position_id": position_id, "status": "reduce", "current_stop": request.current_stop}
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "close_position",
+        lambda session, principal, position_id, request: PositionCloseResponse(
+            position=_position().model_copy(update={"position_id": position_id, "status": "closed"}),
+            journal_trade=_trade().model_copy(update={"position_id": position_id}),
+        ),
+    )
 
     assert (
         create_position(
@@ -505,6 +534,32 @@ def test_position_routes(monkeypatch) -> None:
     )
     assert activated.status == "open"
     assert activated.entry_price == 421
+    assert (
+        update_position_stop(
+            "pos_1",
+            PositionStopUpdate(new_stop=430),
+            session=None,
+            principal=_principal(),
+        ).current_stop
+        == 430
+    )
+    assert (
+        reduce_position(
+            "pos_1",
+            PositionReduce(exit_price=450, quantity=1, current_stop=430),
+            session=None,
+            principal=_principal(),
+        ).status
+        == "reduce"
+    )
+    closed = close_position(
+        "pos_1",
+        PositionClose(exit_price=460, exit_reason="manual_review"),
+        session=None,
+        principal=_principal(),
+    )
+    assert closed.position.status == "closed"
+    assert closed.journal_trade.position_id == "pos_1"
 
 
 def test_exit_alert_routes(monkeypatch) -> None:

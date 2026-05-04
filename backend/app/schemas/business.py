@@ -124,6 +124,26 @@ class PositionActivate(BaseModel):
     entry_date: datetime | None = None
 
 
+class PositionStopUpdate(BaseModel):
+    new_stop: float = Field(..., gt=0)
+
+
+class PositionReduce(BaseModel):
+    exit_price: float = Field(..., gt=0)
+    quantity: float | None = Field(default=None, gt=0)
+    current_stop: float | None = Field(default=None, gt=0)
+    exit_date: datetime | None = None
+    notes: str | None = None
+
+
+class PositionClose(BaseModel):
+    exit_price: float = Field(..., gt=0)
+    quantity: float | None = Field(default=None, gt=0)
+    exit_date: datetime | None = None
+    exit_reason: str | None = None
+    notes: str | None = None
+
+
 class Position(PositionBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -202,6 +222,11 @@ class JournalTrade(JournalTradeBase):
     model_config = ConfigDict(from_attributes=True)
 
     trade_id: str
+
+
+class PositionCloseResponse(BaseModel):
+    position: Position
+    journal_trade: JournalTrade
 
 
 class DataFreshnessSummary(BaseModel):

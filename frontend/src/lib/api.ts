@@ -324,6 +324,26 @@ export type PositionActivate = {
   entry_date?: string;
 };
 
+export type PositionStopUpdate = {
+  new_stop: number;
+};
+
+export type PositionReduce = {
+  exit_price: number;
+  quantity?: number;
+  current_stop?: number;
+  exit_date?: string;
+  notes?: string;
+};
+
+export type PositionClose = {
+  exit_price: number;
+  quantity?: number;
+  exit_date?: string;
+  exit_reason?: string;
+  notes?: string;
+};
+
 export type Position = {
   position_id: string;
   symbol_id: string;
@@ -370,13 +390,23 @@ export type ExitAlertEvaluationResponse = {
 
 export type JournalTrade = {
   trade_id: string;
+  position_id: string | null;
   symbol_id: string | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  quantity: number | null;
+  gross_pnl: number | null;
   entry_ts: string | null;
   exit_ts: string | null;
   net_pnl: number | null;
   r_multiple: number | null;
   exit_reason: string | null;
   notes: string | null;
+};
+
+export type PositionCloseResponse = {
+  position: Position;
+  journal_trade: JournalTrade;
 };
 
 export type AuthMe = {
@@ -577,6 +607,15 @@ export const api = {
   positionsCount: () => getJson<CountResponse>("/api/positions/count"),
   activatePosition: (positionId: string, request: PositionActivate) =>
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/activate`, request),
+  updatePositionStop: (positionId: string, request: PositionStopUpdate) =>
+    postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/stop`, request),
+  reducePosition: (positionId: string, request: PositionReduce) =>
+    postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/reduce`, request),
+  closePosition: (positionId: string, request: PositionClose) =>
+    postJson<PositionCloseResponse>(
+      `/api/positions/${encodeURIComponent(positionId)}/close`,
+      request
+    ),
   alerts: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<ExitAlert[]>(
       `/api/exit-alerts${queryString({

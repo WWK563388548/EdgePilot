@@ -14,7 +14,10 @@ from backend.app.schemas.business import (
     CandidateUpdate,
     ExitAlertEvaluationRequest,
     PositionActivate,
+    PositionClose,
     PositionCreate,
+    PositionReduce,
+    PositionStopUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
 from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest
@@ -736,6 +739,135 @@ def test_activate_position_requires_planned_status(session) -> None:
             principal,
             "pos_spy_open",
             PositionActivate(entry_price=101),
+        )
+
+
+def test_update_position_stop_allows_active_positions(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_stop",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    updated = BusinessService.update_position_stop(
+        session,
+        principal,
+        "pos_spy_stop",
+        PositionStopUpdate(new_stop=96),
+    )
+
+    assert updated.current_stop == 96
+    assert updated.initial_stop == 90
+
+
+def test_reduce_position_marks_trim_and_updates_realized_pnl(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_reduce",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=10,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    reduced = BusinessService.reduce_position(
+        session,
+        principal,
+        "pos_spy_reduce",
+        PositionReduce(exit_price=120, quantity=4, current_stop=100),
+    )
+
+    assert reduced.status == "reduce"
+    assert reduced.quantity == 6
+    assert reduced.current_stop == 100
+    assert reduced.realized_pnl == 80
+    assert reduced.current_r == 2
+    assert BusinessService.dashboard_summary(session, principal).open_position_count == 1
+
+
+def test_close_position_creates_journal_trade(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_close",
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            status="open",
+            entry_date=datetime(2026, 4, 27, tzinfo=UTC),
+            entry_price=100,
+            quantity=3,
+            initial_stop=90,
+            current_stop=95,
+        ),
+    )
+
+    response = BusinessService.close_position(
+        session,
+        principal,
+        "pos_spy_close",
+        PositionClose(
+            exit_price=115,
+            exit_date=datetime(2026, 5, 1, tzinfo=UTC),
+            exit_reason="manual_review",
+            notes="Follow-through faded.",
+        ),
+    )
+
+    assert response.position.status == "closed"
+    assert response.position.quantity == 0
+    assert response.position.realized_pnl == 45
+    assert response.position.current_r == 1.5
+    assert response.journal_trade.trade_id == "trade_pos_spy_close"
+    assert response.journal_trade.position_id == "pos_spy_close"
+    assert response.journal_trade.symbol_id == "SPY"
+    assert response.journal_trade.net_pnl == 45
+    assert response.journal_trade.r_multiple == 1.5
+    assert response.journal_trade.exit_reason == "manual_review"
+    assert BusinessService.count_journal_trades(session, principal) == 1
+    assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
+
+
+def test_close_position_requires_active_position(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_planned_close",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="planned",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="must be activated"):
+        BusinessService.close_position(
+            session,
+            principal,
+            "pos_spy_planned_close",
+            PositionClose(exit_price=101),
         )
 
 
