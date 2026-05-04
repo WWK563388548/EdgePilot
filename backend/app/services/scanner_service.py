@@ -17,6 +17,7 @@ from backend.app.schemas.pa import (
 )
 from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.pa_service import PAService
+from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.universes import default_symbols_when_omitted
 
 
@@ -116,6 +117,7 @@ class ETFScannerService:
                 scored=scored,
                 setup_id=setup.setup_id,
             )
+            ScannerOutcomeService.calculate_for_candidate(session=session, candidate=candidate)
             candidate_schema = Candidate.model_validate(candidate)
             candidate_schema.pa_setup_grade = setup.setup_grade
             candidate_schema.validation_status = setup.validation_status

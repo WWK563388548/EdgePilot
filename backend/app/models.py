@@ -262,6 +262,57 @@ class PASetup(Base):
     )
 
 
+class ScannerOutcome(Base):
+    __tablename__ = "scanner_outcomes"
+    __table_args__ = (
+        Index("idx_scanner_outcomes_candidate", "candidate_id"),
+        Index("idx_scanner_outcomes_setup", "pa_setup_id"),
+        Index("idx_scanner_outcomes_account_status", "account_id", "evaluation_status"),
+        Index("idx_scanner_outcomes_symbol_detected", "symbol_id", "timeframe", "detected_ts"),
+    )
+
+    outcome_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.candidate_id"), unique=True)
+    pa_setup_id: Mapped[str | None] = mapped_column(ForeignKey("pa_setups.setup_id"))
+    symbol_id: Mapped[str] = mapped_column(Text)
+    timeframe: Mapped[str] = mapped_column(Text)
+    detected_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    setup_type: Mapped[str | None] = mapped_column(Text)
+    setup_grade: Mapped[str | None] = mapped_column(Text)
+    score_total: Mapped[float | None] = mapped_column(Float)
+    reference_close: Mapped[float | None] = mapped_column(Float)
+    entry_trigger: Mapped[float | None] = mapped_column(Float)
+    initial_stop: Mapped[float | None] = mapped_column(Float)
+    bars_available: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    evaluation_status: Mapped[str] = mapped_column(Text)
+    latest_evaluated_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    triggered_entry: Mapped[bool | None] = mapped_column(Boolean)
+    trigger_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stopped_out: Mapped[bool | None] = mapped_column(Boolean)
+    stop_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stop_hit_before_trigger: Mapped[bool | None] = mapped_column(Boolean)
+    false_breakout: Mapped[bool | None] = mapped_column(Boolean)
+    forward_return_5d: Mapped[float | None] = mapped_column(Float)
+    forward_return_10d: Mapped[float | None] = mapped_column(Float)
+    forward_return_20d: Mapped[float | None] = mapped_column(Float)
+    forward_return_60d: Mapped[float | None] = mapped_column(Float)
+    mfe_5d: Mapped[float | None] = mapped_column(Float)
+    mfe_10d: Mapped[float | None] = mapped_column(Float)
+    mfe_20d: Mapped[float | None] = mapped_column(Float)
+    mfe_60d: Mapped[float | None] = mapped_column(Float)
+    mae_5d: Mapped[float | None] = mapped_column(Float)
+    mae_10d: Mapped[float | None] = mapped_column(Float)
+    mae_20d: Mapped[float | None] = mapped_column(Float)
+    mae_60d: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class PACalibrationStat(Base):
     __tablename__ = "pa_calibration_stats"
     __table_args__ = (

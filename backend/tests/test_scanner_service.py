@@ -47,6 +47,7 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
 
     setup = session.scalar(select(db.PASetup).where(db.PASetup.symbol_id == "SPY"))
     candidate = session.scalar(select(db.Candidate).where(db.Candidate.account_id == "acct_local"))
+    outcome = session.scalar(select(db.ScannerOutcome).where(db.ScannerOutcome.account_id == "acct_local"))
     setup_count = session.scalar(
         select(func.count()).select_from(db.PASetup).where(db.PASetup.symbol_id == "SPY")
     )
@@ -79,6 +80,10 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     candidate_decision = json.loads(candidate.ai_review_json)["scanner_decision"]
     assert candidate_decision["score"] == scanner_decision["score"]
     assert candidate_decision["upgrade_conditions"]
+    assert outcome is not None
+    assert outcome.candidate_id == candidate.candidate_id
+    assert outcome.evaluation_status == "pending"
+    assert outcome.bars_available == 0
 
 
 def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> None:
