@@ -8,6 +8,7 @@ from backend.app.api.routes.business import (
     count_journal_trades,
     count_positions,
     create_candidate,
+    create_candidate_plan,
     create_exit_alert,
     create_journal_trade,
     create_position,
@@ -36,6 +37,7 @@ from backend.app.schemas.business import (
     CandidateCreate,
     CandidateDetail,
     CandidatePASetup,
+    CandidatePlanCreate,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -412,6 +414,13 @@ def test_position_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "create_candidate_plan",
+        lambda session, principal, candidate_id, request: _position().model_copy(
+            update={"position_id": f"plan_{candidate_id}", "status": "planned"}
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "list_positions",
         lambda session, principal, status, limit, offset: [_position()],
     )
@@ -433,6 +442,15 @@ def test_position_routes(monkeypatch) -> None:
             principal=_principal(),
         ).position_id
         == "pos_1"
+    )
+    assert (
+        create_candidate_plan(
+            "cand_1",
+            CandidatePlanCreate(),
+            session=None,
+            principal=_principal(),
+        ).position_id
+        == "plan_cand_1"
     )
     assert list_positions(
         session=None,

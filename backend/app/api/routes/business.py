@@ -6,6 +6,7 @@ from backend.app.schemas.business import (
     Candidate,
     CandidateCreate,
     CandidateDetail,
+    CandidatePlanCreate,
     CandidateUpdate,
     DashboardSummary,
     ExitAlert,
@@ -242,6 +243,29 @@ def create_position(
     principal: TraderPrincipal,
 ) -> Position:
     return BusinessService.create_position(session=session, principal=principal, request=request)
+
+
+@router.post(
+    "/candidates/{candidate_id}/plan",
+    response_model=Position,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_candidate_plan(
+    candidate_id: str,
+    request: CandidatePlanCreate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> Position:
+    try:
+        return BusinessService.create_candidate_plan(
+            session=session,
+            principal=principal,
+            candidate_id=candidate_id,
+            request=request,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc).startswith("Candidate not found") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.get("/positions", response_model=list[Position])

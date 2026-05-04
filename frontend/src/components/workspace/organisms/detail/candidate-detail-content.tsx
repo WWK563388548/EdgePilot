@@ -6,6 +6,7 @@ import { DataState } from "@/components/workspace/atoms/data-state";
 import { Field } from "@/components/workspace/atoms/field";
 import { PAEvidencePanel } from "@/components/workspace/pa-evidence-chart";
 import { DetailFieldPanel } from "@/components/workspace/organisms/detail/detail-field-panel";
+import { CandidateTradePlanCard } from "@/components/workspace/organisms/detail/candidate-trade-plan-card";
 import { ExplanationBlock } from "@/components/workspace/organisms/detail/explanation-block";
 import { KeyLevelsBlock } from "@/components/workspace/organisms/detail/key-levels-block";
 import { PlanFields } from "@/components/workspace/organisms/detail/plan-fields";
@@ -61,6 +62,13 @@ export function CandidateDetailContent({
           </DetailFieldPanel>
 
           <KeyLevelsBlock
+            candidate={candidate}
+            entryPlan={entryPlan}
+            exitPlan={exitPlan}
+            locale={locale}
+            setup={setup}
+          />
+          <CandidateTradePlanCard
             candidate={candidate}
             entryPlan={entryPlan}
             exitPlan={exitPlan}

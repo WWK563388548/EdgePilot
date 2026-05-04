@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.schemas.scanner import ScannerDecision
 
 CandidateDecision = Literal["candidate", "watch", "avoid"]
-PositionStatus = Literal["open", "reduce", "exit_pending", "closed"]
+PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed"]
 
 
 class CandidateBase(BaseModel):
@@ -100,6 +100,13 @@ class PositionBase(BaseModel):
 
 class PositionCreate(PositionBase):
     position_id: str | None = None
+
+
+class CandidatePlanCreate(BaseModel):
+    asset_type: str = Field(default="etf", min_length=1)
+    entry_price: float | None = Field(default=None, gt=0)
+    initial_stop: float | None = Field(default=None, gt=0)
+    quantity: float | None = Field(default=None, gt=0)
 
 
 class PositionUpdate(BaseModel):

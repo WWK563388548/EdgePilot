@@ -13,6 +13,7 @@ from backend.app.schemas.business import (
     CandidateCreate,
     CandidateDetail,
     CandidatePASetup,
+    CandidatePlanCreate,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -61,6 +62,13 @@ def _rate(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
     return round(numerator / denominator, 6)
+
+
+def _number_from_plan(data: dict | None, key: str) -> float | None:
+    value = data.get(key) if data else None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
 
 
 class BusinessService:
@@ -544,6 +552,68 @@ class BusinessService:
         )
         session.add(position)
         BusinessService._audit(session, principal, "position.create", "position", position.position_id)
+        session.commit()
+        session.refresh(position)
+        return Position.model_validate(position)
+
+    @staticmethod
+    def create_candidate_plan(
+        session: Session,
+        principal: AuthPrincipal,
+        candidate_id: str,
+        request: CandidatePlanCreate,
+    ) -> Position:
+        candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
+        setup = BusinessService._candidate_pa_setup(session, candidate)
+        entry_plan = setup.entry_plan if setup else None
+        exit_plan = setup.exit_plan if setup else None
+        entry_price = (
+            request.entry_price
+            or candidate.entry_trigger
+            or _number_from_plan(entry_plan, "trigger_price")
+        )
+        initial_stop = (
+            request.initial_stop
+            or candidate.initial_stop
+            or _number_from_plan(exit_plan, "initial_stop")
+        )
+        if entry_price is None or initial_stop is None:
+            raise ValueError("Candidate is missing entry trigger or initial stop")
+
+        position_id = f"plan_{candidate.candidate_id}"
+        existing = session.scalar(
+            select(db.Position).where(
+                db.Position.position_id == position_id,
+                db.Position.account_id == principal.account_id,
+            )
+        )
+        if existing is not None:
+            return Position.model_validate(existing)
+
+        position = db.Position(
+            position_id=position_id,
+            account_id=principal.account_id,
+            symbol_id=candidate.symbol_id,
+            asset_type=request.asset_type,
+            strategy_name=candidate.strategy_name,
+            entry_date=None,
+            entry_price=entry_price,
+            quantity=request.quantity,
+            initial_stop=initial_stop,
+            current_stop=initial_stop,
+            status="planned",
+            current_r=0,
+            realized_pnl=0,
+            unrealized_pnl=0,
+        )
+        session.add(position)
+        BusinessService._audit(
+            session,
+            principal,
+            "candidate.plan_create",
+            "position",
+            position.position_id,
+        )
         session.commit()
         session.refresh(position)
         return Position.model_validate(position)

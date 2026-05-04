@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
-from backend.app.schemas.business import CandidateCreate, CandidateUpdate
+from backend.app.schemas.business import CandidateCreate, CandidatePlanCreate, CandidateUpdate
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
 from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
@@ -595,3 +595,70 @@ def test_candidate_detail_includes_linked_pa_setup(session) -> None:
     assert detail.scanner_decision is not None
     assert detail.scanner_decision.decision == "candidate"
     assert detail.scanner_decision.score == detail.scanner_decision.total_score == 82
+
+
+def test_create_candidate_plan_from_candidate_is_planned_and_idempotent(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_spy_plan",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            setup_type="breakout",
+            decision="candidate",
+            entry_trigger=450.14,
+            initial_stop=410.5,
+        ),
+    )
+
+    position = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_spy_plan",
+        CandidatePlanCreate(quantity=3),
+    )
+    duplicate = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_spy_plan",
+        CandidatePlanCreate(quantity=10),
+    )
+
+    assert position.position_id == "plan_cand_spy_plan"
+    assert position.symbol_id == "SPY"
+    assert position.status == "planned"
+    assert position.entry_price == 450.14
+    assert position.initial_stop == 410.5
+    assert position.current_stop == 410.5
+    assert position.quantity == 3
+    assert duplicate.position_id == position.position_id
+    assert duplicate.quantity == 3
+    assert BusinessService.count_positions(session, principal) == 1
+    assert BusinessService.count_positions(session, principal, status="planned") == 1
+    assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
+
+
+def test_create_candidate_plan_requires_entry_and_stop(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_missing_plan",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="missing entry trigger or initial stop"):
+        BusinessService.create_candidate_plan(
+            session,
+            principal,
+            "cand_missing_plan",
+            CandidatePlanCreate(),
+        )

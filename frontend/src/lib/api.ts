@@ -309,17 +309,28 @@ export type ScannerOutcomeRecalculateResponse = {
   symbols_processed: string[];
 };
 
+export type CandidatePlanCreate = {
+  asset_type?: string;
+  entry_price?: number;
+  initial_stop?: number;
+  quantity?: number;
+};
+
 export type Position = {
   position_id: string;
   symbol_id: string;
   asset_type: string;
   strategy_name: string | null;
+  entry_date: string | null;
   entry_price: number | null;
   quantity: number | null;
+  initial_stop: number | null;
   current_stop: number | null;
   status: string | null;
   current_r: number | null;
+  realized_pnl: number | null;
   unrealized_pnl: number | null;
+  created_at: string | null;
   updated_at: string | null;
 };
 
@@ -445,6 +456,8 @@ export const api = {
     ),
   candidateDetail: (candidateId: string) =>
     getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
+  createCandidatePlan: (candidateId: string, request: CandidatePlanCreate = {}) =>
+    postJson<Position>(`/api/candidates/${encodeURIComponent(candidateId)}/plan`, request),
   scannerOutcomes: (filters: ScannerOutcomeFilters = {}) =>
     getJson<ScannerOutcome[]>(
       `/api/candidates/outcomes${queryString({
