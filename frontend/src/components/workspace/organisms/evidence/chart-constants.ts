@@ -1,0 +1,10 @@
+export const CHART_WIDTH = 980;
+export const CHART_HEIGHT = 468;
+export const PLOT_LEFT = 54;
+export const PLOT_RIGHT = CHART_WIDTH - 112;
+export const PRICE_TOP = 34;
+export const PRICE_BOTTOM = 326;
+export const VOLUME_TOP = 346;
+export const VOLUME_BOTTOM = 398;
+export const DATE_AXIS_Y = 424;
+export const WINDOW_OPTIONS = [30, 60, 90];

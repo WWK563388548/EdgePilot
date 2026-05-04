@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -40,7 +41,13 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert response.candidates[0].strategy_name == "oneil_core_us_etf"
     assert response.candidates[0].decision == "candidate"
     assert response.candidates[0].pa_setup_id is not None
+    assert response.decision_counts == {"candidate": 1}
+    assert response.latest_scan_date == response.candidates[0].scan_date
+    assert response.latest_bar_date == response.candidates[0].scan_date
 
+    setup = session.scalar(select(db.PASetup).where(db.PASetup.symbol_id == "SPY"))
+    candidate = session.scalar(select(db.Candidate).where(db.Candidate.account_id == "acct_local"))
+    outcome = session.scalar(select(db.ScannerOutcome).where(db.ScannerOutcome.account_id == "acct_local"))
     setup_count = session.scalar(
         select(func.count()).select_from(db.PASetup).where(db.PASetup.symbol_id == "SPY")
     )
@@ -50,6 +57,33 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
 
     assert setup_count == 1
     assert candidate_count == 1
+    assert setup is not None
+    assert setup.entry_plan is not None
+    scanner_decision = setup.entry_plan["scanner_decision"]
+    assert scanner_decision["version"] == "oneil_core_us_etf_v2"
+    assert scanner_decision["decision"] == "candidate"
+    assert scanner_decision["score"] == scanner_decision["total_score"]
+    assert scanner_decision["trigger_price"]
+    assert scanner_decision["initial_stop"]
+    assert scanner_decision["passed_rules"]
+    passed_keys = {rule["key"] for rule in scanner_decision["passed_rules"]}
+    failed_keys = {rule["key"] for rule in scanner_decision["failed_rules"]}
+    assert "rs_top_quartile" in passed_keys
+    assert "breakout_close_near_high" in passed_keys
+    assert "base_depth_healthy" in passed_keys
+    assert "breakout_volume_missing" in failed_keys
+    assert scanner_decision["metrics"]["rs_percentile_3m"] == 100
+    assert scanner_decision["metrics"]["rs_percentile_6m"] == 100
+    assert all(rule["passed"] for rule in scanner_decision["passed_rules"])
+    assert candidate is not None
+    assert candidate.ai_review_json is not None
+    candidate_decision = json.loads(candidate.ai_review_json)["scanner_decision"]
+    assert candidate_decision["score"] == scanner_decision["score"]
+    assert candidate_decision["upgrade_conditions"]
+    assert outcome is not None
+    assert outcome.candidate_id == candidate.candidate_id
+    assert outcome.evaluation_status == "pending"
+    assert outcome.bars_available == 0
 
 
 def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> None:
@@ -76,6 +110,9 @@ def test_us_etf_oneil_core_scanner_treats_explicit_empty_symbols_as_noop(session
     assert response.facts_written == 0
     assert response.setups_written == 0
     assert response.candidates_written == 0
+    assert response.decision_counts == {}
+    assert response.latest_scan_date is None
+    assert response.latest_bar_date is None
     assert response.skipped_symbols == []
 
     candidate_count = session.scalar(

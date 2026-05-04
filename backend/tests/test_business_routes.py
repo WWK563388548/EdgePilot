@@ -3,19 +3,34 @@ from datetime import UTC, date, datetime
 from fastapi.testclient import TestClient
 
 from backend.app.api.routes.business import (
+    activate_position,
+    count_candidates,
+    count_exit_alerts,
+    count_journal_trades,
+    count_positions,
     create_candidate,
+    create_candidate_plan,
     create_exit_alert,
+    evaluate_exit_alerts,
     create_journal_trade,
     create_position,
     get_dashboard_summary,
+    get_candidate_plan,
+    get_candidate_outcome,
+    get_scanner_outcome_summary,
     get_candidate_detail,
+    list_scanner_outcomes,
     list_candidates,
     list_exit_alerts,
     list_journal_trades,
     list_positions,
+    refresh_account_us_etf_oneil_core_scanner,
+    recalculate_scanner_outcomes,
+    run_account_us_etf_oneil_core_scanner,
     update_candidate,
     update_exit_alert,
     update_position,
+    count_scanner_outcomes,
 )
 from backend.app.api.dependencies import require_verified_user
 from backend.app.core.auth import AuthPrincipal
@@ -25,19 +40,31 @@ from backend.app.schemas.business import (
     CandidateCreate,
     CandidateDetail,
     CandidatePASetup,
+    CandidatePlanCreate,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
     ExitAlert,
     ExitAlertCreate,
+    ExitAlertEvaluationRequest,
+    ExitAlertEvaluationResponse,
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
     MarketContextSummary,
     Position,
+    PositionActivate,
     PositionCreate,
     PositionUpdate,
 )
+from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
+from backend.app.schemas.outcome import (
+    ScannerOutcome,
+    ScannerOutcomeRecalculateRequest,
+    ScannerOutcomeRecalculateResponse,
+    ScannerOutcomeSummary,
+)
+from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 
 
 def _candidate() -> Candidate:
@@ -94,6 +121,24 @@ def _trade() -> JournalTrade:
     )
 
 
+def _scanner_outcome() -> ScannerOutcome:
+    return ScannerOutcome(
+        outcome_id="outcome_1",
+        account_id="acct_local",
+        candidate_id="cand_1",
+        symbol_id="SPY",
+        timeframe="1d",
+        detected_ts=datetime(2026, 4, 26, tzinfo=UTC),
+        evaluation_status="matured_60d",
+        bars_available=60,
+        triggered_entry=True,
+        stopped_out=False,
+        false_breakout=False,
+        forward_return_20d=0.12,
+        forward_return_60d=0.18,
+    )
+
+
 def test_candidate_routes(monkeypatch) -> None:
     from backend.app.api.routes import business as business_route
 
@@ -105,7 +150,12 @@ def test_candidate_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_candidates",
-        lambda session, principal, decision, limit: [_candidate()],
+        lambda session, principal, decision, limit, offset: [_candidate()],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_candidates",
+        lambda session, principal, decision: 1,
     )
     monkeypatch.setattr(
         business_route.BusinessService,
@@ -138,7 +188,14 @@ def test_candidate_routes(monkeypatch) -> None:
         session=None,
         principal=_principal(),
     ).candidate_id == "cand_1"
-    assert list_candidates(session=None, principal=_principal(), decision="candidate", limit=10)[0].symbol_id == "SPY"
+    assert list_candidates(
+        session=None,
+        principal=_principal(),
+        decision="candidate",
+        limit=10,
+        offset=20,
+    )[0].symbol_id == "SPY"
+    assert count_candidates(session=None, principal=_principal(), decision="candidate").total == 1
     assert (
         get_candidate_detail("cand_1", session=None, principal=_principal()).pa_setup.setup_id
         == "pasetup_1"
@@ -152,6 +209,175 @@ def test_candidate_routes(monkeypatch) -> None:
         ).decision
         == "watch"
     )
+
+
+def test_scanner_outcome_routes(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "list_scanner_outcomes",
+        lambda session, principal, evaluation_status, symbol, limit, offset: [_scanner_outcome()],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_scanner_outcomes",
+        lambda session, principal, evaluation_status, symbol: 1,
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "scanner_outcome_summary",
+        lambda session, principal, evaluation_status, symbol: ScannerOutcomeSummary(
+            total=1,
+            pending_count=0,
+            matured_count=1,
+            triggered_count=1,
+            stopped_count=0,
+            false_breakout_count=0,
+            positive_20d_count=1,
+            positive_60d_count=1,
+            trigger_rate=1,
+            positive_20d_rate=1,
+            positive_60d_rate=1,
+            avg_forward_return_20d=0.12,
+            avg_forward_return_60d=0.18,
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_candidate_outcome",
+        lambda session, principal, candidate_id: _scanner_outcome(),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "recalculate_scanner_outcomes",
+        lambda session, principal, request: ScannerOutcomeRecalculateResponse(
+            account_id=principal.account_id,
+            candidates_scanned=1,
+            outcomes_written=1,
+            status_counts={"matured_20d": 1},
+            symbols_processed=["SPY"],
+        ),
+    )
+
+    assert (
+        list_scanner_outcomes(
+            session=None,
+            principal=_principal(),
+            evaluation_status="matured_60d",
+            symbol="SPY",
+            limit=10,
+            offset=20,
+        )[0].outcome_id
+        == "outcome_1"
+    )
+    assert (
+        count_scanner_outcomes(
+            session=None,
+            principal=_principal(),
+            evaluation_status="matured_60d",
+            symbol="SPY",
+        ).total
+        == 1
+    )
+    assert (
+        get_scanner_outcome_summary(
+            session=None,
+            principal=_principal(),
+            evaluation_status="matured_60d",
+            symbol="SPY",
+        ).avg_forward_return_20d
+        == 0.12
+    )
+    assert (
+        get_candidate_outcome(
+            "cand_1",
+            session=None,
+            principal=_principal(),
+        ).outcome_id
+        == "outcome_1"
+    )
+    assert (
+        recalculate_scanner_outcomes(
+            session=None,
+            principal=_principal(),
+            request=ScannerOutcomeRecalculateRequest(symbol="spy"),
+        ).status_counts
+        == {"matured_20d": 1}
+    )
+
+
+def test_account_scanner_route_uses_principal_account(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    captured = {}
+
+    def _fake_scan(session, principal, request):
+        captured["account_id"] = principal.account_id
+        captured["symbols"] = request.symbols
+        return ETFOneilScannerResponse(
+            account_id=principal.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=request.symbols or ["SPY"],
+            facts_written=0,
+            setups_written=1,
+            candidates_written=1,
+            candidates=[_candidate()],
+        )
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "run_account_oneil_core_scanner",
+        _fake_scan,
+    )
+
+    response = run_account_us_etf_oneil_core_scanner(
+        session=None,
+        principal=_principal(),
+        request=AccountETFOneilScannerRequest(symbols=["spy"]),
+    )
+
+    assert captured == {"account_id": "acct_local", "symbols": ["SPY"]}
+    assert response.account_id == "acct_local"
+    assert response.candidates_written == 1
+
+
+def test_account_refresh_route_uses_principal_account(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    captured = {}
+
+    def _fake_refresh(session, principal, request):
+        captured["account_id"] = principal.account_id
+        captured["symbols"] = request.symbols
+        return ETFUniverseSeedResponse(
+            account_id=principal.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols or ["SPY"],
+            bars_written=260,
+            facts_written=260,
+            setups_written=1,
+            candidates_written=1,
+            candidates=[_candidate()],
+        )
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "refresh_account_oneil_core_universe",
+        _fake_refresh,
+    )
+
+    response = refresh_account_us_etf_oneil_core_scanner(
+        session=None,
+        principal=_principal(),
+        request=AccountETFUniverseRefreshRequest(symbols=["spy"]),
+    )
+
+    assert captured == {"account_id": "acct_local", "symbols": ["SPY"]}
+    assert response.account_id == "acct_local"
+    assert response.bars_written == 260
 
 
 def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:
@@ -194,13 +420,39 @@ def test_position_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "create_candidate_plan",
+        lambda session, principal, candidate_id, request: _position().model_copy(
+            update={"position_id": f"plan_{candidate_id}", "status": "planned"}
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_candidate_plan",
+        lambda session, principal, candidate_id: _position().model_copy(
+            update={"position_id": f"plan_{candidate_id}", "status": "planned"}
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "list_positions",
-        lambda session, principal, status, limit: [_position()],
+        lambda session, principal, status, limit, offset: [_position()],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_positions",
+        lambda session, principal, status: 1,
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "update_position",
         lambda session, principal, position_id, request: _position(),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "activate_position",
+        lambda session, principal, position_id, request: _position().model_copy(
+            update={"position_id": position_id, "status": "open", "entry_price": request.entry_price}
+        ),
     )
 
     assert (
@@ -211,12 +463,31 @@ def test_position_routes(monkeypatch) -> None:
         ).position_id
         == "pos_1"
     )
+    assert (
+        create_candidate_plan(
+            "cand_1",
+            CandidatePlanCreate(),
+            session=None,
+            principal=_principal(),
+        ).position_id
+        == "plan_cand_1"
+    )
+    assert (
+        get_candidate_plan(
+            "cand_1",
+            session=None,
+            principal=_principal(),
+        ).position_id
+        == "plan_cand_1"
+    )
     assert list_positions(
         session=None,
         principal=_principal(),
         status_filter="open",
         limit=10,
+        offset=20,
     )[0].status == "open"
+    assert count_positions(session=None, principal=_principal(), status_filter="open").total == 1
     assert (
         update_position(
             "pos_1",
@@ -226,6 +497,14 @@ def test_position_routes(monkeypatch) -> None:
         ).symbol_id
         == "SPY"
     )
+    activated = activate_position(
+        "pos_1",
+        PositionActivate(entry_price=421),
+        session=None,
+        principal=_principal(),
+    )
+    assert activated.status == "open"
+    assert activated.entry_price == 421
 
 
 def test_exit_alert_routes(monkeypatch) -> None:
@@ -238,8 +517,24 @@ def test_exit_alert_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "evaluate_exit_alerts",
+        lambda session, principal, request: ExitAlertEvaluationResponse(
+            account_id=principal.account_id,
+            positions_evaluated=1,
+            alerts_created=1,
+            symbols_processed=["SPY"],
+            alerts=[_alert()],
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "list_exit_alerts",
-        lambda session, principal, acknowledged, limit: [_alert()],
+        lambda session, principal, acknowledged, limit, offset: [_alert()],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_exit_alerts",
+        lambda session, principal, acknowledged: 1,
     )
     monkeypatch.setattr(
         business_route.BusinessService,
@@ -255,12 +550,22 @@ def test_exit_alert_routes(monkeypatch) -> None:
         ).alert_id
         == "alert_1"
     )
+    assert (
+        evaluate_exit_alerts(
+            ExitAlertEvaluationRequest(),
+            session=None,
+            principal=_principal(),
+        ).alerts_created
+        == 1
+    )
     assert list_exit_alerts(
         session=None,
         principal=_principal(),
         acknowledged=False,
         limit=10,
+        offset=20,
     )[0].level == 2
+    assert count_exit_alerts(session=None, principal=_principal(), acknowledged=False).total == 1
     assert (
         update_exit_alert(
             "alert_1",
@@ -283,7 +588,12 @@ def test_journal_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_journal_trades",
-        lambda session, principal, limit: [_trade()],
+        lambda session, principal, limit, offset: [_trade()],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_journal_trades",
+        lambda session, principal: 1,
     )
 
     assert (
@@ -294,7 +604,13 @@ def test_journal_routes(monkeypatch) -> None:
         ).trade_id
         == "trade_1"
     )
-    assert list_journal_trades(session=None, principal=_principal(), limit=10)[0].net_pnl == 120.0
+    assert list_journal_trades(
+        session=None,
+        principal=_principal(),
+        limit=10,
+        offset=20,
+    )[0].net_pnl == 120.0
+    assert count_journal_trades(session=None, principal=_principal()).total == 1
 
 
 def test_dashboard_summary_route(monkeypatch) -> None:

@@ -3,8 +3,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.schemas.scanner import ScannerDecision
+
 CandidateDecision = Literal["candidate", "watch", "avoid"]
-PositionStatus = Literal["open", "reduce", "exit_pending", "closed"]
+PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed"]
 
 
 class CandidateBase(BaseModel):
@@ -75,6 +77,7 @@ class CandidateDetail(BaseModel):
     candidate: Candidate
     pa_setup: CandidatePASetup | None = None
     score_breakdown: dict[str, Any] | None = None
+    scanner_decision: ScannerDecision | None = None
     entry_plan: dict[str, Any] | None = None
     exit_plan: dict[str, Any] | None = None
     invalidation: dict[str, Any] | None = None
@@ -99,6 +102,13 @@ class PositionCreate(PositionBase):
     position_id: str | None = None
 
 
+class CandidatePlanCreate(BaseModel):
+    asset_type: str = Field(default="etf", min_length=1)
+    entry_price: float | None = Field(default=None, gt=0)
+    initial_stop: float | None = Field(default=None, gt=0)
+    quantity: float | None = Field(default=None, gt=0)
+
+
 class PositionUpdate(BaseModel):
     strategy_name: str | None = None
     current_stop: float | None = None
@@ -106,6 +116,12 @@ class PositionUpdate(BaseModel):
     current_r: float | None = None
     realized_pnl: float | None = None
     unrealized_pnl: float | None = None
+
+
+class PositionActivate(BaseModel):
+    entry_price: float = Field(..., gt=0)
+    quantity: float | None = Field(default=None, gt=0)
+    entry_date: datetime | None = None
 
 
 class Position(PositionBase):
@@ -144,6 +160,21 @@ class ExitAlert(ExitAlertBase):
 
     alert_id: str
     alert_ts: datetime | None = None
+
+
+class ExitAlertEvaluationRequest(BaseModel):
+    position_id: str | None = None
+    limit: int | None = Field(default=None, ge=1, le=500)
+
+
+class ExitAlertEvaluationResponse(BaseModel):
+    account_id: str
+    positions_evaluated: int
+    alerts_created: int
+    skipped_positions: int = 0
+    duplicate_alerts: int = 0
+    symbols_processed: list[str] = Field(default_factory=list)
+    alerts: list[ExitAlert] = Field(default_factory=list)
 
 
 class JournalTradeBase(BaseModel):

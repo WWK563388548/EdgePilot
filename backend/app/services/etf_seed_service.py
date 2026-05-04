@@ -1,6 +1,8 @@
-from datetime import UTC, datetime
+from collections import Counter
+from datetime import UTC, date, datetime
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -78,6 +80,8 @@ class ETFSeedService:
         setups_written = 0
         candidates_written = 0
         candidates = []
+        decision_counts = {}
+        latest_scan_date = None
         if request.run_scanner and successful_symbols:
             scanner_response = ETFScannerService.run_us_etf_oneil_core_for_session(
                 session,
@@ -94,9 +98,19 @@ class ETFSeedService:
             setups_written = scanner_response.setups_written
             candidates_written = scanner_response.candidates_written
             candidates = scanner_response.candidates
+            decision_counts = scanner_response.decision_counts
+            latest_scan_date = scanner_response.latest_scan_date
             for symbol in scanner_response.skipped_symbols:
                 if symbol not in skipped_symbols:
                     skipped_symbols.append(symbol)
+
+        if not decision_counts and candidates:
+            decision_counts = dict(Counter(candidate.decision or "unknown" for candidate in candidates))
+        latest_bar_date = ETFSeedService._latest_bar_date(
+            session=session,
+            symbols=successful_symbols,
+            timeframe=request.timeframe,
+        )
 
         return ETFUniverseSeedResponse(
             account_id=request.account_id,
@@ -108,6 +122,9 @@ class ETFSeedService:
             facts_written=facts_written,
             setups_written=setups_written,
             candidates_written=candidates_written,
+            decision_counts=decision_counts,
+            latest_scan_date=latest_scan_date,
+            latest_bar_date=latest_bar_date,
             skipped_symbols=skipped_symbols,
             symbol_results=symbol_results,
             candidates=candidates,
@@ -287,6 +304,18 @@ class ETFSeedService:
                 error_message=error_message,
             )
         )
+
+    @staticmethod
+    def _latest_bar_date(*, session: Session, symbols: list[str], timeframe: str) -> date | None:
+        if not symbols:
+            return None
+        latest_ts = session.scalar(
+            select(func.max(db.Bar.ts)).where(
+                db.Bar.symbol_id.in_(symbols),
+                db.Bar.timeframe == timeframe,
+            )
+        )
+        return latest_ts.date() if latest_ts else None
 
 
 def _normalize_symbols(symbols: list[str]) -> list[str]:

@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.app.api.dependencies import DbSession, require_ingestion_admin
+from backend.app.schemas.common import CountResponse
 from backend.app.schemas.pa import (
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
@@ -62,6 +63,7 @@ def list_pa_setups(
     status: str | None = None,
     validation_status: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> list[PASetup]:
     return PAService.list_setups(
         session=session,
@@ -71,6 +73,28 @@ def list_pa_setups(
         status=status,
         validation_status=validation_status,
         limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/setups/count", response_model=CountResponse)
+def count_pa_setups(
+    session: DbSession,
+    symbol: str | None = None,
+    timeframe: str | None = "1d",
+    setup_type: str | None = None,
+    status: str | None = None,
+    validation_status: str | None = None,
+) -> CountResponse:
+    return CountResponse(
+        total=PAService.count_setups(
+            session=session,
+            symbol=symbol,
+            timeframe=timeframe,
+            setup_type=setup_type,
+            status=status,
+            validation_status=validation_status,
+        )
     )
 
 

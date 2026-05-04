@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from backend.app.api.routes.pa import (
     calculate_etf_daily_facts,
+    count_pa_setups,
     get_pa_setup,
     explain_pa_setup,
     list_pa_calibration,
@@ -95,6 +96,7 @@ def test_pa_read_routes(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr(pa_route.PAService, "list_setups", lambda **kwargs: [_setup()])
+    monkeypatch.setattr(pa_route.PAService, "count_setups", lambda **kwargs: 1)
     monkeypatch.setattr(pa_route.PAService, "get_setup", lambda **kwargs: _setup())
     monkeypatch.setattr(pa_route.PAService, "explain_setup", lambda **kwargs: _setup_explain())
     monkeypatch.setattr(
@@ -108,6 +110,7 @@ def test_pa_read_routes(monkeypatch) -> None:
     assert list_pa_facts("SPY", session=None)[0].fact_id.startswith("pafact")
     assert list_pa_structures("SPY", session=None)[0].structure_type == "uptrend"
     assert list_pa_setups(session=None)[0].validation_status == "shadow_only"
+    assert count_pa_setups(session=None).total == 1
     assert get_pa_setup("setup_1", session=None).setup_type == "breakout"
     assert explain_pa_setup("setup_1", session=None).evidence.levels[0].key == "trigger_price"
     assert list_pa_calibration(session=None)[0].sample_size == 10

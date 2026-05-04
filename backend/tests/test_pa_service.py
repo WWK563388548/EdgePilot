@@ -91,6 +91,13 @@ def test_explain_setup_returns_chart_evidence_and_levels() -> None:
     )
     session.flush()
 
+    assert PAService.count_setups(
+        session,
+        symbol="spy",
+        timeframe="1d",
+        validation_status="shadow_only",
+    ) == 1
+
     explain = PAService.explain_setup(
         session,
         setup_id="pasetup_spy_1d_2026-04-30_breakout",

@@ -4,7 +4,7 @@ import { BarChart3, LogOut, RefreshCcw, type LucideIcon } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { StatusPill } from "@/components/workspace/common";
+import { StatusPill } from "@/components/workspace/atoms/status-pill";
 import { useAuth } from "@/lib/auth";
 import { isLocale, localeOptions, type Locale } from "@/lib/i18n-config";
 import type { WorkspaceView } from "@/lib/store";

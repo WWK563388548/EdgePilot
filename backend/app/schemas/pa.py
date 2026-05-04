@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -142,6 +142,12 @@ class ETFOneilScannerRequest(ETFUniverseFactsRequest):
     recalculate_facts: bool = True
 
 
+class AccountETFOneilScannerRequest(ETFUniverseFactsRequest):
+    min_score: float = Field(default=60.0, ge=0, le=100)
+    max_candidates: int = Field(default=25, ge=1, le=200)
+    recalculate_facts: bool = True
+
+
 class ETFOneilScannerResponse(BaseModel):
     account_id: str
     timeframe: str
@@ -149,5 +155,8 @@ class ETFOneilScannerResponse(BaseModel):
     facts_written: int
     setups_written: int
     candidates_written: int
+    decision_counts: dict[str, int] = Field(default_factory=dict)
+    latest_scan_date: date | None = None
+    latest_bar_date: date | None = None
     skipped_symbols: list[str] = Field(default_factory=list)
     candidates: list[Candidate] = Field(default_factory=list)
