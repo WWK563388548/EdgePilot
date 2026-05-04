@@ -318,6 +318,53 @@ export type CandidatePlanCreate = {
   quantity?: number;
 };
 
+export type AccountRiskSettings = {
+  account_id: string;
+  account_equity: number;
+  max_risk_per_trade_pct: number;
+  max_open_positions: number;
+  max_risk_distance_pct: number;
+  shadow_only_requires_paper: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AccountRiskSettingsUpdate = Partial<
+  Pick<
+    AccountRiskSettings,
+    | "account_equity"
+    | "max_risk_per_trade_pct"
+    | "max_open_positions"
+    | "max_risk_distance_pct"
+    | "shadow_only_requires_paper"
+  >
+>;
+
+export type GuardrailNotice = {
+  level: "block" | "warning" | "info";
+  code: string;
+};
+
+export type CandidatePlanPreview = {
+  account_id: string;
+  candidate_id: string;
+  entry_price: number | null;
+  initial_stop: number | null;
+  risk_per_unit: number | null;
+  risk_distance_pct: number | null;
+  account_equity: number;
+  max_risk_per_trade_pct: number;
+  max_risk_amount: number;
+  suggested_quantity: number | null;
+  planned_quantity: number | null;
+  planned_risk_amount: number | null;
+  planned_risk_pct: number | null;
+  max_open_positions: number;
+  active_position_count: number;
+  validation_status: string | null;
+  guardrails: GuardrailNotice[];
+};
+
 export type PositionActivate = {
   entry_price: number;
   quantity?: number;
@@ -358,6 +405,9 @@ export type Position = {
   current_r: number | null;
   realized_pnl: number | null;
   unrealized_pnl: number | null;
+  risk_per_unit: number | null;
+  risk_amount: number | null;
+  risk_pct: number | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -507,11 +557,40 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function patchJson<T>(path: string, body?: unknown): Promise<T> {
+  const token = accessTokenProvider ? await accessTokenProvider() : null;
+  const headers: Record<string, string> = {
+    Accept: "application/json"
+  };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "PATCH",
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await responseErrorDetail(response));
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export const api = {
   me: () => getJson<AuthMe>("/api/auth/me"),
   resendVerificationEmail: () =>
     postJson<VerificationEmailResponse>("/api/auth/resend-verification"),
   dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
+  riskSettings: () => getJson<AccountRiskSettings>("/api/settings/risk"),
+  updateRiskSettings: (request: AccountRiskSettingsUpdate) =>
+    patchJson<AccountRiskSettings>("/api/settings/risk", request),
   candidates: (filters: CandidateFilters = {}) =>
     getJson<Candidate[]>(
       `/api/candidates${queryString({
@@ -539,6 +618,10 @@ export const api = {
     postJson<Position>(`/api/candidates/${encodeURIComponent(candidateId)}/plan`, request),
   candidatePlan: (candidateId: string) =>
     getJson<Position | null>(`/api/candidates/${encodeURIComponent(candidateId)}/plan`),
+  candidatePlanPreview: (candidateId: string) =>
+    getJson<CandidatePlanPreview>(
+      `/api/candidates/${encodeURIComponent(candidateId)}/plan-preview`
+    ),
   scannerOutcomes: (filters: ScannerOutcomeFilters = {}) =>
     getJson<ScannerOutcome[]>(
       `/api/candidates/outcomes${queryString({

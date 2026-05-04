@@ -40,12 +40,20 @@ export function CandidateTradePlanCard({
     queryFn: () => api.candidatePlan(candidate.candidate_id),
     enabled: !missingPlanLevels
   });
+  const planPreview = useQuery({
+    queryKey: ["candidate-plan-preview", candidate.candidate_id],
+    queryFn: () => api.candidatePlanPreview(candidate.candidate_id)
+  });
   const createPlan = useMutation({
-    mutationFn: () => api.createCandidatePlan(candidate.candidate_id),
+    mutationFn: () =>
+      api.createCandidatePlan(candidate.candidate_id, {
+        quantity: planPreview.data?.suggested_quantity ?? undefined
+      }),
     onSuccess: async (position) => {
       setCreatedPlan(position);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["candidate-plan", candidate.candidate_id] }),
+        queryClient.invalidateQueries({ queryKey: ["candidate-plan-preview", candidate.candidate_id] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] })
@@ -59,6 +67,8 @@ export function CandidateTradePlanCard({
   }, [candidate.candidate_id, resetCreatePlan]);
   const trackedPlan = createdPlan ?? candidatePlan.data ?? null;
   const planAlreadyTracked = trackedPlan !== null;
+  const guardrails = planPreview.data?.guardrails ?? [];
+  const blocked = guardrails.some((notice) => notice.level === "block");
   const planErrorMessage = createPlan.error
     ? planCreateErrorMessage(createPlan.error, t)
     : null;
@@ -86,7 +96,52 @@ export function CandidateTradePlanCard({
               value={riskDistance === null ? "-" : formatPercent(riskDistance, locale)}
             />
             <Field label={t("planStatus")} value={labelFor("status", trackedPlan?.status ?? "planned")} />
+            <Field
+              label={t("suggestedQuantity")}
+              value={formatNumber(planPreview.data?.suggested_quantity, 0, locale)}
+            />
+            <Field
+              label={t("maxRiskAmount")}
+              value={formatMoney(planPreview.data?.max_risk_amount, locale)}
+            />
+            <Field
+              label={t("plannedRisk")}
+              value={
+                planPreview.data?.planned_risk_amount === null ||
+                planPreview.data?.planned_risk_amount === undefined
+                  ? "-"
+                  : `${formatMoney(planPreview.data.planned_risk_amount, locale)} / ${formatPercent(
+                      planPreview.data.planned_risk_pct ?? 0,
+                      locale
+                    )}`
+              }
+            />
+            <Field
+              label={t("riskSettingsShort")}
+              value={`${formatMoney(planPreview.data?.account_equity, locale)} · ${formatPercent(
+                planPreview.data?.max_risk_per_trade_pct ?? 0,
+                locale
+              )}`}
+            />
           </dl>
+          {guardrails.length ? (
+            <div className="mt-3 grid gap-2">
+              {guardrails.map((notice) => (
+                <div
+                  className={`rounded-md border px-3 py-2 text-xs font-medium ${
+                    notice.level === "block"
+                      ? "border-rose-200 bg-rose-50 text-rose-800"
+                      : notice.level === "warning"
+                        ? "border-amber-200 bg-amber-50 text-amber-900"
+                        : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                  key={`${notice.level}-${notice.code}`}
+                >
+                  {labelFor("plan", notice.code)}
+                </div>
+              ))}
+            </div>
+          ) : null}
           {missingPlanLevels ? (
             <p className="mt-3 text-sm font-medium text-rose-700">{t("missingPlanLevels")}</p>
           ) : createPlan.isError ? (
@@ -102,11 +157,20 @@ export function CandidateTradePlanCard({
         </div>
         <button
           className="focus-ring inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={missingPlanLevels || candidatePlan.isLoading || planAlreadyTracked || createPlan.isPending}
+          disabled={
+            missingPlanLevels ||
+            blocked ||
+            candidatePlan.isLoading ||
+            planPreview.isLoading ||
+            planAlreadyTracked ||
+            createPlan.isPending
+          }
           onClick={() => createPlan.mutate()}
           title={
             missingPlanLevels
               ? t("missingPlanLevels")
+              : blocked
+                ? t("planBlockedHelp")
               : planAlreadyTracked
                 ? t("planAlreadyTrackedHelp")
                 : t("planButtonHelp")
@@ -142,5 +206,17 @@ function formatPercent(value: number, locale: Locale) {
     maximumFractionDigits: 1,
     minimumFractionDigits: 0,
     style: "percent"
+  }).format(value);
+}
+
+function formatMoney(value: number | null | undefined, locale: Locale) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return new Intl.NumberFormat(localeTag[locale], {
+    currency: "USD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    style: "currency"
   }).format(value);
 }

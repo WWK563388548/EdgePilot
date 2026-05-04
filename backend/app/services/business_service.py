@@ -1,4 +1,5 @@
 import json
+import math
 from collections import Counter
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -10,9 +11,12 @@ from sqlalchemy.orm import Session
 from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.schemas.business import (
+    AccountRiskSettings,
+    AccountRiskSettingsUpdate,
     Candidate,
     CandidateCreate,
     CandidateDetail,
+    CandidatePlanPreview,
     CandidatePASetup,
     CandidatePlanCreate,
     CandidateUpdate,
@@ -34,6 +38,7 @@ from backend.app.schemas.business import (
     PositionReduce,
     PositionStopUpdate,
     PositionUpdate,
+    GuardrailNotice,
 )
 from backend.app.schemas.ingestion import (
     AccountETFUniverseRefreshRequest,
@@ -57,6 +62,10 @@ from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.scanner_service import ETFScannerService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
+DEFAULT_ACCOUNT_EQUITY = 10_000.0
+DEFAULT_MAX_RISK_PER_TRADE_PCT = 0.005
+DEFAULT_MAX_OPEN_POSITIONS = 3
+DEFAULT_MAX_RISK_DISTANCE_PCT = 0.12
 
 
 def _average(values) -> float | None:
@@ -108,6 +117,20 @@ def _position_r_multiple(position: db.Position, exit_price: float) -> float | No
     return round((exit_price - position.entry_price) / risk, 6)
 
 
+def _risk_per_unit(entry_price: float | None, stop: float | None) -> float | None:
+    if entry_price is None or stop is None:
+        return None
+    risk = entry_price - stop
+    return round(risk, 6) if risk > 0 else None
+
+
+def _risk_amount(entry_price: float | None, stop: float | None, quantity: float | None) -> float | None:
+    risk = _risk_per_unit(entry_price, stop)
+    if risk is None or quantity is None:
+        return None
+    return round(risk * quantity, 6)
+
+
 def _touch_position(position: db.Position) -> None:
     position.updated_at = datetime.now(UTC)
 
@@ -130,6 +153,73 @@ class BusinessService:
                 entity_type=entity_type,
                 entity_id=entity_id,
             )
+        )
+
+    @staticmethod
+    def get_account_risk_settings(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> AccountRiskSettings:
+        settings = BusinessService._get_account_risk_settings_model(session, principal)
+        return BusinessService._risk_settings_response(principal, settings)
+
+    @staticmethod
+    def update_account_risk_settings(
+        session: Session,
+        principal: AuthPrincipal,
+        request: AccountRiskSettingsUpdate,
+    ) -> AccountRiskSettings:
+        settings = BusinessService._get_account_risk_settings_model(session, principal)
+        if settings is None:
+            settings = db.AccountRiskSettings(account_id=principal.account_id)
+            session.add(settings)
+
+        payload = request.model_dump(exclude_unset=True)
+        for key, value in payload.items():
+            setattr(settings, key, value)
+        settings.updated_at = datetime.now(UTC)
+        BusinessService._audit(session, principal, "risk_settings.update", "account", principal.account_id)
+        session.commit()
+        session.refresh(settings)
+        return BusinessService._risk_settings_response(principal, settings)
+
+    @staticmethod
+    def _get_account_risk_settings_model(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> db.AccountRiskSettings | None:
+        return session.get(db.AccountRiskSettings, principal.account_id)
+
+    @staticmethod
+    def _risk_settings_response(
+        principal: AuthPrincipal,
+        settings: db.AccountRiskSettings | None,
+    ) -> AccountRiskSettings:
+        return AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=settings.account_equity if settings and settings.account_equity else DEFAULT_ACCOUNT_EQUITY,
+            max_risk_per_trade_pct=(
+                settings.max_risk_per_trade_pct
+                if settings and settings.max_risk_per_trade_pct
+                else DEFAULT_MAX_RISK_PER_TRADE_PCT
+            ),
+            max_open_positions=(
+                settings.max_open_positions
+                if settings and settings.max_open_positions
+                else DEFAULT_MAX_OPEN_POSITIONS
+            ),
+            max_risk_distance_pct=(
+                settings.max_risk_distance_pct
+                if settings and settings.max_risk_distance_pct
+                else DEFAULT_MAX_RISK_DISTANCE_PCT
+            ),
+            shadow_only_requires_paper=(
+                settings.shadow_only_requires_paper
+                if settings and settings.shadow_only_requires_paper is not None
+                else True
+            ),
+            created_at=settings.created_at if settings else None,
+            updated_at=settings.updated_at if settings else None,
         )
 
     @staticmethod
@@ -423,6 +513,115 @@ class BusinessService:
         )
 
     @staticmethod
+    def preview_candidate_plan(
+        session: Session,
+        principal: AuthPrincipal,
+        candidate_id: str,
+        request: CandidatePlanCreate | None = None,
+    ) -> CandidatePlanPreview:
+        candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
+        setup = BusinessService._candidate_pa_setup(session, candidate)
+        entry_plan = setup.entry_plan if setup else None
+        exit_plan = setup.exit_plan if setup else None
+        request = request or CandidatePlanCreate()
+        entry_price = (
+            request.entry_price
+            or candidate.entry_trigger
+            or _number_from_plan(entry_plan, "trigger_price")
+        )
+        initial_stop = (
+            request.initial_stop
+            or candidate.initial_stop
+            or _number_from_plan(exit_plan, "initial_stop")
+        )
+        risk_settings = BusinessService.get_account_risk_settings(session, principal)
+        max_risk_amount = round(
+            risk_settings.account_equity * risk_settings.max_risk_per_trade_pct,
+            6,
+        )
+        risk_per_unit = _risk_per_unit(entry_price, initial_stop)
+        suggested_quantity = (
+            math.floor(max_risk_amount / risk_per_unit)
+            if risk_per_unit is not None and risk_per_unit > 0
+            else None
+        )
+        planned_quantity = request.quantity or (
+            suggested_quantity if suggested_quantity is not None and suggested_quantity > 0 else None
+        )
+        planned_risk_amount = _risk_amount(entry_price, initial_stop, planned_quantity)
+        active_position_count = BusinessService.count_positions(session, principal, status="open") + BusinessService.count_positions(
+            session,
+            principal,
+            status="reduce",
+        )
+        risk_distance_pct = (
+            round(risk_per_unit / entry_price, 6)
+            if risk_per_unit is not None and entry_price is not None and entry_price > 0
+            else None
+        )
+        validation_status = setup.validation_status if setup is not None else None
+        guardrails = BusinessService._candidate_plan_guardrails(
+            entry_price=entry_price,
+            initial_stop=initial_stop,
+            risk_distance_pct=risk_distance_pct,
+            suggested_quantity=suggested_quantity,
+            active_position_count=active_position_count,
+            validation_status=validation_status,
+            risk_settings=risk_settings,
+        )
+        return CandidatePlanPreview(
+            account_id=principal.account_id,
+            candidate_id=candidate.candidate_id,
+            entry_price=entry_price,
+            initial_stop=initial_stop,
+            risk_per_unit=risk_per_unit,
+            risk_distance_pct=risk_distance_pct,
+            account_equity=risk_settings.account_equity,
+            max_risk_per_trade_pct=risk_settings.max_risk_per_trade_pct,
+            max_risk_amount=max_risk_amount,
+            suggested_quantity=suggested_quantity,
+            planned_quantity=planned_quantity,
+            planned_risk_amount=planned_risk_amount,
+            planned_risk_pct=(
+                round(planned_risk_amount / risk_settings.account_equity, 6)
+                if planned_risk_amount is not None
+                else None
+            ),
+            max_open_positions=risk_settings.max_open_positions,
+            active_position_count=active_position_count,
+            validation_status=validation_status,
+            guardrails=guardrails,
+        )
+
+    @staticmethod
+    def _candidate_plan_guardrails(
+        *,
+        entry_price: float | None,
+        initial_stop: float | None,
+        risk_distance_pct: float | None,
+        suggested_quantity: int | None,
+        active_position_count: int,
+        validation_status: str | None,
+        risk_settings: AccountRiskSettings,
+    ) -> list[GuardrailNotice]:
+        guardrails: list[GuardrailNotice] = []
+        if entry_price is None:
+            guardrails.append(GuardrailNotice(level="block", code="missing_entry"))
+        if initial_stop is None:
+            guardrails.append(GuardrailNotice(level="block", code="missing_stop"))
+        if entry_price is not None and initial_stop is not None and initial_stop >= entry_price:
+            guardrails.append(GuardrailNotice(level="block", code="stop_not_below_entry"))
+        if risk_distance_pct is not None and risk_distance_pct > risk_settings.max_risk_distance_pct:
+            guardrails.append(GuardrailNotice(level="warning", code="risk_distance_wide"))
+        if active_position_count >= risk_settings.max_open_positions:
+            guardrails.append(GuardrailNotice(level="warning", code="max_open_positions_reached"))
+        if validation_status == "shadow_only" and risk_settings.shadow_only_requires_paper:
+            guardrails.append(GuardrailNotice(level="info", code="shadow_only_paper_only"))
+        if suggested_quantity is not None and suggested_quantity <= 0:
+            guardrails.append(GuardrailNotice(level="warning", code="no_suggested_quantity"))
+        return guardrails
+
+    @staticmethod
     def update_candidate(
         session: Session,
         principal: AuthPrincipal,
@@ -595,7 +794,7 @@ class BusinessService:
         BusinessService._audit(session, principal, "position.create", "position", position.position_id)
         session.commit()
         session.refresh(position)
-        return Position.model_validate(position)
+        return BusinessService._position_response(session, principal, position)
 
     @staticmethod
     def create_candidate_plan(
@@ -620,6 +819,15 @@ class BusinessService:
         )
         if entry_price is None or initial_stop is None:
             raise ValueError("Candidate is missing entry trigger or initial stop")
+        preview = BusinessService.preview_candidate_plan(
+            session,
+            principal,
+            candidate_id,
+            request,
+        )
+        blocking_guardrails = [notice.code for notice in preview.guardrails if notice.level == "block"]
+        if blocking_guardrails:
+            raise ValueError(f"Candidate plan blocked: {', '.join(blocking_guardrails)}")
 
         position_id = _candidate_plan_position_id(candidate.candidate_id)
         existing = session.scalar(
@@ -629,7 +837,7 @@ class BusinessService:
             )
         )
         if existing is not None:
-            return Position.model_validate(existing)
+            return BusinessService._position_response(session, principal, existing)
 
         position = db.Position(
             position_id=position_id,
@@ -639,7 +847,8 @@ class BusinessService:
             strategy_name=candidate.strategy_name,
             entry_date=None,
             entry_price=entry_price,
-            quantity=request.quantity,
+            quantity=request.quantity
+            or (preview.suggested_quantity if preview.suggested_quantity and preview.suggested_quantity > 0 else None),
             initial_stop=initial_stop,
             current_stop=initial_stop,
             status="planned",
@@ -657,7 +866,7 @@ class BusinessService:
         )
         session.commit()
         session.refresh(position)
-        return Position.model_validate(position)
+        return BusinessService._position_response(session, principal, position)
 
     @staticmethod
     def get_candidate_plan(
@@ -672,7 +881,7 @@ class BusinessService:
                 db.Position.account_id == principal.account_id,
             )
         )
-        return Position.model_validate(position) if position else None
+        return BusinessService._position_response(session, principal, position) if position else None
 
     @staticmethod
     def list_positions(
@@ -686,7 +895,7 @@ class BusinessService:
         rows = session.scalars(
             statement.order_by(db.Position.updated_at.desc()).offset(offset).limit(limit)
         ).all()
-        return [Position.model_validate(row) for row in rows]
+        return [BusinessService._position_response(session, principal, row) for row in rows]
 
     @staticmethod
     def count_positions(
@@ -709,6 +918,24 @@ class BusinessService:
         return statement
 
     @staticmethod
+    def _position_response(
+        session: Session,
+        principal: AuthPrincipal,
+        position: db.Position,
+    ) -> Position:
+        response = Position.model_validate(position)
+        risk_settings = BusinessService.get_account_risk_settings(session, principal)
+        stop = position.current_stop or position.initial_stop
+        response.risk_per_unit = _risk_per_unit(position.entry_price, stop)
+        response.risk_amount = _risk_amount(position.entry_price, stop, position.quantity)
+        response.risk_pct = (
+            round(response.risk_amount / risk_settings.account_equity, 6)
+            if response.risk_amount is not None
+            else None
+        )
+        return response
+
+    @staticmethod
     def update_position(
         session: Session,
         principal: AuthPrincipal,
@@ -727,7 +954,7 @@ class BusinessService:
             BusinessService._audit(session, principal, "position.update", "position", position_id)
             session.commit()
             session.refresh(position)
-        return Position.model_validate(position)
+        return BusinessService._position_response(session, principal, position)
 
     @staticmethod
     def activate_position(
@@ -752,7 +979,7 @@ class BusinessService:
         BusinessService._audit(session, principal, "position.activate", "position", position_id)
         session.commit()
         session.refresh(position)
-        return Position.model_validate(position)
+        return BusinessService._position_response(session, principal, position)
 
     @staticmethod
     def update_position_stop(
@@ -772,7 +999,7 @@ class BusinessService:
         BusinessService._audit(session, principal, "position.stop_update", "position", position_id)
         session.commit()
         session.refresh(position)
-        return Position.model_validate(position)
+        return BusinessService._position_response(session, principal, position)
 
     @staticmethod
     def reduce_position(
@@ -806,7 +1033,7 @@ class BusinessService:
         BusinessService._audit(session, principal, "position.reduce", "position", position_id)
         session.commit()
         session.refresh(position)
-        return Position.model_validate(position)
+        return BusinessService._position_response(session, principal, position)
 
     @staticmethod
     def close_position(
@@ -874,7 +1101,7 @@ class BusinessService:
         session.refresh(position)
         session.refresh(trade)
         return PositionCloseResponse(
-            position=Position.model_validate(position),
+            position=BusinessService._position_response(session, principal, position),
             journal_trade=JournalTrade.model_validate(trade),
         )
 

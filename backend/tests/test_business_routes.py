@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.api.routes.business import (
     activate_position,
+    get_account_risk_settings,
     count_candidates,
     count_exit_alerts,
     count_journal_trades,
@@ -17,6 +18,7 @@ from backend.app.api.routes.business import (
     create_position,
     get_dashboard_summary,
     get_candidate_plan,
+    preview_candidate_plan,
     get_candidate_outcome,
     get_scanner_outcome_summary,
     get_candidate_detail,
@@ -30,6 +32,7 @@ from backend.app.api.routes.business import (
     recalculate_scanner_outcomes,
     run_account_us_etf_oneil_core_scanner,
     update_candidate,
+    update_account_risk_settings,
     update_exit_alert,
     update_position,
     update_position_stop,
@@ -39,11 +42,14 @@ from backend.app.api.dependencies import require_verified_user
 from backend.app.core.auth import AuthPrincipal
 from backend.app.main import app
 from backend.app.schemas.business import (
+    AccountRiskSettings,
+    AccountRiskSettingsUpdate,
     Candidate,
     CandidateCreate,
     CandidateDetail,
     CandidatePASetup,
     CandidatePlanCreate,
+    CandidatePlanPreview,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -560,6 +566,68 @@ def test_position_routes(monkeypatch) -> None:
     )
     assert closed.position.status == "closed"
     assert closed.journal_trade.position_id == "pos_1"
+
+
+def test_risk_settings_and_plan_preview_routes(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_account_risk_settings",
+        lambda session, principal: AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=20_000,
+            max_risk_per_trade_pct=0.01,
+            max_open_positions=3,
+            max_risk_distance_pct=0.1,
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "update_account_risk_settings",
+        lambda session, principal, request: AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=request.account_equity or 10_000,
+            max_risk_per_trade_pct=request.max_risk_per_trade_pct or 0.005,
+            max_open_positions=request.max_open_positions or 3,
+            max_risk_distance_pct=request.max_risk_distance_pct or 0.12,
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "preview_candidate_plan",
+        lambda session, principal, candidate_id: CandidatePlanPreview(
+            account_id=principal.account_id,
+            candidate_id=candidate_id,
+            entry_price=100,
+            initial_stop=90,
+            risk_per_unit=10,
+            risk_distance_pct=0.1,
+            account_equity=20_000,
+            max_risk_per_trade_pct=0.01,
+            max_risk_amount=200,
+            suggested_quantity=20,
+            planned_quantity=20,
+            planned_risk_amount=200,
+            planned_risk_pct=0.01,
+            max_open_positions=3,
+            active_position_count=1,
+            guardrails=[],
+        ),
+    )
+
+    settings = get_account_risk_settings(session=None, principal=_principal())
+    updated = update_account_risk_settings(
+        AccountRiskSettingsUpdate(account_equity=30_000),
+        session=None,
+        principal=_principal(),
+    )
+    preview = preview_candidate_plan("cand_1", session=None, principal=_principal())
+
+    assert settings.account_equity == 20_000
+    assert updated.account_equity == 30_000
+    assert preview.suggested_quantity == 20
+    assert preview.candidate_id == "cand_1"
 
 
 def test_exit_alert_routes(monkeypatch) -> None:

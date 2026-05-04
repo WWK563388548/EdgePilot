@@ -217,6 +217,8 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
         <td className="px-4 py-3">{formatValue(position.quantity)}</td>
         <td className="px-4 py-3">{formatValue(position.entry_price)}</td>
         <td className="px-4 py-3">{formatValue(position.current_stop)}</td>
+        <td className="px-4 py-3">{formatValue(position.risk_amount)}</td>
+        <td className="px-4 py-3">{formatPercent(position.risk_pct)}</td>
         <td className="px-4 py-3">
           <div className="font-medium text-ink">{labelFor("status", position.status)}</div>
           <div className="mt-1 max-w-56 text-xs leading-5 text-slate-500">{nextStepText(position.status, t)}</div>
@@ -253,7 +255,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
       </tr>
       {mode ? (
         <tr className="border-t border-line bg-teal-50/35">
-          <td className="px-4 py-4" colSpan={7}>
+          <td className="px-4 py-4" colSpan={9}>
             {mode === "activate" ? (
               <ActionPanel
                 busy={busy}
@@ -519,4 +521,11 @@ function nextStepText(status: string | null, t: ReturnType<typeof useAppI18n>["t
     return t("positionNextStepClosed");
   }
   return t("positionNextStepUnknown");
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return `${(value * 100).toFixed(2)}%`;
 }

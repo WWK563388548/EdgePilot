@@ -3,10 +3,13 @@ from fastapi import APIRouter, HTTPException, Query, status
 from backend.app.api.dependencies import DbSession, TraderPrincipal, VerifiedPrincipal
 from backend.app.schemas.common import CountResponse
 from backend.app.schemas.business import (
+    AccountRiskSettings,
+    AccountRiskSettingsUpdate,
     Candidate,
     CandidateCreate,
     CandidateDetail,
     CandidatePlanCreate,
+    CandidatePlanPreview,
     CandidateUpdate,
     DashboardSummary,
     ExitAlert,
@@ -42,6 +45,27 @@ router = APIRouter(prefix="/api", tags=["business"])
 @router.get("/dashboard/summary", response_model=DashboardSummary)
 def get_dashboard_summary(session: DbSession, principal: VerifiedPrincipal) -> DashboardSummary:
     return BusinessService.dashboard_summary(session=session, principal=principal)
+
+
+@router.get("/settings/risk", response_model=AccountRiskSettings)
+def get_account_risk_settings(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> AccountRiskSettings:
+    return BusinessService.get_account_risk_settings(session=session, principal=principal)
+
+
+@router.patch("/settings/risk", response_model=AccountRiskSettings)
+def update_account_risk_settings(
+    request: AccountRiskSettingsUpdate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> AccountRiskSettings:
+    return BusinessService.update_account_risk_settings(
+        session=session,
+        principal=principal,
+        request=request,
+    )
 
 
 @router.post("/candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)
@@ -283,6 +307,22 @@ def get_candidate_plan(
 ) -> Position | None:
     try:
         return BusinessService.get_candidate_plan(
+            session=session,
+            principal=principal,
+            candidate_id=candidate_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/candidates/{candidate_id}/plan-preview", response_model=CandidatePlanPreview)
+def preview_candidate_plan(
+    candidate_id: str,
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> CandidatePlanPreview:
+    try:
+        return BusinessService.preview_candidate_plan(
             session=session,
             principal=principal,
             candidate_id=candidate_id,
