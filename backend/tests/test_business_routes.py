@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from fastapi.testclient import TestClient
 
 from backend.app.api.routes.business import (
+    activate_position,
     count_candidates,
     count_exit_alerts,
     count_journal_trades,
@@ -14,6 +15,7 @@ from backend.app.api.routes.business import (
     create_journal_trade,
     create_position,
     get_dashboard_summary,
+    get_candidate_plan,
     get_candidate_outcome,
     get_scanner_outcome_summary,
     get_candidate_detail,
@@ -51,6 +53,7 @@ from backend.app.schemas.business import (
     JournalTradeCreate,
     MarketContextSummary,
     Position,
+    PositionActivate,
     PositionCreate,
     PositionUpdate,
 )
@@ -424,6 +427,13 @@ def test_position_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "get_candidate_plan",
+        lambda session, principal, candidate_id: _position().model_copy(
+            update={"position_id": f"plan_{candidate_id}", "status": "planned"}
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "list_positions",
         lambda session, principal, status, limit, offset: [_position()],
     )
@@ -436,6 +446,13 @@ def test_position_routes(monkeypatch) -> None:
         business_route.BusinessService,
         "update_position",
         lambda session, principal, position_id, request: _position(),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "activate_position",
+        lambda session, principal, position_id, request: _position().model_copy(
+            update={"position_id": position_id, "status": "open", "entry_price": request.entry_price}
+        ),
     )
 
     assert (
@@ -450,6 +467,14 @@ def test_position_routes(monkeypatch) -> None:
         create_candidate_plan(
             "cand_1",
             CandidatePlanCreate(),
+            session=None,
+            principal=_principal(),
+        ).position_id
+        == "plan_cand_1"
+    )
+    assert (
+        get_candidate_plan(
+            "cand_1",
             session=None,
             principal=_principal(),
         ).position_id
@@ -472,6 +497,14 @@ def test_position_routes(monkeypatch) -> None:
         ).symbol_id
         == "SPY"
     )
+    activated = activate_position(
+        "pos_1",
+        PositionActivate(entry_price=421),
+        session=None,
+        principal=_principal(),
+    )
+    assert activated.status == "open"
+    assert activated.entry_price == 421
 
 
 def test_exit_alert_routes(monkeypatch) -> None:

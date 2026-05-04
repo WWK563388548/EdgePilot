@@ -1,5 +1,6 @@
 import json
 from collections import Counter
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -26,6 +27,7 @@ from backend.app.schemas.business import (
     JournalTradeCreate,
     MarketContextSummary,
     Position,
+    PositionActivate,
     PositionCreate,
     PositionUpdate,
 )
@@ -78,6 +80,10 @@ def _number_from_record(data: dict | None, key: str) -> float | None:
     if isinstance(value, int | float):
         return float(value)
     return None
+
+
+def _candidate_plan_position_id(candidate_id: str) -> str:
+    return f"plan_{candidate_id}"
 
 
 class BusinessService:
@@ -589,7 +595,7 @@ class BusinessService:
         if entry_price is None or initial_stop is None:
             raise ValueError("Candidate is missing entry trigger or initial stop")
 
-        position_id = f"plan_{candidate.candidate_id}"
+        position_id = _candidate_plan_position_id(candidate.candidate_id)
         existing = session.scalar(
             select(db.Position).where(
                 db.Position.position_id == position_id,
@@ -626,6 +632,21 @@ class BusinessService:
         session.commit()
         session.refresh(position)
         return Position.model_validate(position)
+
+    @staticmethod
+    def get_candidate_plan(
+        session: Session,
+        principal: AuthPrincipal,
+        candidate_id: str,
+    ) -> Position | None:
+        candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
+        position = session.scalar(
+            select(db.Position).where(
+                db.Position.position_id == _candidate_plan_position_id(candidate.candidate_id),
+                db.Position.account_id == principal.account_id,
+            )
+        )
+        return Position.model_validate(position) if position else None
 
     @staticmethod
     def list_positions(
@@ -676,6 +697,30 @@ class BusinessService:
             BusinessService._audit(session, principal, "position.update", "position", position_id)
             session.commit()
             session.refresh(position)
+        return Position.model_validate(position)
+
+    @staticmethod
+    def activate_position(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+        request: PositionActivate,
+    ) -> Position:
+        position = BusinessService._get_position_model(session, principal, position_id)
+        if position.status != "planned":
+            raise ValueError("Position must be planned before activation")
+
+        position.status = "open"
+        position.entry_price = request.entry_price
+        if request.quantity is not None:
+            position.quantity = request.quantity
+        position.entry_date = request.entry_date or datetime.now(UTC)
+        position.current_r = 0
+        position.realized_pnl = position.realized_pnl or 0
+        position.unrealized_pnl = 0
+        BusinessService._audit(session, principal, "position.activate", "position", position_id)
+        session.commit()
+        session.refresh(position)
         return Position.model_validate(position)
 
     @staticmethod

@@ -1,12 +1,12 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardCheck, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Field } from "@/components/workspace/atoms/field";
 import type { Candidate, PASetup, Position } from "@/lib/api";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { formatNumber, numberFromRecord } from "@/lib/format";
 import { localeTag, type Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
@@ -35,17 +35,33 @@ export function CandidateTradePlanCard({
       ? (trigger - stop) / trigger
       : null;
   const missingPlanLevels = trigger === null || trigger === undefined || stop === null || stop === undefined;
+  const candidatePlan = useQuery({
+    queryKey: ["candidate-plan", candidate.candidate_id],
+    queryFn: () => api.candidatePlan(candidate.candidate_id),
+    enabled: !missingPlanLevels
+  });
   const createPlan = useMutation({
     mutationFn: () => api.createCandidatePlan(candidate.candidate_id),
     onSuccess: async (position) => {
       setCreatedPlan(position);
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["candidate-plan", candidate.candidate_id] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       ]);
     }
   });
+  const { reset: resetCreatePlan } = createPlan;
+  useEffect(() => {
+    setCreatedPlan(null);
+    resetCreatePlan();
+  }, [candidate.candidate_id, resetCreatePlan]);
+  const trackedPlan = createdPlan ?? candidatePlan.data ?? null;
+  const planAlreadyTracked = trackedPlan !== null;
+  const planErrorMessage = createPlan.error
+    ? planCreateErrorMessage(createPlan.error, t)
+    : null;
 
   return (
     <section className="border-t border-line pt-3">
@@ -69,31 +85,56 @@ export function CandidateTradePlanCard({
               label={t("riskDistance")}
               value={riskDistance === null ? "-" : formatPercent(riskDistance, locale)}
             />
-            <Field label={t("planStatus")} value={labelFor("status", createdPlan?.status ?? "planned")} />
+            <Field label={t("planStatus")} value={labelFor("status", trackedPlan?.status ?? "planned")} />
           </dl>
           {missingPlanLevels ? (
             <p className="mt-3 text-sm font-medium text-rose-700">{t("missingPlanLevels")}</p>
           ) : createPlan.isError ? (
-            <p className="mt-3 text-sm font-medium text-rose-700">{t("planCreateFailed")}</p>
-          ) : createdPlan ? (
-            <p className="mt-3 text-sm font-medium text-teal-800">
-              {t("planCreated", { position: createdPlan.position_id })}
-            </p>
+            <p className="mt-3 text-sm font-medium text-rose-700">{planErrorMessage}</p>
+          ) : planAlreadyTracked ? (
+            <div className="mt-3 flex flex-col gap-1 text-sm">
+              <p className="font-medium text-teal-800">
+                {t("planAlreadyTracked", { position: trackedPlan.position_id })}
+              </p>
+              <p className="text-slate-600">{t("planNextStep")}</p>
+            </div>
           ) : null}
         </div>
         <button
           className="focus-ring inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={missingPlanLevels || createPlan.isPending}
+          disabled={missingPlanLevels || candidatePlan.isLoading || planAlreadyTracked || createPlan.isPending}
           onClick={() => createPlan.mutate()}
-          title={missingPlanLevels ? t("missingPlanLevels") : t("planButtonHelp")}
+          title={
+            missingPlanLevels
+              ? t("missingPlanLevels")
+              : planAlreadyTracked
+                ? t("planAlreadyTrackedHelp")
+                : t("planButtonHelp")
+          }
           type="button"
         >
           {createPlan.isPending ? <Loader2 className="animate-spin" size={16} /> : <ClipboardCheck size={16} />}
-          {createPlan.isPending ? t("creatingPlan") : t("createPaperPlan")}
+          {createPlan.isPending
+            ? t("creatingPlan")
+            : planAlreadyTracked
+              ? t("planAlreadyTrackedButton")
+              : t("createPaperPlan")}
         </button>
       </div>
     </section>
   );
+}
+
+function planCreateErrorMessage(error: Error, t: (key: string, params?: Record<string, string | number>) => string) {
+  if (error instanceof ApiError) {
+    if (error.status === 404 && error.detail === "Not Found") {
+      return t("planCreateRouteUnavailable");
+    }
+    if (error.detail) {
+      return t("planCreateFailedWithDetail", { detail: error.detail });
+    }
+  }
+  return t("planCreateFailed");
 }
 
 function formatPercent(value: number, locale: Locale) {

@@ -9,10 +9,12 @@ export function setAccessTokenProvider(provider: AccessTokenProvider | null) {
 }
 
 export class ApiError extends Error {
+  detail?: string;
   status: number;
 
-  constructor(status: number) {
-    super(`Request failed: ${status}`);
+  constructor(status: number, detail?: string) {
+    super(detail ? `Request failed: ${status}: ${detail}` : `Request failed: ${status}`);
+    this.detail = detail;
     this.status = status;
   }
 }
@@ -316,6 +318,12 @@ export type CandidatePlanCreate = {
   quantity?: number;
 };
 
+export type PositionActivate = {
+  entry_price: number;
+  quantity?: number;
+  entry_date?: string;
+};
+
 export type Position = {
   position_id: string;
   symbol_id: string;
@@ -396,6 +404,32 @@ function queryString(params: Record<string, string | number | undefined>) {
   return query ? `?${query}` : "";
 }
 
+async function responseErrorDetail(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  try {
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { detail?: unknown };
+      if (typeof payload.detail === "string") {
+        return payload.detail;
+      }
+      if (Array.isArray(payload.detail)) {
+        return payload.detail
+          .map((item) =>
+            typeof item === "object" && item !== null && "msg" in item
+              ? String((item as { msg: unknown }).msg)
+              : String(item)
+          )
+          .join("; ");
+      }
+    }
+
+    const text = await response.text();
+    return text || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const token = accessTokenProvider ? await accessTokenProvider() : null;
   const headers: Record<string, string> = {
@@ -411,7 +445,7 @@ async function getJson<T>(path: string): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status);
+    throw new ApiError(response.status, await responseErrorDetail(response));
   }
 
   return response.json() as Promise<T>;
@@ -437,7 +471,7 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status);
+    throw new ApiError(response.status, await responseErrorDetail(response));
   }
 
   return response.json() as Promise<T>;
@@ -473,6 +507,8 @@ export const api = {
     getJson<CandidateDetail>(`/api/candidates/${encodeURIComponent(candidateId)}`),
   createCandidatePlan: (candidateId: string, request: CandidatePlanCreate = {}) =>
     postJson<Position>(`/api/candidates/${encodeURIComponent(candidateId)}/plan`, request),
+  candidatePlan: (candidateId: string) =>
+    getJson<Position | null>(`/api/candidates/${encodeURIComponent(candidateId)}/plan`),
   scannerOutcomes: (filters: ScannerOutcomeFilters = {}) =>
     getJson<ScannerOutcome[]>(
       `/api/candidates/outcomes${queryString({
@@ -539,6 +575,8 @@ export const api = {
       })}`
     ),
   positionsCount: () => getJson<CountResponse>("/api/positions/count"),
+  activatePosition: (positionId: string, request: PositionActivate) =>
+    postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/activate`, request),
   alerts: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<ExitAlert[]>(
       `/api/exit-alerts${queryString({

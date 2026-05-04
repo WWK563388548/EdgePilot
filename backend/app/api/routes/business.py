@@ -17,6 +17,7 @@ from backend.app.schemas.business import (
     JournalTrade,
     JournalTradeCreate,
     Position,
+    PositionActivate,
     PositionCreate,
     PositionStatus,
     PositionUpdate,
@@ -270,6 +271,22 @@ def create_candidate_plan(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
+@router.get("/candidates/{candidate_id}/plan", response_model=Position | None)
+def get_candidate_plan(
+    candidate_id: str,
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> Position | None:
+    try:
+        return BusinessService.get_candidate_plan(
+            session=session,
+            principal=principal,
+            candidate_id=candidate_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/positions", response_model=list[Position])
 def list_positions(
     session: DbSession,
@@ -318,6 +335,25 @@ def update_position(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/positions/{position_id}/activate", response_model=Position)
+def activate_position(
+    position_id: str,
+    request: PositionActivate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> Position:
+    try:
+        return BusinessService.activate_position(
+            session=session,
+            principal=principal,
+            position_id=position_id,
+            request=request,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc).startswith("Position not found") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.post("/exit-alerts", response_model=ExitAlert, status_code=status.HTTP_201_CREATED)

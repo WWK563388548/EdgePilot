@@ -118,6 +118,12 @@ class PositionUpdate(BaseModel):
     unrealized_pnl: float | None = None
 
 
+class PositionActivate(BaseModel):
+    entry_price: float = Field(..., gt=0)
+    quantity: float | None = Field(default=None, gt=0)
+    entry_date: datetime | None = None
+
+
 class Position(PositionBase):
     model_config = ConfigDict(from_attributes=True)
 

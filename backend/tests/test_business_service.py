@@ -13,6 +13,7 @@ from backend.app.schemas.business import (
     CandidatePlanCreate,
     CandidateUpdate,
     ExitAlertEvaluationRequest,
+    PositionActivate,
     PositionCreate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
@@ -620,6 +621,8 @@ def test_create_candidate_plan_from_candidate_is_planned_and_idempotent(session)
         ),
     )
 
+    assert BusinessService.get_candidate_plan(session, principal, "cand_spy_plan") is None
+
     position = BusinessService.create_candidate_plan(
         session,
         principal,
@@ -642,6 +645,10 @@ def test_create_candidate_plan_from_candidate_is_planned_and_idempotent(session)
     assert position.quantity == 3
     assert duplicate.position_id == position.position_id
     assert duplicate.quantity == 3
+    assert (
+        BusinessService.get_candidate_plan(session, principal, "cand_spy_plan").position_id
+        == position.position_id
+    )
     assert BusinessService.count_positions(session, principal) == 1
     assert BusinessService.count_positions(session, principal, status="planned") == 1
     assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
@@ -667,6 +674,68 @@ def test_create_candidate_plan_requires_entry_and_stop(session) -> None:
             principal,
             "cand_missing_plan",
             CandidatePlanCreate(),
+        )
+
+
+def test_activate_position_moves_planned_to_open(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_activate",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="planned",
+            entry_price=100,
+            quantity=2,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    activated = BusinessService.activate_position(
+        session,
+        principal,
+        "pos_spy_activate",
+        PositionActivate(
+            entry_price=101.25,
+            quantity=3,
+            entry_date=datetime(2026, 4, 27, tzinfo=UTC),
+        ),
+    )
+
+    assert activated.status == "open"
+    assert activated.entry_price == 101.25
+    assert activated.quantity == 3
+    assert activated.entry_date.replace(tzinfo=UTC) == datetime(2026, 4, 27, tzinfo=UTC)
+    assert activated.current_stop == 90
+    assert activated.current_r == 0
+    assert BusinessService.dashboard_summary(session, principal).open_position_count == 1
+
+
+def test_activate_position_requires_planned_status(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_open",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="must be planned"):
+        BusinessService.activate_position(
+            session,
+            principal,
+            "pos_spy_open",
+            PositionActivate(entry_price=101),
         )
 
 
