@@ -9,12 +9,14 @@ export function TableShell({
   loading,
   error,
   locale,
+  actions,
   children
 }: {
   title: string;
   loading: boolean;
   error: boolean;
   locale: Locale;
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -24,7 +26,10 @@ export function TableShell({
           <BookOpen size={18} className="shrink-0 text-teal" />
           <h2 className="truncate text-base font-semibold text-ink">{title}</h2>
         </div>
-        <DataState isLoading={loading} isError={error} locale={locale} />
+        <div className="flex shrink-0 items-center gap-2">
+          {actions}
+          <DataState isLoading={loading} isError={error} locale={locale} />
+        </div>
       </div>
       <div className="overflow-x-auto">{children}</div>
     </section>

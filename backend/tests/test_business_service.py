@@ -8,7 +8,13 @@ from sqlalchemy.orm import sessionmaker
 from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
-from backend.app.schemas.business import CandidateCreate, CandidatePlanCreate, CandidateUpdate
+from backend.app.schemas.business import (
+    CandidateCreate,
+    CandidatePlanCreate,
+    CandidateUpdate,
+    ExitAlertEvaluationRequest,
+    PositionCreate,
+)
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
 from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
@@ -662,3 +668,127 @@ def test_create_candidate_plan_requires_entry_and_stop(session) -> None:
             "cand_missing_plan",
             CandidatePlanCreate(),
         )
+
+
+def test_evaluate_exit_alerts_for_planned_entry_is_idempotent(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_plan",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="planned",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    session.add(_bar(symbol="SPY", ts=datetime(2026, 4, 27), close=99, high=101, low=98))
+    session.commit()
+
+    response = BusinessService.evaluate_exit_alerts(
+        session,
+        principal,
+        ExitAlertEvaluationRequest(),
+    )
+    duplicate = BusinessService.evaluate_exit_alerts(
+        session,
+        principal,
+        ExitAlertEvaluationRequest(),
+    )
+
+    assert response.positions_evaluated == 1
+    assert response.alerts_created == 1
+    assert response.alerts[0].position_id == "pos_spy_plan"
+    assert response.alerts[0].action == "review_entry"
+    assert response.alerts[0].reason == "planned_entry_trigger_reached"
+    assert response.alerts[0].new_stop == 90
+    assert duplicate.alerts_created == 0
+    assert duplicate.duplicate_alerts == 1
+    assert BusinessService.count_exit_alerts(session, principal, acknowledged=False) == 1
+
+
+def test_evaluate_exit_alerts_for_open_position_stop_and_trim(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_qqq_open",
+            symbol_id="QQQ",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=95,
+            current_stop=95,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_iwm_open",
+            symbol_id="IWM",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    session.add(_bar(symbol="QQQ", ts=datetime(2026, 4, 27), close=94, high=97, low=93))
+    session.add(_bar(symbol="IWM", ts=datetime(2026, 4, 27), close=121, high=122, low=119))
+    session.commit()
+
+    response = BusinessService.evaluate_exit_alerts(
+        session,
+        principal,
+        ExitAlertEvaluationRequest(),
+    )
+    reasons = {alert.reason for alert in response.alerts}
+
+    assert response.positions_evaluated == 2
+    assert response.alerts_created == 2
+    assert reasons == {"daily_close_below_current_stop", "first_trim_target_reached_2r"}
+    assert {alert.action for alert in response.alerts} == {"exit", "trim"}
+
+
+def test_evaluate_exit_alerts_uses_latest_pa_fact_for_ma_support(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_smh_open",
+            symbol_id="SMH",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=80,
+            current_stop=80,
+        ),
+    )
+    ts = datetime(2026, 4, 27)
+    session.add(_bar(symbol="SMH", ts=ts, close=95, high=96, low=94))
+    session.add(
+        db.PAFact(
+            fact_id="pafact_smh_1d_2026-04-27",
+            symbol_id="SMH",
+            timeframe="1d",
+            ts=ts,
+            facts={"sma_20": 100, "sma_50": 98},
+        )
+    )
+    session.commit()
+
+    response = BusinessService.evaluate_exit_alerts(
+        session,
+        principal,
+        ExitAlertEvaluationRequest(position_id="pos_smh_open"),
+    )
+
+    assert response.alerts_created == 1
+    assert response.alerts[0].action == "review_exit"
+    assert response.alerts[0].reason == "close_below_20_50ma_support"

@@ -10,6 +10,7 @@ from backend.app.api.routes.business import (
     create_candidate,
     create_candidate_plan,
     create_exit_alert,
+    evaluate_exit_alerts,
     create_journal_trade,
     create_position,
     get_dashboard_summary,
@@ -43,6 +44,8 @@ from backend.app.schemas.business import (
     DataFreshnessSummary,
     ExitAlert,
     ExitAlertCreate,
+    ExitAlertEvaluationRequest,
+    ExitAlertEvaluationResponse,
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
@@ -481,6 +484,17 @@ def test_exit_alert_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "evaluate_exit_alerts",
+        lambda session, principal, request: ExitAlertEvaluationResponse(
+            account_id=principal.account_id,
+            positions_evaluated=1,
+            alerts_created=1,
+            symbols_processed=["SPY"],
+            alerts=[_alert()],
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "list_exit_alerts",
         lambda session, principal, acknowledged, limit, offset: [_alert()],
     )
@@ -502,6 +516,14 @@ def test_exit_alert_routes(monkeypatch) -> None:
             principal=_principal(),
         ).alert_id
         == "alert_1"
+    )
+    assert (
+        evaluate_exit_alerts(
+            ExitAlertEvaluationRequest(),
+            session=None,
+            principal=_principal(),
+        ).alerts_created
+        == 1
     )
     assert list_exit_alerts(
         session=None,

@@ -345,6 +345,21 @@ export type ExitAlert = {
   alert_ts: string | null;
 };
 
+export type ExitAlertEvaluationRequest = {
+  position_id?: string;
+  limit?: number;
+};
+
+export type ExitAlertEvaluationResponse = {
+  account_id: string;
+  positions_evaluated: number;
+  alerts_created: number;
+  skipped_positions: number;
+  duplicate_alerts: number;
+  symbols_processed: string[];
+  alerts: ExitAlert[];
+};
+
 export type JournalTrade = {
   trade_id: string;
   symbol_id: string | null;
@@ -538,6 +553,8 @@ export const api = {
         acknowledged: "false"
       })}`
     ),
+  evaluateExitAlerts: (request: ExitAlertEvaluationRequest = {}) =>
+    postJson<ExitAlertEvaluationResponse>("/api/exit-alerts/evaluate", request),
   journal: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<JournalTrade[]>(
       `/api/journal/trades${queryString({

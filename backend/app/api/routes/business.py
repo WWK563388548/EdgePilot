@@ -11,6 +11,8 @@ from backend.app.schemas.business import (
     DashboardSummary,
     ExitAlert,
     ExitAlertCreate,
+    ExitAlertEvaluationRequest,
+    ExitAlertEvaluationResponse,
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
@@ -326,6 +328,22 @@ def create_exit_alert(
 ) -> ExitAlert:
     try:
         return BusinessService.create_exit_alert(session=session, principal=principal, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/exit-alerts/evaluate", response_model=ExitAlertEvaluationResponse)
+def evaluate_exit_alerts(
+    request: ExitAlertEvaluationRequest,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> ExitAlertEvaluationResponse:
+    try:
+        return BusinessService.evaluate_exit_alerts(
+            session=session,
+            principal=principal,
+            request=request,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -156,6 +156,21 @@ class ExitAlert(ExitAlertBase):
     alert_ts: datetime | None = None
 
 
+class ExitAlertEvaluationRequest(BaseModel):
+    position_id: str | None = None
+    limit: int | None = Field(default=None, ge=1, le=500)
+
+
+class ExitAlertEvaluationResponse(BaseModel):
+    account_id: str
+    positions_evaluated: int
+    alerts_created: int
+    skipped_positions: int = 0
+    duplicate_alerts: int = 0
+    symbols_processed: list[str] = Field(default_factory=list)
+    alerts: list[ExitAlert] = Field(default_factory=list)
+
+
 class JournalTradeBase(BaseModel):
     position_id: str | None = None
     symbol_id: str | None = None

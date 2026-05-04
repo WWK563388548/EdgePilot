@@ -1,9 +1,14 @@
 "use client";
 
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
+import { useState } from "react";
+
 import { DataState } from "@/components/workspace/atoms/data-state";
 import { PaginationControls } from "@/components/workspace/molecules/pagination-controls";
 import { TableShell } from "@/components/workspace/molecules/table-shell";
 import type { ExitAlert, JournalTrade, Position } from "@/lib/api";
+import { api } from "@/lib/api";
 import { formatDate, formatValue } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
@@ -91,10 +96,59 @@ export function AlertsTable({
   onPageChange,
   locale
 }: PaginatedTableProps<ExitAlert>) {
-  const { t } = useAppI18n();
+  const { labelFor, t } = useAppI18n();
+  const queryClient = useQueryClient();
+  const [evaluationResult, setEvaluationResult] = useState<string | null>(null);
+  const evaluateAlerts = useMutation({
+    mutationFn: () => api.evaluateExitAlerts(),
+    onSuccess: async (response) => {
+      setEvaluationResult(
+        t("exitAlertEvaluationResult", {
+          alerts: response.alerts_created,
+          duplicates: response.duplicate_alerts
+        })
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["alerts"] }),
+        queryClient.invalidateQueries({ queryKey: ["alerts-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["positions"] }),
+        queryClient.invalidateQueries({ queryKey: ["positions-count"] })
+      ]);
+    },
+    onError: () => {
+      setEvaluationResult(null);
+    }
+  });
 
   return (
-    <TableShell title={t("alerts")} loading={loading} error={error} locale={locale}>
+    <TableShell
+      title={t("alerts")}
+      loading={loading || evaluateAlerts.isPending}
+      error={error || evaluateAlerts.isError}
+      locale={locale}
+      actions={
+        <button
+          className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={evaluateAlerts.isPending}
+          onClick={() => evaluateAlerts.mutate()}
+          title={t("exitAlertEvaluationHelp")}
+          type="button"
+        >
+          <RefreshCw size={16} className={evaluateAlerts.isPending ? "animate-spin" : ""} />
+          {evaluateAlerts.isPending ? t("evaluatingExitAlerts") : t("evaluateExitAlerts")}
+        </button>
+      }
+    >
+      {evaluationResult || evaluateAlerts.isError ? (
+        <div
+          className={`border-b border-line px-4 py-3 text-sm ${
+            evaluateAlerts.isError ? "bg-rose-50 text-rose-700" : "bg-teal-50 text-teal-800"
+          }`}
+        >
+          {evaluateAlerts.isError ? t("exitAlertEvaluationFailed") : evaluationResult}
+        </div>
+      ) : null}
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
@@ -118,8 +172,8 @@ export function AlertsTable({
           {data.map((row) => (
             <tr key={row.alert_id} className="border-t border-line">
               <td className="px-4 py-3">{formatValue(row.level)}</td>
-              <td className="px-4 py-3">{formatValue(row.action)}</td>
-              <td className="px-4 py-3">{formatValue(row.reason)}</td>
+              <td className="px-4 py-3">{labelFor("plan", row.action)}</td>
+              <td className="px-4 py-3">{labelFor("plan", row.reason)}</td>
               <td className="px-4 py-3">{formatValue(row.new_stop)}</td>
               <td className="px-4 py-3">{formatDate(row.alert_ts, locale)}</td>
             </tr>

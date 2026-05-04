@@ -19,6 +19,8 @@ from backend.app.schemas.business import (
     DataFreshnessSummary,
     ExitAlert,
     ExitAlertCreate,
+    ExitAlertEvaluationRequest,
+    ExitAlertEvaluationResponse,
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
@@ -65,6 +67,13 @@ def _rate(numerator: int, denominator: int) -> float | None:
 
 
 def _number_from_plan(data: dict | None, key: str) -> float | None:
+    value = data.get(key) if data else None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _number_from_record(data: dict | None, key: str) -> float | None:
     value = data.get(key) if data else None
     if isinstance(value, int | float):
         return float(value)
@@ -708,6 +717,180 @@ class BusinessService:
         session.commit()
         session.refresh(alert)
         return ExitAlert.model_validate(alert)
+
+    @staticmethod
+    def evaluate_exit_alerts(
+        session: Session,
+        principal: AuthPrincipal,
+        request: ExitAlertEvaluationRequest,
+    ) -> ExitAlertEvaluationResponse:
+        statement = select(db.Position).where(
+            db.Position.account_id == principal.account_id,
+            db.Position.status.in_(("planned", "open", "reduce")),
+        )
+        if request.position_id:
+            statement = statement.where(db.Position.position_id == request.position_id)
+        statement = statement.order_by(db.Position.updated_at.desc())
+        if request.limit is not None:
+            statement = statement.limit(request.limit)
+
+        positions = list(session.scalars(statement).all())
+        if request.position_id and not positions:
+            raise ValueError(f"Position not found: {request.position_id}")
+
+        skipped_positions = 0
+        duplicate_alerts = 0
+        symbols: set[str] = set()
+        created: list[db.ExitAlert] = []
+        for position in positions:
+            latest_bar = BusinessService._latest_bar(session, position.symbol_id)
+            latest_fact = BusinessService._latest_fact(session, position.symbol_id)
+            if latest_bar is None:
+                skipped_positions += 1
+                continue
+            symbols.add(position.symbol_id)
+            for spec in BusinessService._exit_alert_specs(position, latest_bar, latest_fact):
+                alert_id = f"alert_{position.position_id}_{spec['rule']}_{latest_bar.ts.date().isoformat()}"
+                if session.get(db.ExitAlert, alert_id) is not None:
+                    duplicate_alerts += 1
+                    continue
+                alert = db.ExitAlert(
+                    alert_id=alert_id,
+                    account_id=principal.account_id,
+                    position_id=position.position_id,
+                    alert_ts=latest_bar.ts,
+                    level=spec["level"],
+                    action=spec["action"],
+                    reason=spec["reason"],
+                    new_stop=spec["new_stop"],
+                    triggered_rules=spec["rule"],
+                    acknowledged=False,
+                )
+                session.add(alert)
+                created.append(alert)
+
+        if positions:
+            BusinessService._audit(
+                session,
+                principal,
+                "exit_alert.evaluate",
+                "exit_alert",
+                request.position_id,
+            )
+        session.commit()
+        for alert in created:
+            session.refresh(alert)
+        return ExitAlertEvaluationResponse(
+            account_id=principal.account_id,
+            positions_evaluated=len(positions),
+            alerts_created=len(created),
+            skipped_positions=skipped_positions,
+            duplicate_alerts=duplicate_alerts,
+            symbols_processed=sorted(symbols),
+            alerts=[ExitAlert.model_validate(alert) for alert in created],
+        )
+
+    @staticmethod
+    def _latest_bar(session: Session, symbol_id: str, timeframe: str = "1d") -> db.Bar | None:
+        return session.scalar(
+            select(db.Bar)
+            .where(db.Bar.symbol_id == symbol_id, db.Bar.timeframe == timeframe)
+            .order_by(db.Bar.ts.desc())
+            .limit(1)
+        )
+
+    @staticmethod
+    def _latest_fact(session: Session, symbol_id: str, timeframe: str = "1d") -> db.PAFact | None:
+        return session.scalar(
+            select(db.PAFact)
+            .where(db.PAFact.symbol_id == symbol_id, db.PAFact.timeframe == timeframe)
+            .order_by(db.PAFact.ts.desc())
+            .limit(1)
+        )
+
+    @staticmethod
+    def _exit_alert_specs(
+        position: db.Position,
+        latest_bar: db.Bar,
+        latest_fact: db.PAFact | None,
+    ) -> list[dict[str, object]]:
+        close = latest_bar.close
+        high = latest_bar.high
+        if close is None:
+            return []
+
+        stop = position.current_stop or position.initial_stop
+        if position.status == "planned":
+            if position.entry_price is not None and high is not None and high >= position.entry_price:
+                return [
+                    {
+                        "rule": "planned_entry_trigger_reached",
+                        "level": 1,
+                        "action": "review_entry",
+                        "reason": "planned_entry_trigger_reached",
+                        "new_stop": stop,
+                    }
+                ]
+            return []
+
+        specs: list[dict[str, object]] = []
+        if stop is not None and close <= stop:
+            specs.append(
+                {
+                    "rule": "daily_close_below_current_stop",
+                    "level": 3,
+                    "action": "exit",
+                    "reason": "daily_close_below_current_stop",
+                    "new_stop": stop,
+                }
+            )
+
+        facts = latest_fact.facts if latest_fact else None
+        sma_20 = _number_from_record(facts, "sma_20")
+        sma_50 = _number_from_record(facts, "sma_50")
+        if sma_20 is not None and sma_50 is not None and close < sma_20 and close < sma_50:
+            specs.append(
+                {
+                    "rule": "close_below_20_50ma_support",
+                    "level": 2,
+                    "action": "review_exit",
+                    "reason": "close_below_20_50ma_support",
+                    "new_stop": stop,
+                }
+            )
+        elif sma_50 is not None and close < sma_50:
+            specs.append(
+                {
+                    "rule": "close_below_50ma",
+                    "level": 2,
+                    "action": "tighten_stop",
+                    "reason": "close_below_50ma",
+                    "new_stop": stop,
+                }
+            )
+        elif sma_20 is not None and close < sma_20:
+            specs.append(
+                {
+                    "rule": "close_below_20ma",
+                    "level": 1,
+                    "action": "watch_pullback",
+                    "reason": "close_below_20ma",
+                    "new_stop": stop,
+                }
+            )
+
+        risk = position.entry_price - stop if position.entry_price is not None and stop is not None else None
+        if risk is not None and risk > 0 and close >= position.entry_price + (2 * risk):
+            specs.append(
+                {
+                    "rule": "first_trim_target_reached_2r",
+                    "level": 1,
+                    "action": "trim",
+                    "reason": "first_trim_target_reached_2r",
+                    "new_stop": max(stop, position.entry_price),
+                }
+            )
+        return specs
 
     @staticmethod
     def list_exit_alerts(

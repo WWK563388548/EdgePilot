@@ -45,6 +45,11 @@ const text = {
     noSetup: "没有 PA setup 数据。",
     noPositions: "没有持仓数据。",
     noAlerts: "没有未处理离场提醒。",
+    evaluateExitAlerts: "评估提醒",
+    evaluatingExitAlerts: "评估中",
+    exitAlertEvaluationHelp: "用数据库里已有最新日线检查 planned/open/reduce 计划，生成触发、止损、均线失守和 2R 减仓提醒；不会下单。",
+    exitAlertEvaluationResult: "提醒评估完成：新增 {alerts} 条，重复 {duplicates} 条。",
+    exitAlertEvaluationFailed: "提醒评估失败，请稍后重试。",
     noJournal: "没有交易日志数据。",
     plainExplanation: "人话解释",
     overviewDetails: "概要信息",
@@ -328,6 +333,11 @@ const text = {
     noSetup: "No PA setups found.",
     noPositions: "No positions found.",
     noAlerts: "No open exit alerts found.",
+    evaluateExitAlerts: "Evaluate Alerts",
+    evaluatingExitAlerts: "Evaluating",
+    exitAlertEvaluationHelp: "Checks planned/open/reduce plans against stored latest daily bars and creates trigger, stop, MA-support, and 2R trim alerts. It does not place orders.",
+    exitAlertEvaluationResult: "Alert evaluation complete: created {alerts}, duplicate {duplicates}.",
+    exitAlertEvaluationFailed: "Alert evaluation failed. Please try again.",
     noJournal: "No journal trades found.",
     plainExplanation: "Plain-English Explanation",
     overviewDetails: "Overview Details",
@@ -611,6 +621,11 @@ const text = {
     noSetup: "PA setup データがありません。",
     noPositions: "ポジションデータがありません。",
     noAlerts: "未対応の決済アラートはありません。",
+    evaluateExitAlerts: "アラート評価",
+    evaluatingExitAlerts: "評価中",
+    exitAlertEvaluationHelp: "保存済みの最新日足で planned/open/reduce 計画を確認し、トリガー、損切り、移動平均サポート割れ、2R 利確アラートを作成します。注文は出しません。",
+    exitAlertEvaluationResult: "アラート評価完了：新規 {alerts} 件、重複 {duplicates} 件。",
+    exitAlertEvaluationFailed: "アラート評価に失敗しました。もう一度お試しください。",
     noJournal: "売買日誌データがありません。",
     plainExplanation: "わかりやすい説明",
     overviewDetails: "概要情報",
@@ -959,6 +974,42 @@ const labels = {
       zh: "日线收盘跌破初始止损，或形态失去 20/50 日均线支撑",
       en: "Daily close below the initial stop, or the setup loses 20/50MA support",
       ja: "日足終値が初期損切りを下回る、または20/50日線の支えを失う"
+    },
+    review_entry: { zh: "检查入场", en: "Review entry", ja: "エントリー確認" },
+    exit: { zh: "离场", en: "Exit", ja: "決済" },
+    review_exit: { zh: "检查离场", en: "Review exit", ja: "決済確認" },
+    tighten_stop: { zh: "收紧止损", en: "Tighten stop", ja: "損切り引き上げ" },
+    watch_pullback: { zh: "观察回撤", en: "Watch pullback", ja: "押し目確認" },
+    trim: { zh: "减仓", en: "Trim", ja: "一部利確" },
+    planned_entry_trigger_reached: {
+      zh: "计划入场价已触发，请人工确认是否执行",
+      en: "Planned entry trigger reached; manually decide whether to execute",
+      ja: "計画エントリー価格に到達。実行するか手動で確認してください"
+    },
+    daily_close_below_current_stop: {
+      zh: "日线收盘跌破当前止损",
+      en: "Daily close below current stop",
+      ja: "日足終値が現在の損切りを下回りました"
+    },
+    close_below_20_50ma_support: {
+      zh: "收盘失去 20/50 日均线支撑",
+      en: "Close lost 20/50MA support",
+      ja: "終値が20/50日線サポートを失いました"
+    },
+    close_below_50ma: {
+      zh: "收盘跌破 50 日均线",
+      en: "Close below 50MA",
+      ja: "終値が50日線を下回りました"
+    },
+    close_below_20ma: {
+      zh: "收盘跌破 20 日均线",
+      en: "Close below 20MA",
+      ja: "終値が20日線を下回りました"
+    },
+    first_trim_target_reached_2r: {
+      zh: "达到 2R 首次减仓观察位",
+      en: "2R first-trim area reached",
+      ja: "2Rの初回利確目安に到達"
     }
   }
 } as const;
