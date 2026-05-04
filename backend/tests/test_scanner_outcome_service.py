@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -56,6 +56,46 @@ def test_calculate_scanner_outcome_marks_false_breakout_after_trigger_stop(sessi
     assert outcome.false_breakout is True
     assert outcome.trigger_ts == detected_ts + timedelta(days=1)
     assert outcome.stop_ts == detected_ts + timedelta(days=2)
+
+
+def test_unlinked_candidate_uses_scan_date_end_of_day_reference(session) -> None:
+    scan_date = date(2026, 1, 2)
+    session.add(_bar(symbol="IWM", ts=datetime(2026, 1, 1, 4), close=90, high=91, low=89))
+    session.add(_bar(symbol="IWM", ts=datetime(2026, 1, 2, 4), close=100, high=101, low=99))
+    for index in range(1, 7):
+        session.add(
+            _bar(
+                symbol="IWM",
+                ts=datetime(2026, 1, 2, 4) + timedelta(days=index),
+                close=100 + index,
+                high=106 + index,
+                low=99 + index,
+            )
+        )
+    session.add(
+        db.Candidate(
+            candidate_id="cand_iwm_unlinked",
+            account_id="acct_local",
+            symbol_id="IWM",
+            scan_date=scan_date,
+            strategy_name="oneil_core_us_etf",
+            setup_type="breakout",
+            score_total=70,
+            entry_trigger=105,
+            initial_stop=95,
+            decision="candidate",
+        )
+    )
+    session.flush()
+
+    outcome = ScannerOutcomeService.calculate_by_candidate_id(session, "cand_iwm_unlinked")
+
+    assert outcome.detected_ts.date() == scan_date
+    assert outcome.detected_ts.time() == time.max
+    assert outcome.reference_close == 100
+    assert outcome.bars_available == 6
+    assert outcome.triggered_entry is True
+    assert outcome.trigger_ts == datetime(2026, 1, 3, 4)
 
 
 def _add_setup_and_candidate(

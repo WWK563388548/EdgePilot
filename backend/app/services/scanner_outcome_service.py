@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -7,6 +7,10 @@ from backend.app import models as db
 from backend.app.schemas.outcome import ScannerOutcome
 
 OUTCOME_HORIZONS = (5, 10, 20, 60)
+
+
+def _fallback_detected_ts(scan_date: date) -> datetime:
+    return datetime.combine(scan_date, time.max, tzinfo=UTC)
 
 
 class ScannerOutcomeService:
@@ -19,7 +23,7 @@ class ScannerOutcomeService:
         detected_ts = (
             setup.detected_ts
             if setup is not None
-            else datetime.combine(candidate.scan_date, time.min, tzinfo=UTC)
+            else _fallback_detected_ts(candidate.scan_date)
         )
         timeframe = setup.timeframe if setup is not None else "1d"
         reference_bar = ScannerOutcomeService._reference_bar(
