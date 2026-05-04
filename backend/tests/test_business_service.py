@@ -10,6 +10,7 @@ from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
 from backend.app.schemas.business import CandidateCreate, CandidateUpdate
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
+from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
@@ -21,6 +22,20 @@ def _principal(user_id: str, account_id: str) -> AuthPrincipal:
         role="owner",
         external_subject=user_id,
         email_verified=True,
+    )
+
+
+def _bar(*, symbol: str, ts: datetime, close: float, high: float, low: float) -> db.Bar:
+    return db.Bar(
+        symbol_id=symbol,
+        timeframe="1d",
+        ts=ts,
+        open=close - 1,
+        high=high,
+        low=low,
+        close=close,
+        volume=1_000_000,
+        source="test",
     )
 
 
@@ -327,6 +342,74 @@ def test_scanner_outcomes_are_account_scoped_and_summarized(session) -> None:
 
     with pytest.raises(ValueError):
         BusinessService.get_candidate_outcome(session, principal_a, "cand_b1")
+
+
+def test_recalculate_scanner_outcomes_backfills_existing_candidates(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    detected_ts = datetime(2026, 4, 26)
+    setup_id = "pasetup_spy_1d_2026-04-26_breakout"
+    session.add(
+        db.PASetup(
+            setup_id=setup_id,
+            symbol_id="SPY",
+            timeframe="1d",
+            detected_ts=detected_ts,
+            setup_type="breakout",
+            setup_grade="A",
+            pa_quality_score=82,
+            entry_plan={"trigger_price": 105},
+            exit_plan={"initial_stop": 95},
+        )
+    )
+    session.add(_bar(symbol="SPY", ts=detected_ts, close=100, high=101, low=99))
+    for index in range(1, 21):
+        session.add(
+            _bar(
+                symbol="SPY",
+                ts=detected_ts + timedelta(days=index),
+                close=100 + index,
+                high=101 + index,
+                low=99 + index,
+            )
+        )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_spy",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            setup_type="breakout",
+            pa_setup_id=setup_id,
+            decision="candidate",
+            entry_trigger=105,
+            initial_stop=95,
+        ),
+    )
+
+    response = BusinessService.recalculate_scanner_outcomes(
+        session,
+        principal,
+        ScannerOutcomeRecalculateRequest(),
+    )
+    outcome = session.get(db.ScannerOutcome, "outcome_cand_spy")
+
+    assert response.account_id == "acct_a"
+    assert response.candidates_scanned == 1
+    assert response.outcomes_written == 1
+    assert response.status_counts == {"matured_20d": 1}
+    assert response.symbols_processed == ["SPY"]
+    assert outcome is not None
+    assert outcome.evaluation_status == "matured_20d"
+    assert outcome.forward_return_20d == 0.2
+
+    with pytest.raises(ValueError, match="Candidate not found: missing"):
+        BusinessService.recalculate_scanner_outcomes(
+            session,
+            principal,
+            ScannerOutcomeRecalculateRequest(candidate_id="missing"),
+        )
 
 
 def test_account_refresh_replaces_current_account_candidates(session, monkeypatch) -> None:

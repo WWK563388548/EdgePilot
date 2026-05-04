@@ -195,7 +195,11 @@ def _horizon_metrics(*, reference_close: float | None, future_bars: list[db.Bar]
 def _evaluation_status(reference_bar: db.Bar | None, bars_available: int) -> str:
     if reference_bar is None:
         return "missing_reference"
-    return "matured_60d" if bars_available >= max(OUTCOME_HORIZONS) else "pending"
+    if bars_available >= max(OUTCOME_HORIZONS):
+        return "matured_60d"
+    if bars_available >= 20:
+        return "matured_20d"
+    return "pending"
 
 
 def _first_index_at_or_above(bars: list[db.Bar], threshold: float | None, offset: int = 0) -> int | None:

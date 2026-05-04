@@ -19,7 +19,12 @@ from backend.app.schemas.business import (
     PositionUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
-from backend.app.schemas.outcome import ScannerOutcome, ScannerOutcomeSummary
+from backend.app.schemas.outcome import (
+    ScannerOutcome,
+    ScannerOutcomeRecalculateRequest,
+    ScannerOutcomeRecalculateResponse,
+    ScannerOutcomeSummary,
+)
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
@@ -162,6 +167,22 @@ def get_scanner_outcome_summary(
         evaluation_status=evaluation_status,
         symbol=symbol,
     )
+
+
+@router.post("/candidates/outcomes/recalculate", response_model=ScannerOutcomeRecalculateResponse)
+def recalculate_scanner_outcomes(
+    session: DbSession,
+    principal: TraderPrincipal,
+    request: ScannerOutcomeRecalculateRequest | None = None,
+) -> ScannerOutcomeRecalculateResponse:
+    try:
+        return BusinessService.recalculate_scanner_outcomes(
+            session=session,
+            principal=principal,
+            request=request or ScannerOutcomeRecalculateRequest(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/candidates/{candidate_id}/outcome", response_model=ScannerOutcome)

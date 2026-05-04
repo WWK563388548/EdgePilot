@@ -1,23 +1,34 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Activity, CheckCircle2, CircleSlash, ListFilter, TrendingUp } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Activity,
+  CheckCircle2,
+  CircleSlash,
+  HelpCircle,
+  ListFilter,
+  RefreshCw,
+  TrendingUp
+} from "lucide-react";
 import { useState } from "react";
 
 import { CompactStat } from "@/components/workspace/atoms/stat-card";
 import { DataState } from "@/components/workspace/atoms/data-state";
+import { ScannerOutcomeGuide } from "@/components/workspace/molecules/scanner-outcome-guide";
 import { ScannerOutcomeTable } from "@/components/workspace/organisms/scanner-outcome-table";
 import { api, type ScannerOutcomeFilters } from "@/lib/api";
 import { localeTag, type Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
 const OUTCOME_PAGE_SIZE = 10;
-type OutcomeStatusFilter = "all" | "matured_60d" | "pending" | "missing_reference";
+type OutcomeStatusFilter = "all" | "matured_60d" | "matured_20d" | "pending" | "missing_reference";
 
 export function OutcomesView({ locale }: { locale: Locale }) {
   const { labelFor, t } = useAppI18n();
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<OutcomeStatusFilter>("all");
   const [page, setPage] = useState(0);
+  const [recalculateResult, setRecalculateResult] = useState<string | null>(null);
   const evaluationStatus = statusFilter === "all" ? undefined : statusFilter;
   const baseFilters: ScannerOutcomeFilters = {
     evaluationStatus
@@ -39,6 +50,26 @@ export function OutcomesView({ locale }: { locale: Locale }) {
   const summary = useQuery({
     queryKey: ["scanner-outcomes-summary", evaluationStatus],
     queryFn: () => api.scannerOutcomeSummary(baseFilters)
+  });
+  const recalculate = useMutation({
+    mutationFn: () => api.recalculateScannerOutcomes(),
+    onSuccess: async (response) => {
+      setPage(0);
+      setRecalculateResult(
+        t("recalculateOutcomesResult", {
+          outcomes: response.outcomes_written,
+          skipped: response.skipped_candidates
+        })
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-summary"] })
+      ]);
+    },
+    onError: () => {
+      setRecalculateResult(null);
+    }
   });
   const rawRows = outcomes.data ?? [];
   const rows = rawRows.slice(0, OUTCOME_PAGE_SIZE);
@@ -69,6 +100,8 @@ export function OutcomesView({ locale }: { locale: Locale }) {
         />
       </div>
 
+      <ScannerOutcomeGuide />
+
       <section className="overflow-hidden rounded-md border border-line bg-white shadow-[0_1px_0_rgba(22,32,42,0.04)]">
         <div className="flex flex-col gap-3 border-b border-line bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-2">
@@ -79,6 +112,22 @@ export function OutcomesView({ locale }: { locale: Locale }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={recalculate.isPending}
+              onClick={() => recalculate.mutate()}
+              title={t("recalculateOutcomesHelp")}
+              type="button"
+            >
+              <RefreshCw size={16} className={recalculate.isPending ? "animate-spin" : ""} />
+              {recalculate.isPending ? t("recalculatingOutcomes") : t("recalculateOutcomes")}
+            </button>
+            <span
+              className="inline-flex h-9 items-center rounded-md border border-line bg-panel px-2 text-slate-500"
+              title={t("recalculateOutcomesHelp")}
+            >
+              <HelpCircle size={15} />
+            </span>
             <OutcomeStatusControl
               active={statusFilter}
               labelFor={(value) => (value === "all" ? t("allOutcomes") : labelFor("status", value))}
@@ -88,12 +137,22 @@ export function OutcomesView({ locale }: { locale: Locale }) {
               }}
             />
             <DataState
-              isLoading={outcomes.isLoading || summary.isLoading}
-              isError={outcomes.isError || summary.isError}
+              isLoading={outcomes.isLoading || summary.isLoading || recalculate.isPending}
+              isError={outcomes.isError || summary.isError || recalculate.isError}
               locale={locale}
             />
           </div>
         </div>
+
+        {recalculateResult || recalculate.isError ? (
+          <div
+            className={`border-b border-line px-4 py-3 text-sm ${
+              recalculate.isError ? "bg-rose-50 text-rose-700" : "bg-teal-50 text-teal-800"
+            }`}
+          >
+            {recalculate.isError ? t("recalculateOutcomesFailed") : recalculateResult}
+          </div>
+        ) : null}
 
         <div className="grid gap-3 border-b border-line bg-panel/45 px-4 py-3 text-sm text-slate-600 lg:grid-cols-3">
           <SummaryMetric label={t("maturedOutcomes")} value={summary.data?.matured_count ?? 0} />
@@ -129,7 +188,13 @@ function OutcomeStatusControl({
   onChange: (filter: OutcomeStatusFilter) => void;
   labelFor: (value: OutcomeStatusFilter) => string;
 }) {
-  const options: OutcomeStatusFilter[] = ["all", "matured_60d", "pending", "missing_reference"];
+  const options: OutcomeStatusFilter[] = [
+    "all",
+    "matured_60d",
+    "matured_20d",
+    "pending",
+    "missing_reference"
+  ];
 
   return (
     <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-md border border-line bg-panel p-1">

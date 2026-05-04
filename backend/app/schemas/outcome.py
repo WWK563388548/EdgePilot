@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ScannerOutcome(BaseModel):
@@ -64,3 +64,19 @@ class ScannerOutcomeSummary(BaseModel):
     avg_mfe_60d: float | None = None
     avg_mae_20d: float | None = None
     avg_mae_60d: float | None = None
+
+
+class ScannerOutcomeRecalculateRequest(BaseModel):
+    candidate_id: str | None = None
+    symbol: str | None = None
+    strategy_name: str | None = "oneil_core_us_etf"
+    limit: int | None = Field(default=None, ge=1, le=5000)
+
+
+class ScannerOutcomeRecalculateResponse(BaseModel):
+    account_id: str
+    candidates_scanned: int
+    outcomes_written: int
+    skipped_candidates: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    symbols_processed: list[str] = Field(default_factory=list)

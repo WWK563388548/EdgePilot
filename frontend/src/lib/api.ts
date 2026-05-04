@@ -293,6 +293,22 @@ export type ScannerOutcomeFilters = {
   offset?: number;
 };
 
+export type ScannerOutcomeRecalculateRequest = {
+  candidate_id?: string;
+  symbol?: string;
+  strategy_name?: string | null;
+  limit?: number;
+};
+
+export type ScannerOutcomeRecalculateResponse = {
+  account_id: string;
+  candidates_scanned: number;
+  outcomes_written: number;
+  skipped_candidates: number;
+  status_counts: Record<string, number>;
+  symbols_processed: string[];
+};
+
 export type Position = {
   position_id: string;
   symbol_id: string;
@@ -451,6 +467,11 @@ export const api = {
         evaluation_status: filters.evaluationStatus,
         symbol: filters.symbol
       })}`
+    ),
+  recalculateScannerOutcomes: (request: ScannerOutcomeRecalculateRequest = {}) =>
+    postJson<ScannerOutcomeRecalculateResponse>(
+      "/api/candidates/outcomes/recalculate",
+      request
     ),
   candidateOutcome: (candidateId: string) =>
     getJson<ScannerOutcome>(`/api/candidates/${encodeURIComponent(candidateId)}/outcome`),

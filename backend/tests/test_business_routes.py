@@ -21,6 +21,7 @@ from backend.app.api.routes.business import (
     list_journal_trades,
     list_positions,
     refresh_account_us_etf_oneil_core_scanner,
+    recalculate_scanner_outcomes,
     run_account_us_etf_oneil_core_scanner,
     update_candidate,
     update_exit_alert,
@@ -49,7 +50,12 @@ from backend.app.schemas.business import (
     PositionUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
-from backend.app.schemas.outcome import ScannerOutcome, ScannerOutcomeSummary
+from backend.app.schemas.outcome import (
+    ScannerOutcome,
+    ScannerOutcomeRecalculateRequest,
+    ScannerOutcomeRecalculateResponse,
+    ScannerOutcomeSummary,
+)
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 
 
@@ -234,6 +240,17 @@ def test_scanner_outcome_routes(monkeypatch) -> None:
         "get_candidate_outcome",
         lambda session, principal, candidate_id: _scanner_outcome(),
     )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "recalculate_scanner_outcomes",
+        lambda session, principal, request: ScannerOutcomeRecalculateResponse(
+            account_id=principal.account_id,
+            candidates_scanned=1,
+            outcomes_written=1,
+            status_counts={"matured_20d": 1},
+            symbols_processed=["SPY"],
+        ),
+    )
 
     assert (
         list_scanner_outcomes(
@@ -271,6 +288,14 @@ def test_scanner_outcome_routes(monkeypatch) -> None:
             principal=_principal(),
         ).outcome_id
         == "outcome_1"
+    )
+    assert (
+        recalculate_scanner_outcomes(
+            session=None,
+            principal=_principal(),
+            request=ScannerOutcomeRecalculateRequest(symbol="spy"),
+        ).status_counts
+        == {"matured_20d": 1}
     )
 
 

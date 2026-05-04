@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -35,9 +36,15 @@ from backend.app.schemas.pa import (
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
 )
-from backend.app.schemas.outcome import ScannerOutcome, ScannerOutcomeSummary
+from backend.app.schemas.outcome import (
+    ScannerOutcome,
+    ScannerOutcomeRecalculateRequest,
+    ScannerOutcomeRecalculateResponse,
+    ScannerOutcomeSummary,
+)
 from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.etf_seed_service import ETFSeedService
+from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.scanner_service import ETFScannerService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
@@ -300,6 +307,52 @@ class BusinessService:
         if outcome is None:
             raise ValueError(f"Scanner outcome not found for candidate: {candidate_id}")
         return ScannerOutcome.model_validate(outcome)
+
+    @staticmethod
+    def recalculate_scanner_outcomes(
+        session: Session,
+        principal: AuthPrincipal,
+        request: ScannerOutcomeRecalculateRequest,
+    ) -> ScannerOutcomeRecalculateResponse:
+        statement = BusinessService._candidate_list_statement(principal=principal)
+        if request.candidate_id:
+            statement = statement.where(db.Candidate.candidate_id == request.candidate_id)
+        if request.symbol:
+            statement = statement.where(db.Candidate.symbol_id == request.symbol.strip().upper())
+        if request.strategy_name:
+            statement = statement.where(db.Candidate.strategy_name == request.strategy_name.strip())
+        statement = statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc())
+        if request.limit is not None:
+            statement = statement.limit(request.limit)
+
+        candidates = list(session.scalars(statement).all())
+        if request.candidate_id and not candidates:
+            raise ValueError(f"Candidate not found: {request.candidate_id}")
+
+        status_counts: Counter[str] = Counter()
+        symbols: set[str] = set()
+        for candidate in candidates:
+            outcome = ScannerOutcomeService.calculate_for_candidate(session=session, candidate=candidate)
+            status_counts[outcome.evaluation_status] += 1
+            symbols.add(outcome.symbol_id)
+
+        if candidates:
+            BusinessService._audit(
+                session,
+                principal,
+                "candidate.outcome_recalculate",
+                "scanner_outcome",
+                request.candidate_id,
+            )
+        session.commit()
+        return ScannerOutcomeRecalculateResponse(
+            account_id=principal.account_id,
+            candidates_scanned=len(candidates),
+            outcomes_written=len(candidates),
+            skipped_candidates=0,
+            status_counts=dict(status_counts),
+            symbols_processed=sorted(symbols),
+        )
 
     @staticmethod
     def get_candidate_detail(
