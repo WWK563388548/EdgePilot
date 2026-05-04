@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Gauge, RefreshCw, ShieldAlert } from "lucide-react";
+import { BarChart3, Gauge, MousePointer2, RefreshCw, ShieldAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { useAppI18n } from "@/lib/use-app-i18n";
@@ -24,6 +24,11 @@ export function ScannerOutcomeGuide() {
       body: t("outcomeGuideRiskBody")
     },
     {
+      icon: <MousePointer2 size={17} />,
+      title: t("outcomeGuideTradeTitle"),
+      body: t("outcomeGuideTradeBody")
+    },
+    {
       icon: <RefreshCw size={17} />,
       title: t("outcomeGuideRecalculateTitle"),
       body: t("outcomeGuideRecalculateBody")
@@ -38,7 +43,7 @@ export function ScannerOutcomeGuide() {
           <p className="mt-1 max-w-5xl leading-6 text-slate-700">{t("outcomeGuideIntro")}</p>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 lg:grid-cols-4">
+      <div className="mt-4 grid gap-3 lg:grid-cols-3 xl:grid-cols-5">
         {items.map((item) => (
           <GuideCard body={item.body} icon={item.icon} key={item.title} title={item.title} />
         ))}
