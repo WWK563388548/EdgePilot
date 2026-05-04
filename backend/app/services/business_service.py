@@ -28,7 +28,11 @@ from backend.app.schemas.business import (
     MarketContextSummary,
     Position,
     PositionActivate,
+    PositionClose,
+    PositionCloseResponse,
     PositionCreate,
+    PositionReduce,
+    PositionStopUpdate,
     PositionUpdate,
 )
 from backend.app.schemas.ingestion import (
@@ -84,6 +88,28 @@ def _number_from_record(data: dict | None, key: str) -> float | None:
 
 def _candidate_plan_position_id(candidate_id: str) -> str:
     return f"plan_{candidate_id}"
+
+
+def _position_pnl(entry_price: float | None, exit_price: float, quantity: float | None) -> float | None:
+    if entry_price is None or quantity is None:
+        return None
+    return round((exit_price - entry_price) * quantity, 6)
+
+
+def _position_r_multiple(position: db.Position, exit_price: float) -> float | None:
+    if position.entry_price is None:
+        return None
+    stop = position.initial_stop or position.current_stop
+    if stop is None:
+        return None
+    risk = position.entry_price - stop
+    if risk <= 0:
+        return None
+    return round((exit_price - position.entry_price) / risk, 6)
+
+
+def _touch_position(position: db.Position) -> None:
+    position.updated_at = datetime.now(UTC)
 
 
 class BusinessService:
@@ -691,9 +717,13 @@ class BusinessService:
     ) -> Position:
         position = BusinessService._get_position_model(session, principal, position_id)
         payload = request.model_dump(exclude_unset=True)
+        next_status = payload.get("status")
+        if next_status is not None and next_status != position.status:
+            raise ValueError("Use lifecycle actions to change position status")
         for key, value in payload.items():
             setattr(position, key, value)
         if payload:
+            _touch_position(position)
             BusinessService._audit(session, principal, "position.update", "position", position_id)
             session.commit()
             session.refresh(position)
@@ -718,10 +748,135 @@ class BusinessService:
         position.current_r = 0
         position.realized_pnl = position.realized_pnl or 0
         position.unrealized_pnl = 0
+        _touch_position(position)
         BusinessService._audit(session, principal, "position.activate", "position", position_id)
         session.commit()
         session.refresh(position)
         return Position.model_validate(position)
+
+    @staticmethod
+    def update_position_stop(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+        request: PositionStopUpdate,
+    ) -> Position:
+        position = BusinessService._get_position_model(session, principal, position_id)
+        if position.status == "closed":
+            raise ValueError("Closed positions cannot update stops")
+
+        position.current_stop = request.new_stop
+        if position.status == "planned" or position.initial_stop is None:
+            position.initial_stop = request.new_stop
+        _touch_position(position)
+        BusinessService._audit(session, principal, "position.stop_update", "position", position_id)
+        session.commit()
+        session.refresh(position)
+        return Position.model_validate(position)
+
+    @staticmethod
+    def reduce_position(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+        request: PositionReduce,
+    ) -> Position:
+        position = BusinessService._get_position_model(session, principal, position_id)
+        if position.status not in ("open", "reduce"):
+            raise ValueError("Position must be open or reduced before marking a trim")
+
+        reduced_quantity = request.quantity
+        if (
+            reduced_quantity is not None
+            and position.quantity is not None
+            and reduced_quantity >= position.quantity
+        ):
+            raise ValueError("Reduced quantity must be smaller than current quantity; use close instead")
+
+        realized_delta = _position_pnl(position.entry_price, request.exit_price, reduced_quantity)
+        if realized_delta is not None:
+            position.realized_pnl = round((position.realized_pnl or 0) + realized_delta, 6)
+        if reduced_quantity is not None and position.quantity is not None:
+            position.quantity = round(position.quantity - reduced_quantity, 6)
+        if request.current_stop is not None:
+            position.current_stop = request.current_stop
+        position.current_r = _position_r_multiple(position, request.exit_price)
+        position.status = "reduce"
+        _touch_position(position)
+        BusinessService._audit(session, principal, "position.reduce", "position", position_id)
+        session.commit()
+        session.refresh(position)
+        return Position.model_validate(position)
+
+    @staticmethod
+    def close_position(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+        request: PositionClose,
+    ) -> PositionCloseResponse:
+        position = BusinessService._get_position_model(session, principal, position_id)
+        if position.status == "closed":
+            raise ValueError("Position is already closed")
+        if position.status == "planned":
+            raise ValueError("Planned positions must be activated before closing")
+        if position.entry_price is None:
+            raise ValueError("Position is missing entry price")
+        if (
+            request.quantity is not None
+            and position.quantity is not None
+            and request.quantity < position.quantity
+        ):
+            raise ValueError("Close quantity is smaller than current quantity; use reduce instead")
+
+        exit_ts = request.exit_date or datetime.now(UTC)
+        close_quantity = request.quantity if request.quantity is not None else position.quantity
+        closing_pnl = _position_pnl(position.entry_price, request.exit_price, close_quantity)
+        gross_pnl = (
+            None
+            if closing_pnl is None and position.realized_pnl is None
+            else round((position.realized_pnl or 0) + (closing_pnl or 0), 6)
+        )
+        r_multiple = _position_r_multiple(position, request.exit_price)
+        trade_id = f"trade_{position.position_id}"
+        if session.get(db.TradeJournal, trade_id) is not None:
+            raise ValueError(f"Journal trade already exists for position: {position_id}")
+
+        trade = db.TradeJournal(
+            trade_id=trade_id,
+            account_id=principal.account_id,
+            position_id=position.position_id,
+            symbol_id=position.symbol_id,
+            entry_ts=position.entry_date,
+            exit_ts=exit_ts,
+            entry_price=position.entry_price,
+            exit_price=request.exit_price,
+            quantity=close_quantity,
+            gross_pnl=gross_pnl,
+            net_pnl=gross_pnl,
+            r_multiple=r_multiple,
+            setup_type=position.strategy_name,
+            exit_reason=request.exit_reason,
+            mistake_tags=None,
+            notes=request.notes,
+        )
+        session.add(trade)
+
+        position.status = "closed"
+        position.realized_pnl = gross_pnl
+        position.unrealized_pnl = 0
+        position.current_r = r_multiple
+        position.quantity = 0 if close_quantity is not None else position.quantity
+        _touch_position(position)
+        BusinessService._audit(session, principal, "position.close", "position", position_id)
+        BusinessService._audit(session, principal, "journal_trade.create", "journal_trade", trade.trade_id)
+        session.commit()
+        session.refresh(position)
+        session.refresh(trade)
+        return PositionCloseResponse(
+            position=Position.model_validate(position),
+            journal_trade=JournalTrade.model_validate(trade),
+        )
 
     @staticmethod
     def _get_position_model(
@@ -1080,7 +1235,7 @@ class BusinessService:
         open_position_count = session.scalar(
             select(func.count()).select_from(db.Position).where(
                 db.Position.account_id == principal.account_id,
-                db.Position.status == "open",
+                db.Position.status.in_(("open", "reduce")),
             )
         )
         alert_count, highest_level = session.execute(

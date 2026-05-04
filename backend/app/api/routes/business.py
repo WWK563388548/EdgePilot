@@ -18,8 +18,12 @@ from backend.app.schemas.business import (
     JournalTradeCreate,
     Position,
     PositionActivate,
+    PositionClose,
+    PositionCloseResponse,
     PositionCreate,
+    PositionReduce,
     PositionStatus,
+    PositionStopUpdate,
     PositionUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
@@ -334,7 +338,8 @@ def update_position(
             request=request,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        status_code = 404 if str(exc).startswith("Position not found") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.post("/positions/{position_id}/activate", response_model=Position)
@@ -346,6 +351,63 @@ def activate_position(
 ) -> Position:
     try:
         return BusinessService.activate_position(
+            session=session,
+            principal=principal,
+            position_id=position_id,
+            request=request,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc).startswith("Position not found") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.post("/positions/{position_id}/stop", response_model=Position)
+def update_position_stop(
+    position_id: str,
+    request: PositionStopUpdate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> Position:
+    try:
+        return BusinessService.update_position_stop(
+            session=session,
+            principal=principal,
+            position_id=position_id,
+            request=request,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc).startswith("Position not found") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.post("/positions/{position_id}/reduce", response_model=Position)
+def reduce_position(
+    position_id: str,
+    request: PositionReduce,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> Position:
+    try:
+        return BusinessService.reduce_position(
+            session=session,
+            principal=principal,
+            position_id=position_id,
+            request=request,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc).startswith("Position not found") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.post("/positions/{position_id}/close", response_model=PositionCloseResponse)
+def close_position(
+    position_id: str,
+    request: PositionClose,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> PositionCloseResponse:
+    try:
+        return BusinessService.close_position(
             session=session,
             principal=principal,
             position_id=position_id,
