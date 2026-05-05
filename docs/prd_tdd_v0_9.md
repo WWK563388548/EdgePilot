@@ -4,6 +4,12 @@ This is the repo-maintained PRD/TDD for EdgePilot v0.9. It captures the current 
 
 Source basis: `EdgePilot_PRD_TDD_Implementation_Plan_v0_9_Strat_PA_Short_Framework.md`, dated 2026-05-04.
 
+Document roles:
+
+- `docs/product_strategy_v0_9.md`: short strategy and roadmap summary.
+- `docs/prd_tdd_v0_9.md`: maintained implementation specification for current development.
+- `docs/reference/edgepilot_prd_tdd_v0_9_full.md`: full original v0.9 research archive for traceability. If this maintained spec appears to omit important context, check the full archive before changing product direction.
+
 ## 1. Product Definition
 
 EdgePilot is a manual trading operations cockpit for a small account.
