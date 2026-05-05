@@ -19,6 +19,10 @@ from backend.app.schemas.business import (
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
+    NotificationEvent,
+    NotificationEventUpdate,
+    NotificationPreferences,
+    NotificationPreferencesUpdate,
     Position,
     PositionActivate,
     PositionClose,
@@ -63,6 +67,27 @@ def update_account_risk_settings(
     principal: TraderPrincipal,
 ) -> AccountRiskSettings:
     return BusinessService.update_account_risk_settings(
+        session=session,
+        principal=principal,
+        request=request,
+    )
+
+
+@router.get("/settings/notifications", response_model=NotificationPreferences)
+def get_notification_preferences(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> NotificationPreferences:
+    return BusinessService.get_notification_preferences(session=session, principal=principal)
+
+
+@router.patch("/settings/notifications", response_model=NotificationPreferences)
+def update_notification_preferences(
+    request: NotificationPreferencesUpdate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> NotificationPreferences:
+    return BusinessService.update_notification_preferences(
         session=session,
         principal=principal,
         request=request,
@@ -560,6 +585,64 @@ def update_exit_alert(
             session=session,
             principal=principal,
             alert_id=alert_id,
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/notifications", response_model=list[NotificationEvent])
+def list_notifications(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    read: bool | None = None,
+    acknowledged: bool | None = None,
+    include_snoozed: bool = False,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[NotificationEvent]:
+    return BusinessService.list_notifications(
+        session=session,
+        principal=principal,
+        read=read,
+        acknowledged=acknowledged,
+        include_snoozed=include_snoozed,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/notifications/count", response_model=CountResponse)
+def count_notifications(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    read: bool | None = None,
+    acknowledged: bool | None = None,
+    include_snoozed: bool = False,
+) -> CountResponse:
+    return CountResponse(
+        total=BusinessService.count_notifications(
+            session=session,
+            principal=principal,
+            read=read,
+            acknowledged=acknowledged,
+            include_snoozed=include_snoozed,
+        )
+    )
+
+
+@router.patch("/notifications/{notification_id}", response_model=NotificationEvent)
+def update_notification(
+    notification_id: str,
+    request: NotificationEventUpdate,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> NotificationEvent:
+    try:
+        return BusinessService.update_notification(
+            session=session,
+            principal=principal,
+            notification_id=notification_id,
             request=request,
         )
     except ValueError as exc:

@@ -15,6 +15,8 @@ from backend.app.schemas.business import (
     CandidateUpdate,
     ExitAlertCreate,
     ExitAlertEvaluationRequest,
+    ExitAlertUpdate,
+    NotificationPreferencesUpdate,
     PositionActivate,
     PositionClose,
     PositionCreate,
@@ -277,6 +279,29 @@ def test_account_risk_settings_default_and_update(session) -> None:
     assert updated.max_open_positions == 4
     assert updated.max_risk_distance_pct == 0.08
     assert updated.shadow_only_requires_paper is False
+
+
+def test_notification_preferences_default_and_update(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    defaults = BusinessService.get_notification_preferences(session, principal)
+    updated = BusinessService.update_notification_preferences(
+        session,
+        principal,
+        NotificationPreferencesUpdate(
+            email_enabled=True,
+            email_to="alerts@example.com",
+            min_severity="warning",
+            event_preferences={"scanner_candidates_updated": False},
+        ),
+    )
+
+    assert defaults.in_app_enabled is True
+    assert defaults.email_enabled is False
+    assert updated.email_enabled is True
+    assert updated.email_to == "alerts@example.com"
+    assert updated.min_severity == "warning"
+    assert updated.event_preferences["scanner_candidates_updated"] is False
 
 
 def test_account_scanner_replaces_only_current_account_candidates(session, monkeypatch) -> None:
@@ -765,6 +790,10 @@ def test_create_candidate_plan_from_candidate_is_planned_and_idempotent(session)
         BusinessService.get_candidate_plan(session, principal, "cand_spy_plan").position_id
         == position.position_id
     )
+    notifications = BusinessService.list_notifications(session, principal, acknowledged=False)
+    notification_types = [row.event_type for row in notifications]
+    assert notification_types.count("candidate_plan_created") == 1
+    assert "scanner_candidate_created" in notification_types
     assert BusinessService.count_positions(session, principal) == 1
     assert BusinessService.count_positions(session, principal, status="planned") == 1
     assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
@@ -1394,6 +1423,23 @@ def test_evaluate_exit_alerts_for_planned_entry_is_idempotent(session) -> None:
     assert duplicate.alerts_created == 0
     assert duplicate.duplicate_alerts == 1
     assert BusinessService.count_exit_alerts(session, principal, acknowledged=False) == 1
+    notifications = BusinessService.list_notifications(
+        session,
+        principal,
+        acknowledged=False,
+    )
+    assert [row.event_type for row in notifications] == ["position_entry_triggered"]
+    assert notifications[0].metadata_json["symbol_id"] == "SPY"
+
+    BusinessService.update_exit_alert(
+        session,
+        principal,
+        response.alerts[0].alert_id,
+        ExitAlertUpdate(acknowledged=True),
+    )
+
+    assert BusinessService.count_notifications(session, principal, acknowledged=False) == 0
+    assert BusinessService.count_notifications(session, principal, acknowledged=True) == 1
 
 
 def test_evaluate_exit_alerts_for_open_position_stop_and_trim(session) -> None:

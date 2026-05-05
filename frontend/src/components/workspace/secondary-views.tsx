@@ -23,6 +23,10 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
     queryKey: ["risk-settings"],
     queryFn: api.riskSettings
   });
+  const notificationPreferences = useQuery({
+    queryKey: ["notification-preferences"],
+    queryFn: api.notificationPreferences
+  });
   const [riskForm, setRiskForm] = useState({
     accountEquity: "",
     maxOpenPositions: "",
@@ -30,6 +34,13 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
     maxRiskPerTradePct: "",
     maxTotalRiskPct: "",
     shadowOnlyRequiresPaper: true
+  });
+  const [notificationForm, setNotificationForm] = useState({
+    emailEnabled: false,
+    emailTo: "",
+    inAppEnabled: true,
+    minSeverity: "info",
+    smsEnabled: false
   });
   useEffect(() => {
     if (!riskSettings.data) {
@@ -44,6 +55,18 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
       shadowOnlyRequiresPaper: riskSettings.data.shadow_only_requires_paper
     });
   }, [riskSettings.data]);
+  useEffect(() => {
+    if (!notificationPreferences.data) {
+      return;
+    }
+    setNotificationForm({
+      emailEnabled: notificationPreferences.data.email_enabled,
+      emailTo: notificationPreferences.data.email_to ?? "",
+      inAppEnabled: notificationPreferences.data.in_app_enabled,
+      minSeverity: notificationPreferences.data.min_severity,
+      smsEnabled: notificationPreferences.data.sms_enabled
+    });
+  }, [notificationPreferences.data]);
   const updateRiskSettings = useMutation({
     mutationFn: () =>
       api.updateRiskSettings({
@@ -62,6 +85,19 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] })
       ]);
+    }
+  });
+  const updateNotificationPreferences = useMutation({
+    mutationFn: () =>
+      api.updateNotificationPreferences({
+        email_enabled: notificationForm.emailEnabled,
+        email_to: notificationForm.emailTo || null,
+        in_app_enabled: notificationForm.inAppEnabled,
+        min_severity: notificationForm.minSeverity as "info" | "warning" | "action_required",
+        sms_enabled: notificationForm.smsEnabled
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notification-preferences"] });
     }
   });
 
@@ -135,6 +171,96 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
           ) : null}
           {updateRiskSettings.isSuccess ? (
             <span className="text-sm font-medium text-teal-700">{t("riskSettingsSaved")}</span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">{t("notificationSettings")}</h2>
+            <p className="mt-1 text-xs text-slate-600">{t("notificationSettingsHelp")}</p>
+          </div>
+          <Settings size={18} className="text-teal" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-ink">
+            <input
+              checked={notificationForm.inAppEnabled}
+              className="h-4 w-4 accent-teal"
+              onChange={(event) =>
+                setNotificationForm((value) => ({
+                  ...value,
+                  inAppEnabled: event.target.checked
+                }))
+              }
+              type="checkbox"
+            />
+            {t("inAppNotifications")}
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium text-ink">
+            <input
+              checked={notificationForm.emailEnabled}
+              className="h-4 w-4 accent-teal"
+              onChange={(event) =>
+                setNotificationForm((value) => ({
+                  ...value,
+                  emailEnabled: event.target.checked
+                }))
+              }
+              type="checkbox"
+            />
+            {t("emailNotifications")}
+          </label>
+          <label className="grid gap-1 text-xs font-semibold text-slate-600">
+            {t("minSeverity")}
+            <select
+              className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
+              onChange={(event) =>
+                setNotificationForm((value) => ({
+                  ...value,
+                  minSeverity: event.target.value
+                }))
+              }
+              value={notificationForm.minSeverity}
+            >
+              <option value="info">{t("severityInfo")}</option>
+              <option value="warning">{t("severityWarning")}</option>
+              <option value="action_required">{t("severityActionRequired")}</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-semibold text-slate-600">
+            {t("emailTo")}
+            <input
+              className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
+              onChange={(event) =>
+                setNotificationForm((value) => ({
+                  ...value,
+                  emailTo: event.target.value
+                }))
+              }
+              placeholder="alerts@example.com"
+              type="email"
+              value={notificationForm.emailTo}
+            />
+          </label>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-600">{t("externalDeliveryNotLive")}</p>
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            className="focus-ring inline-flex h-9 items-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={notificationPreferences.isLoading || updateNotificationPreferences.isPending}
+            onClick={() => updateNotificationPreferences.mutate()}
+            type="button"
+          >
+            {updateNotificationPreferences.isPending ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+            {updateNotificationPreferences.isPending ? t("saving") : t("saveNotificationSettings")}
+          </button>
+          {updateNotificationPreferences.isError ? (
+            <span className="text-sm font-medium text-rose-700">{t("notificationSettingsSaveFailed")}</span>
+          ) : null}
+          {updateNotificationPreferences.isSuccess ? (
+            <span className="text-sm font-medium text-teal-700">{t("notificationSettingsSaved")}</span>
           ) : null}
         </div>
       </div>

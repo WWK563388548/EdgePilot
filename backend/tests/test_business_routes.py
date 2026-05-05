@@ -6,9 +6,11 @@ from backend.app.api.routes.business import (
     activate_position,
     cancel_position,
     get_account_risk_settings,
+    get_notification_preferences,
     count_candidates,
     count_exit_alerts,
     count_journal_trades,
+    count_notifications,
     count_positions,
     create_candidate,
     create_candidate_plan,
@@ -28,6 +30,7 @@ from backend.app.api.routes.business import (
     list_candidates,
     list_exit_alerts,
     list_journal_trades,
+    list_notifications,
     list_positions,
     reduce_position,
     refresh_account_us_etf_oneil_core_scanner,
@@ -36,6 +39,8 @@ from backend.app.api.routes.business import (
     update_candidate,
     update_account_risk_settings,
     update_exit_alert,
+    update_notification,
+    update_notification_preferences,
     update_position,
     update_position_stop,
     count_scanner_outcomes,
@@ -63,6 +68,10 @@ from backend.app.schemas.business import (
     JournalTrade,
     JournalTradeCreate,
     MarketContextSummary,
+    NotificationEvent,
+    NotificationEventUpdate,
+    NotificationPreferences,
+    NotificationPreferencesUpdate,
     Position,
     PositionActivate,
     PositionClose,
@@ -124,6 +133,21 @@ def _alert() -> ExitAlert:
         action="tighten_stop",
         acknowledged=False,
         alert_ts=datetime(2026, 4, 26, tzinfo=UTC),
+    )
+
+
+def _notification() -> NotificationEvent:
+    return NotificationEvent(
+        notification_id="notif_1",
+        account_id="acct_local",
+        event_type="position_entry_triggered",
+        severity="action_required",
+        source_type="exit_alert",
+        source_id="alert_1",
+        target_view="alerts",
+        target_id="alert_1",
+        metadata_json={"symbol_id": "SPY"},
+        created_at=datetime(2026, 4, 26, tzinfo=UTC),
     )
 
 
@@ -671,6 +695,52 @@ def test_risk_settings_and_plan_preview_routes(monkeypatch) -> None:
     assert portfolio.remaining_risk_amount == 280
 
 
+def test_notification_preference_routes(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_notification_preferences",
+        lambda session, principal: NotificationPreferences(
+            account_id=principal.account_id,
+            in_app_enabled=True,
+            email_enabled=False,
+            sms_enabled=False,
+            min_severity="info",
+            event_preferences={},
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "update_notification_preferences",
+        lambda session, principal, request: NotificationPreferences(
+            account_id=principal.account_id,
+            in_app_enabled=True,
+            email_enabled=request.email_enabled or False,
+            sms_enabled=False,
+            min_severity=request.min_severity or "info",
+            email_to=request.email_to,
+            event_preferences=request.event_preferences or {},
+        ),
+    )
+
+    defaults = get_notification_preferences(session=None, principal=_principal())
+    updated = update_notification_preferences(
+        NotificationPreferencesUpdate(
+            email_enabled=True,
+            email_to="alerts@example.com",
+            min_severity="warning",
+        ),
+        session=None,
+        principal=_principal(),
+    )
+
+    assert defaults.in_app_enabled is True
+    assert updated.email_enabled is True
+    assert updated.email_to == "alerts@example.com"
+    assert updated.min_severity == "warning"
+
+
 def test_exit_alert_routes(monkeypatch) -> None:
     from backend.app.api.routes import business as business_route
 
@@ -738,6 +808,55 @@ def test_exit_alert_routes(monkeypatch) -> None:
             principal=_principal(),
         ).position_id
         == "pos_1"
+    )
+
+
+def test_notification_routes(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "list_notifications",
+        lambda session, principal, read, acknowledged, include_snoozed, limit, offset: [
+            _notification()
+        ],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_notifications",
+        lambda session, principal, read, acknowledged, include_snoozed: 1,
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "update_notification",
+        lambda session, principal, notification_id, request: _notification(),
+    )
+
+    assert list_notifications(
+        session=None,
+        principal=_principal(),
+        read=False,
+        acknowledged=False,
+        limit=10,
+        offset=20,
+    )[0].event_type == "position_entry_triggered"
+    assert (
+        count_notifications(
+            session=None,
+            principal=_principal(),
+            read=False,
+            acknowledged=False,
+        ).total
+        == 1
+    )
+    assert (
+        update_notification(
+            "notif_1",
+            NotificationEventUpdate(acknowledged=True),
+            session=None,
+            principal=_principal(),
+        ).notification_id
+        == "notif_1"
     )
 
 

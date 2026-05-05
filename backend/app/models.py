@@ -443,6 +443,77 @@ class ExitAlert(Base):
     acknowledged: Mapped[bool | None] = mapped_column(Boolean, server_default=text("false"))
 
 
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"), primary_key=True)
+    in_app_enabled: Mapped[bool | None] = mapped_column(Boolean, server_default=text("true"))
+    email_enabled: Mapped[bool | None] = mapped_column(Boolean, server_default=text("false"))
+    sms_enabled: Mapped[bool | None] = mapped_column(Boolean, server_default=text("false"))
+    min_severity: Mapped[str | None] = mapped_column(Text, server_default=text("'info'"))
+    email_to: Mapped[str | None] = mapped_column(Text)
+    phone_to: Mapped[str | None] = mapped_column(Text)
+    event_preferences: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class NotificationEvent(Base):
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        Index("idx_notification_events_account_created", "account_id", "created_at"),
+        Index("idx_notification_events_account_read", "account_id", "read_at", "created_at"),
+        Index("idx_notification_events_source", "account_id", "source_type", "source_id"),
+    )
+
+    notification_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    event_type: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(Text)
+    source_type: Mapped[str | None] = mapped_column(Text)
+    source_id: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    body: Mapped[str | None] = mapped_column(Text)
+    target_view: Mapped[str | None] = mapped_column(Text)
+    target_id: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class NotificationDeliveryLog(Base):
+    __tablename__ = "notification_delivery_logs"
+    __table_args__ = (
+        Index("idx_notification_delivery_notification", "notification_id", "channel"),
+        Index("idx_notification_delivery_account_created", "account_id", "created_at"),
+    )
+
+    delivery_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    notification_id: Mapped[str] = mapped_column(ForeignKey("notification_events.notification_id"))
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    channel: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    target: Mapped[str | None] = mapped_column(Text)
+    provider_message_id: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class TradeJournal(Base):
     __tablename__ = "trades_journal"
     __table_args__ = (
