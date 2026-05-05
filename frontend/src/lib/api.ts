@@ -108,6 +108,24 @@ export type PASetup = {
   updated_at: string | null;
 };
 
+export type StratSignal = {
+  signal_id: string;
+  symbol_id: string;
+  timeframe: string;
+  ts: string;
+  bar_type: string;
+  previous_bar_type: string | null;
+  pattern: string | null;
+  direction: string | null;
+  trigger_price: number | null;
+  trigger_stop: number | null;
+  invalidation: string | null;
+  timeframe_continuity: Record<string, string> | null;
+  quality_score: number | null;
+  can_create_trade_alone: boolean;
+  created_at?: string | null;
+};
+
 export type PAEvidenceBar = {
   ts: string;
   open: number | null;
@@ -220,6 +238,7 @@ export type ETFUniverseSeedResponse = {
 export type CandidateDetail = {
   candidate: Candidate;
   pa_setup: PASetup | null;
+  strat_signal: StratSignal | null;
   score_breakdown: Record<string, unknown> | null;
   scanner_decision: ScannerDecision | null;
   entry_plan: Record<string, unknown> | null;

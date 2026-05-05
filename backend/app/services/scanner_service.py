@@ -18,6 +18,7 @@ from backend.app.schemas.pa import (
 from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.pa_service import PAService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
+from backend.app.services.strat_service import StratService
 from backend.app.services.universes import default_symbols_when_omitted
 
 
@@ -81,6 +82,11 @@ class ETFScannerService:
                 symbols_processed=symbols,
                 facts_written=0,
             )
+        StratService.calculate_and_store_signals(
+            session=session,
+            symbols=symbols,
+            timeframe=request.timeframe,
+        )
         latest_facts = _latest_facts(session, symbols, request.timeframe)
         ranks_3m = _percentile_ranks(latest_facts, "return_3m")
         ranks_6m = _percentile_ranks(latest_facts, "return_6m")

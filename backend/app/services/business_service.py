@@ -19,6 +19,7 @@ from backend.app.schemas.business import (
     CandidatePlanPreview,
     CandidatePASetup,
     CandidatePlanCreate,
+    CandidateStratSignal,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -63,6 +64,7 @@ from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.etf_seed_service import ETFSeedService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.scanner_service import ETFScannerService
+from backend.app.services.strat_service import StratService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
 DEFAULT_ACCOUNT_EQUITY = 10_000.0
@@ -518,9 +520,13 @@ class BusinessService:
         candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
         pa_setup = BusinessService._candidate_pa_setup(session, candidate)
         entry_plan = pa_setup.entry_plan if pa_setup else None
+        strat_signal = BusinessService._candidate_strat_signal(session, candidate, pa_setup)
         return CandidateDetail(
             candidate=BusinessService._candidate_response(session, candidate, pa_setup),
             pa_setup=CandidatePASetup.model_validate(pa_setup) if pa_setup else None,
+            strat_signal=(
+                CandidateStratSignal.model_validate(strat_signal) if strat_signal else None
+            ),
             score_breakdown=entry_plan.get("score_breakdown") if entry_plan else None,
             scanner_decision=BusinessService._candidate_scanner_decision(candidate, entry_plan),
             entry_plan=entry_plan,
@@ -844,6 +850,21 @@ class BusinessService:
         if not setup_id:
             return None
         return session.get(db.PASetup, setup_id)
+
+    @staticmethod
+    def _candidate_strat_signal(
+        session: Session,
+        candidate: db.Candidate,
+        setup: db.PASetup | None,
+    ) -> db.StratSignal | None:
+        timeframe = setup.timeframe if setup is not None else "1d"
+        reference_ts = setup.detected_ts if setup is not None else None
+        return StratService.latest_signal_model(
+            session=session,
+            symbol=candidate.symbol_id,
+            timeframe=timeframe,
+            reference_ts=reference_ts,
+        )
 
     @staticmethod
     def _validated_pa_setup_id(session: Session, pa_setup_id: str | None) -> str | None:

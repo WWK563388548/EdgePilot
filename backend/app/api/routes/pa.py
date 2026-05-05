@@ -14,9 +14,13 @@ from backend.app.schemas.pa import (
     PAStructure,
     PASetup,
     PASetupExplain,
+    StratScanRequest,
+    StratScanResponse,
+    StratSignal,
 )
 from backend.app.services.pa_service import PAService
 from backend.app.services.scanner_service import ETFScannerService
+from backend.app.services.strat_service import StratService
 
 router = APIRouter(prefix="/api/pa", tags=["pa"])
 IngestionAdmin = Annotated[None, Depends(require_ingestion_admin)]
@@ -133,6 +137,43 @@ def list_pa_calibration(
         timeframe=timeframe,
         limit=limit,
     )
+
+
+@router.get("/strat/signals", response_model=list[StratSignal])
+def list_strat_signals(
+    session: DbSession,
+    symbol: str | None = None,
+    timeframe: str | None = "1d",
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[StratSignal]:
+    return StratService.list_signals(
+        session=session,
+        symbol=symbol,
+        timeframe=timeframe,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/strat/signals/latest/{symbol}", response_model=StratSignal)
+def latest_strat_signal(
+    symbol: str,
+    session: DbSession,
+    timeframe: str = "1d",
+) -> StratSignal:
+    signal = StratService.latest_signal(session=session, symbol=symbol, timeframe=timeframe)
+    if signal is None:
+        raise HTTPException(status_code=404, detail=f"Strat signal not found: {symbol}")
+    return signal
+
+
+@router.post("/strat/scan", response_model=StratScanResponse)
+def scan_strat_signals(
+    request: StratScanRequest | None = None,
+    _admin: IngestionAdmin = None,
+) -> StratScanResponse:
+    return StratService.scan(request or StratScanRequest())
 
 
 @router.post("/facts/etf-universe", response_model=PAFactsCalculationResponse)

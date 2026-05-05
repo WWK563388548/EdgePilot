@@ -168,6 +168,57 @@ def test_candidate_queries_support_offset_pagination(session) -> None:
     assert BusinessService.count_candidates(session, principal) == 3
 
 
+def test_candidate_detail_includes_latest_strat_signal(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    detected_ts = datetime(2026, 4, 26, tzinfo=UTC)
+    session.add(
+        db.PASetup(
+            setup_id="pasetup_spy_1d_2026-04-26_breakout",
+            symbol_id="SPY",
+            timeframe="1d",
+            detected_ts=detected_ts,
+            setup_type="breakout",
+            entry_plan={"trigger_price": 105.0},
+            validation_status="shadow_only",
+        )
+    )
+    session.add(
+        db.StratSignal(
+            signal_id="strat_spy_1d_2026-04-26",
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=detected_ts,
+            bar_type="2U",
+            previous_bar_type="1",
+            pattern="inside_breakout",
+            direction="long",
+            trigger_price=104.0,
+            trigger_stop=96.0,
+            timeframe_continuity={"1d": "bullish"},
+            can_create_trade_alone=False,
+        )
+    )
+    session.flush()
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_spy",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            pa_setup_id="pasetup_spy_1d_2026-04-26_breakout",
+            decision="candidate",
+        ),
+    )
+
+    detail = BusinessService.get_candidate_detail(session, principal, "cand_spy")
+
+    assert detail.strat_signal is not None
+    assert detail.strat_signal.pattern == "inside_breakout"
+    assert detail.strat_signal.can_create_trade_alone is False
+
+
 def test_account_risk_settings_default_and_update(session) -> None:
     principal = _principal("user_a", "acct_a")
 
