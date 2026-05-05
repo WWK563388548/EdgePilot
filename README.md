@@ -20,6 +20,7 @@ Authoritative docs:
 
 - `docs/product_strategy_v0_9.md`
 - `docs/prd_tdd_v0_9.md`
+- `docs/reference/edgepilot_prd_tdd_v0_9_full.md`
 
 ## Current Implementation
 
@@ -209,3 +210,4 @@ The product roadmap and implementation spec are tracked in:
 
 - `docs/product_strategy_v0_9.md`
 - `docs/prd_tdd_v0_9.md`
+- `docs/reference/edgepilot_prd_tdd_v0_9_full.md`

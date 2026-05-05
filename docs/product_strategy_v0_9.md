@@ -3,6 +3,7 @@
 This is the current authoritative product direction for EdgePilot. Older v0.3/v0.6 planning docs were removed because they were superseded by this strategy.
 
 Detailed PRD/TDD and implementation contracts are tracked in `docs/prd_tdd_v0_9.md`.
+The full original v0.9 research document is archived at `docs/reference/edgepilot_prd_tdd_v0_9_full.md` for traceability.
 
 ## One-Line Definition
 
