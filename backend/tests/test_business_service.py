@@ -397,6 +397,50 @@ def test_account_scanner_replaces_only_current_account_candidates(session, monke
     ]
     assert session.get(db.ScannerOutcome, "outcome_old_a") is None
     assert session.get(db.ScannerOutcome, "outcome_old_b") is not None
+    notifications = BusinessService.list_notifications(session, principal_a)
+    scan_notifications = [
+        row for row in notifications if row.event_type == "scanner_candidates_updated"
+    ]
+    assert len(scan_notifications) == 1
+    assert scan_notifications[0].metadata_json["source"] == "manual_scan"
+
+
+def test_account_scanner_notifies_even_when_no_candidates(session, monkeypatch) -> None:
+    from backend.app.services import business_service
+
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_scan(db_session, request):
+        assert request.account_id == "acct_a"
+        return ETFOneilScannerResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=["IWM"],
+            facts_written=0,
+            setups_written=0,
+            candidates_written=0,
+            decision_counts={},
+        )
+
+    monkeypatch.setattr(
+        business_service.ETFScannerService,
+        "run_us_etf_oneil_core_for_session",
+        _fake_scan,
+    )
+
+    response = BusinessService.run_account_oneil_core_scanner(
+        session,
+        principal,
+        AccountETFOneilScannerRequest(symbols=["iwm"], recalculate_facts=False),
+    )
+
+    assert response.candidates_written == 0
+    notifications = BusinessService.list_notifications(session, principal)
+    scan_notifications = [
+        row for row in notifications if row.event_type == "scanner_candidates_updated"
+    ]
+    assert len(scan_notifications) == 1
+    assert scan_notifications[0].metadata_json["candidates_written"] == 0
 
 
 def test_scanner_outcomes_are_account_scoped_and_summarized(session) -> None:
@@ -618,6 +662,13 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
     assert [row.candidate_id for row in BusinessService.list_candidates(session, principal)] == [
         "cand_refresh"
     ]
+    notifications = BusinessService.list_notifications(session, principal)
+    refresh_notifications = [
+        row for row in notifications if row.event_type == "scanner_candidates_updated"
+    ]
+    assert len(refresh_notifications) == 1
+    assert refresh_notifications[0].metadata_json["source"] == "market_refresh_scan"
+    assert refresh_notifications[0].metadata_json["candidates_written"] == 1
 
 
 def test_dashboard_candidate_count_only_counts_candidates(session) -> None:
@@ -797,6 +848,47 @@ def test_create_candidate_plan_from_candidate_is_planned_and_idempotent(session)
     assert BusinessService.count_positions(session, principal) == 1
     assert BusinessService.count_positions(session, principal, status="planned") == 1
     assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
+
+
+def test_create_candidate_plan_works_when_notification_tables_are_unavailable(
+    session,
+    monkeypatch,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_no_notification_tables",
+            symbol_id="IWM",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            setup_type="breakout",
+            decision="candidate",
+            entry_trigger=280.09,
+            initial_stop=264.54,
+        ),
+    )
+    monkeypatch.setattr(
+        BusinessService,
+        "_notification_tables_available",
+        staticmethod(lambda _session: False),
+    )
+
+    position = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_no_notification_tables",
+        CandidatePlanCreate(quantity=1),
+    )
+
+    assert position.position_id == "plan_cand_no_notification_tables"
+    assert position.quantity == 1
+    assert BusinessService.list_notifications(session, principal) == []
+    assert BusinessService.count_notifications(session, principal, acknowledged=False) == 0
+    preferences = BusinessService.get_notification_preferences(session, principal)
+    assert preferences.in_app_enabled is True
+    assert preferences.email_enabled is False
 
 
 def test_create_candidate_plan_backfills_missing_legacy_plan_quantity(session) -> None:

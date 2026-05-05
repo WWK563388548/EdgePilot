@@ -763,12 +763,11 @@ def _apply_strat_confirmation(
                 _add_rule_key(failed_rules, key=str(rule.get("code")), passed=False)
                 risk_notes.append(str(rule.get("code")))
         if armed_plan.get("status") == "blocked":
-            final_decision = "watch" if decision == "candidate" else decision
             watch_reasons.append("strat_no_chase_blocked")
-            return final_decision, {
+            return decision, {
                 "status": "blocked",
                 "base_decision": decision,
-                "final_decision": final_decision,
+                "final_decision": decision,
                 "bar_type": armed_plan.get("latest_bar_type"),
                 "pattern": armed_plan.get("pattern"),
                 "direction": armed_plan.get("direction"),
@@ -821,14 +820,13 @@ def _apply_strat_confirmation(
         return decision, payload
 
     if strat_signal.pattern and strat_signal.direction == "short":
-        final_decision = "watch" if decision == "candidate" else "avoid"
         _add_rule_key(failed_rules, key="strat_bearish_trigger", passed=False)
         watch_reasons.append("strat_bearish_downgrade")
         risk_notes.append("strat_bearish_context")
         payload["status"] = "downgrade"
-        payload["final_decision"] = final_decision
+        payload["final_decision"] = decision
         payload["reason"] = "strat_bearish_trigger"
-        return final_decision, payload
+        return decision, payload
 
     watch_reasons.append("strat_waiting_for_trigger")
     upgrade_conditions.append("strat_bullish_trigger_needed")

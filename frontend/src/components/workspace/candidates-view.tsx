@@ -76,7 +76,10 @@ export function CandidatesView({
         queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] }),
         queryClient.invalidateQueries({ queryKey: ["scanner-outcomes"] }),
         queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-count"] }),
-        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-summary"] })
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications-unread-count"] })
       ]);
     }
   });
@@ -95,7 +98,10 @@ export function CandidatesView({
         queryClient.invalidateQueries({ queryKey: ["pa-setups-count"] }),
         queryClient.invalidateQueries({ queryKey: ["scanner-outcomes"] }),
         queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-count"] }),
-        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-summary"] })
+        queryClient.invalidateQueries({ queryKey: ["scanner-outcomes-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications-unread-count"] })
       ]);
     }
   });

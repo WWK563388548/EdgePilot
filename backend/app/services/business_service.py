@@ -7,7 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import delete, exists, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -202,6 +202,8 @@ class BusinessService:
         session: Session,
         principal: AuthPrincipal,
     ) -> NotificationPreferences:
+        if not BusinessService._notification_tables_available(session):
+            return BusinessService._default_notification_preferences_response(principal)
         preferences = BusinessService._notification_preferences_model(session, principal)
         session.commit()
         session.refresh(preferences)
@@ -213,6 +215,8 @@ class BusinessService:
         principal: AuthPrincipal,
         request: NotificationPreferencesUpdate,
     ) -> NotificationPreferences:
+        if not BusinessService._notification_tables_available(session):
+            return BusinessService._default_notification_preferences_response(principal, request)
         preferences = BusinessService._notification_preferences_model(session, principal)
         payload = request.model_dump(exclude_unset=True)
         for key, value in payload.items():
@@ -265,6 +269,31 @@ class BusinessService:
             event_preferences=preferences.event_preferences or {},
             created_at=preferences.created_at,
             updated_at=preferences.updated_at,
+        )
+
+    @staticmethod
+    def _default_notification_preferences_response(
+        principal: AuthPrincipal,
+        request: NotificationPreferencesUpdate | None = None,
+    ) -> NotificationPreferences:
+        payload = request.model_dump(exclude_unset=True) if request else {}
+        return NotificationPreferences(
+            account_id=principal.account_id,
+            in_app_enabled=payload.get("in_app_enabled")
+            if payload.get("in_app_enabled") is not None
+            else True,
+            email_enabled=payload.get("email_enabled")
+            if payload.get("email_enabled") is not None
+            else False,
+            sms_enabled=payload.get("sms_enabled")
+            if payload.get("sms_enabled") is not None
+            else False,
+            min_severity=payload.get("min_severity") or "info",
+            email_to=payload.get("email_to"),
+            phone_to=payload.get("phone_to"),
+            event_preferences=payload.get("event_preferences") or {},
+            created_at=None,
+            updated_at=None,
         )
 
     @staticmethod
@@ -419,27 +448,27 @@ class BusinessService:
                 recalculate_facts=request.recalculate_facts,
             ),
         )
-        if response.candidates_written > 0:
-            BusinessService._create_notification_event(
-                session,
-                principal,
-                event_type="scanner_candidates_updated",
-                severity="info",
-                source_type="scanner",
-                source_id=f"{ONEIL_CORE_US_ETF_STRATEGY}_{response.latest_scan_date or 'unknown'}",
-                title="Scanner candidates updated",
-                body=f"{response.candidates_written} scanner candidates were generated.",
-                target_view="candidates",
-                target_id=None,
-                metadata_json={
-                    "strategy_name": ONEIL_CORE_US_ETF_STRATEGY,
-                    "candidates_written": response.candidates_written,
-                    "decision_counts": response.decision_counts,
-                    "latest_scan_date": response.latest_scan_date.isoformat()
-                    if response.latest_scan_date
-                    else None,
-                },
-            )
+        BusinessService._create_notification_event(
+            session,
+            principal,
+            event_type="scanner_candidates_updated",
+            severity="info",
+            source_type="scanner",
+            source_id=None,
+            title="Scanner candidates updated",
+            body=f"{response.candidates_written} scanner candidates were generated.",
+            target_view="candidates",
+            target_id=None,
+            metadata_json={
+                "strategy_name": ONEIL_CORE_US_ETF_STRATEGY,
+                "candidates_written": response.candidates_written,
+                "decision_counts": response.decision_counts,
+                "latest_scan_date": response.latest_scan_date.isoformat()
+                if response.latest_scan_date
+                else None,
+                "source": "manual_scan",
+            },
+        )
         BusinessService._audit(
             session,
             principal,
@@ -472,6 +501,30 @@ class BusinessService:
                 min_score=request.min_score,
                 max_candidates=request.max_candidates,
             ),
+        )
+        BusinessService._create_notification_event(
+            session,
+            principal,
+            event_type="scanner_candidates_updated",
+            severity="info",
+            source_type="scanner",
+            source_id=None,
+            title="Scanner candidates updated",
+            body=f"{response.candidates_written} scanner candidates were generated after market refresh.",
+            target_view="candidates",
+            target_id=None,
+            metadata_json={
+                "strategy_name": ONEIL_CORE_US_ETF_STRATEGY,
+                "candidates_written": response.candidates_written,
+                "decision_counts": response.decision_counts,
+                "latest_scan_date": response.latest_scan_date.isoformat()
+                if response.latest_scan_date
+                else None,
+                "latest_bar_date": response.latest_bar_date.isoformat()
+                if response.latest_bar_date
+                else None,
+                "source": "market_refresh_scan",
+            },
         )
         BusinessService._audit(
             session,
@@ -2115,6 +2168,8 @@ class BusinessService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[NotificationEvent]:
+        if not BusinessService._notification_tables_available(session):
+            return []
         statement = BusinessService._notification_list_statement(
             principal=principal,
             read=read,
@@ -2134,6 +2189,8 @@ class BusinessService:
         acknowledged: bool | None = None,
         include_snoozed: bool = False,
     ) -> int:
+        if not BusinessService._notification_tables_available(session):
+            return 0
         statement = BusinessService._notification_list_statement(
             principal=principal,
             read=read,
@@ -2185,6 +2242,8 @@ class BusinessService:
         notification_id: str,
         request: NotificationEventUpdate,
     ) -> NotificationEvent:
+        if not BusinessService._notification_tables_available(session):
+            raise ValueError(f"Notification not found: {notification_id}")
         notification = BusinessService._get_notification_model(session, principal, notification_id)
         now = datetime.now(UTC)
         payload = request.model_dump(exclude_unset=True)
@@ -2240,6 +2299,8 @@ class BusinessService:
         target_id: str | None = None,
         metadata_json: dict[str, Any] | None = None,
     ) -> db.NotificationEvent | None:
+        if not BusinessService._notification_tables_available(session):
+            return None
         preferences = BusinessService._notification_preferences_model(session, principal)
         if not BusinessService._notification_allowed(preferences, event_type, severity):
             return None
@@ -2272,6 +2333,7 @@ class BusinessService:
             metadata_json=metadata_json or {},
         )
         session.add(notification)
+        session.flush([notification])
         BusinessService._add_notification_delivery_logs(session, preferences, notification)
         return notification
 
@@ -2373,6 +2435,8 @@ class BusinessService:
         source_type: str,
         source_id: str,
     ) -> None:
+        if not BusinessService._notification_tables_available(session):
+            return
         now = datetime.now(UTC)
         notifications = session.scalars(
             select(db.NotificationEvent).where(
@@ -2386,6 +2450,18 @@ class BusinessService:
             notification.acknowledged_at = now
             notification.read_at = notification.read_at or now
             notification.updated_at = now
+
+    @staticmethod
+    def _notification_tables_available(session: Session) -> bool:
+        inspector = inspect(session.connection())
+        return all(
+            inspector.has_table(table_name)
+            for table_name in (
+                "notification_preferences",
+                "notification_events",
+                "notification_delivery_logs",
+            )
+        )
 
     @staticmethod
     def create_journal_trade(

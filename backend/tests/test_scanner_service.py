@@ -39,9 +39,9 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert response.setups_written == 1
     assert response.candidates_written == 1
     assert response.candidates[0].strategy_name == "oneil_core_us_etf"
-    assert response.candidates[0].decision == "watch"
+    assert response.candidates[0].decision == "candidate"
     assert response.candidates[0].pa_setup_id is not None
-    assert response.decision_counts == {"watch": 1}
+    assert response.decision_counts == {"candidate": 1}
     assert response.latest_scan_date == response.candidates[0].scan_date
     assert response.latest_bar_date == response.candidates[0].scan_date
 
@@ -61,7 +61,7 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert setup.entry_plan is not None
     scanner_decision = setup.entry_plan["scanner_decision"]
     assert scanner_decision["version"] == "oneil_core_us_etf_v2"
-    assert scanner_decision["decision"] == "watch"
+    assert scanner_decision["decision"] == "candidate"
     assert scanner_decision["strat_confirmation"]["status"] == "blocked"
     assert scanner_decision["strat_confirmation"]["can_create_trade_alone"] is False
     assert scanner_decision["score"] == scanner_decision["total_score"]
@@ -89,7 +89,7 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert outcome.bars_available == 0
 
 
-def test_scanner_decision_uses_bearish_strat_only_to_downgrade() -> None:
+def test_scanner_decision_flags_bearish_strat_without_hiding_candidate() -> None:
     decision = _scanner_decision(
         base_score=12,
         base_depth=0.18,
@@ -127,10 +127,10 @@ def test_scanner_decision_uses_bearish_strat_only_to_downgrade() -> None:
         strat_plan=None,
     )
 
-    assert decision["decision"] == "watch"
+    assert decision["decision"] == "candidate"
     assert decision["strat_confirmation"]["status"] == "downgrade"
     assert decision["strat_confirmation"]["base_decision"] == "candidate"
-    assert decision["strat_confirmation"]["final_decision"] == "watch"
+    assert decision["strat_confirmation"]["final_decision"] == "candidate"
     assert "strat_bearish_downgrade" in decision["watch_reasons"]
     assert any(rule["key"] == "strat_bearish_trigger" for rule in decision["failed_rules"])
 
@@ -218,8 +218,9 @@ def test_scanner_decision_blocks_no_chase_strat_plan() -> None:
         },
     )
 
-    assert decision["decision"] == "watch"
+    assert decision["decision"] == "candidate"
     assert decision["strat_confirmation"]["status"] == "blocked"
+    assert decision["strat_confirmation"]["final_decision"] == "candidate"
     assert "strat_no_chase_blocked" in decision["watch_reasons"]
     assert any(rule["key"] == "strat_risk_too_wide" for rule in decision["failed_rules"])
 
