@@ -2,6 +2,8 @@
 
 This is the current authoritative product direction for EdgePilot. Older v0.3/v0.6 planning docs were removed because they were superseded by this strategy.
 
+Detailed PRD/TDD and implementation contracts are tracked in `docs/prd_tdd_v0_9.md`.
+
 ## One-Line Definition
 
 EdgePilot is a manual trading operations cockpit for a small account. It screens US ETF and stock candidates, explains price-action evidence, creates paper/manual trade plans, tracks positions, enforces risk guardrails, raises exit alerts, and records journals. It does not place broker orders.

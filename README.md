@@ -16,9 +16,10 @@ The current product strategy is v0.9:
 - Options are lowest-priority research/paper backlog.
 - AI can explain and challenge, but cannot upgrade a trade or override risk.
 
-Authoritative roadmap:
+Authoritative docs:
 
 - `docs/product_strategy_v0_9.md`
+- `docs/prd_tdd_v0_9.md`
 
 ## Current Implementation
 
@@ -204,6 +205,7 @@ Before staging:
 
 ## Roadmap
 
-The product roadmap and implementation status are tracked in:
+The product roadmap and implementation spec are tracked in:
 
 - `docs/product_strategy_v0_9.md`
+- `docs/prd_tdd_v0_9.md`
