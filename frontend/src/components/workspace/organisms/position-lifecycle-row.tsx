@@ -117,10 +117,26 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
     }
   });
 
+  const cancelPosition = useMutation({
+    mutationFn: () => api.cancelPosition(position.position_id),
+    onSuccess: async () => {
+      setMode(null);
+      await invalidateLifecycle();
+    }
+  });
+
   const busy =
-    activatePosition.isPending || updateStop.isPending || reducePosition.isPending || closePosition.isPending;
+    activatePosition.isPending ||
+    updateStop.isPending ||
+    reducePosition.isPending ||
+    closePosition.isPending ||
+    cancelPosition.isPending;
   const failed =
-    activatePosition.isError || updateStop.isError || reducePosition.isError || closePosition.isError;
+    activatePosition.isError ||
+    updateStop.isError ||
+    reducePosition.isError ||
+    closePosition.isError ||
+    cancelPosition.isError;
   const canManageStop = position.status === "planned" || position.status === "open" || position.status === "reduce";
   const canManageActive = position.status === "open" || position.status === "reduce";
   const hasActions = position.status === "planned" || canManageStop || canManageActive;
@@ -131,6 +147,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
     updateStop.reset();
     reducePosition.reset();
     closePosition.reset();
+    cancelPosition.reset();
     if (nextMode === "activate") {
       setActivationForm({
         entryDate: position.entry_date ? datetimeLocalValue(new Date(position.entry_date)) : datetimeLocalValue(new Date()),
@@ -210,6 +227,14 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
     });
   };
 
+  const submitCancelPlan = () => {
+    cancelPosition.reset();
+    if (!window.confirm(t("cancelPlanConfirm"))) {
+      return;
+    }
+    cancelPosition.mutate();
+  };
+
   return (
     <Fragment>
       <tr className="border-t border-line">
@@ -236,6 +261,12 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
               <button className={secondaryButton} disabled={busy} onClick={() => openMode("stop")} type="button">
                 <PencilLine size={14} />
                 {t("updateStop")}
+              </button>
+            ) : null}
+            {position.status === "planned" ? (
+              <button className={dangerButton} disabled={busy} onClick={submitCancelPlan} type="button">
+                {cancelPosition.isPending ? <Loader2 className="animate-spin" size={14} /> : <XCircle size={14} />}
+                {t("cancelPlan")}
               </button>
             ) : null}
             {canManageActive ? (
@@ -520,6 +551,9 @@ function nextStepText(status: string | null, t: ReturnType<typeof useAppI18n>["t
   }
   if (status === "closed") {
     return t("positionNextStepClosed");
+  }
+  if (status === "cancelled") {
+    return t("positionNextStepCancelled");
   }
   return t("positionNextStepUnknown");
 }

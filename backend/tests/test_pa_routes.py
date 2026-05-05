@@ -25,6 +25,9 @@ from backend.app.schemas.pa import (
     PAEvidenceLevel,
     PASetupEvidence,
     PASetupExplain,
+    StratScanRequest,
+    StratScanResponse,
+    StratSignal,
 )
 
 
@@ -78,6 +81,23 @@ def _setup_explain() -> PASetupExplain:
     )
 
 
+def _strat_signal() -> StratSignal:
+    return StratSignal(
+        signal_id="strat_spy_1d_2026-04-30",
+        symbol_id="SPY",
+        timeframe="1d",
+        ts=datetime(2026, 4, 30, tzinfo=UTC),
+        bar_type="2U",
+        previous_bar_type="1",
+        pattern="inside_breakout",
+        direction="long",
+        trigger_price=510,
+        trigger_stop=495,
+        timeframe_continuity={"1d": "bullish"},
+        can_create_trade_alone=False,
+    )
+
+
 def test_pa_read_routes(monkeypatch) -> None:
     from backend.app.api.routes import pa as pa_route
 
@@ -106,6 +126,8 @@ def test_pa_read_routes(monkeypatch) -> None:
             PACalibrationStat(stat_id="stat_1", setup_type="breakout", sample_size=10)
         ],
     )
+    monkeypatch.setattr(pa_route.StratService, "list_signals", lambda **kwargs: [_strat_signal()])
+    monkeypatch.setattr(pa_route.StratService, "latest_signal", lambda **kwargs: _strat_signal())
 
     assert list_pa_facts("SPY", session=None)[0].fact_id.startswith("pafact")
     assert list_pa_structures("SPY", session=None)[0].structure_type == "uptrend"
@@ -114,6 +136,8 @@ def test_pa_read_routes(monkeypatch) -> None:
     assert get_pa_setup("setup_1", session=None).setup_type == "breakout"
     assert explain_pa_setup("setup_1", session=None).evidence.levels[0].key == "trigger_price"
     assert list_pa_calibration(session=None)[0].sample_size == 10
+    assert pa_route.list_strat_signals(session=None)[0].pattern == "inside_breakout"
+    assert pa_route.latest_strat_signal("SPY", session=None).bar_type == "2U"
 
 
 def test_pa_write_trigger_routes(monkeypatch) -> None:
@@ -150,6 +174,16 @@ def test_pa_write_trigger_routes(monkeypatch) -> None:
             ],
         ),
     )
+    monkeypatch.setattr(
+        pa_route.StratService,
+        "scan",
+        lambda request: StratScanResponse(
+            timeframe=request.timeframe,
+            symbols_processed=request.symbols or ["SPY"],
+            signals_written=1,
+            skipped_symbols=[],
+        ),
+    )
 
     facts_response = calculate_etf_daily_facts(
         ETFUniverseFactsRequest(symbols=["spy"]),
@@ -159,6 +193,11 @@ def test_pa_write_trigger_routes(monkeypatch) -> None:
         ETFOneilScannerRequest(symbols=["spy"], account_id="acct_local"),
         _admin=None,
     )
+    strat_response = pa_route.scan_strat_signals(
+        StratScanRequest(symbols=["spy"]),
+        _admin=None,
+    )
 
     assert facts_response.symbols_processed == ["SPY"]
     assert scanner_response.candidates_written == 1
+    assert strat_response.signals_written == 1

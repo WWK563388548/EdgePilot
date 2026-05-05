@@ -1,6 +1,14 @@
 "use client";
 
-import { BadgeCheck, CircleAlert, CircleCheck, CircleX, Target, TrendingUp } from "lucide-react";
+import {
+  BadgeCheck,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  GitBranch,
+  Target,
+  TrendingUp
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ScannerDecision } from "@/lib/api";
@@ -31,6 +39,7 @@ export function ScannerDecisionBlock({
   const watchReasons = stringListFromRecord(record, "watch_reasons");
   const upgradeConditions = stringListFromRecord(record, "upgrade_conditions");
   const riskNotes = stringListFromRecord(record, "risk_notes");
+  const stratConfirmation = recordFromRecord(record, "strat_confirmation");
   const decisionTone =
     decision === "candidate"
       ? "border-teal-200 bg-teal-50 text-teal"
@@ -73,6 +82,10 @@ export function ScannerDecisionBlock({
         />
       </div>
 
+      {stratConfirmation ? (
+        <StratDecisionCard data={stratConfirmation} locale={locale} />
+      ) : null}
+
       <div className="grid gap-3 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="grid gap-3 lg:grid-cols-2">
           <RuleList title={t("passedRules")} items={passedRules} locale={locale} tone="pass" />
@@ -100,6 +113,59 @@ export function ScannerDecisionBlock({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function StratDecisionCard({
+  data,
+  locale
+}: {
+  data: Record<string, unknown>;
+  locale: Locale;
+}) {
+  const { labelFor, t } = useAppI18n();
+  const status = stringFromRecord(data, "status");
+  const reason = stringFromRecord(data, "reason");
+  const barType = stringFromRecord(data, "bar_type");
+  const pattern = stringFromRecord(data, "pattern");
+  const direction = stringFromRecord(data, "direction");
+  const triggerPrice = numberFromRecord(data, "trigger_price");
+  const triggerStop = numberFromRecord(data, "trigger_stop");
+  const baseDecision = stringFromRecord(data, "base_decision");
+  const finalDecision = stringFromRecord(data, "final_decision");
+  const tone =
+    status === "confirm"
+      ? "border-teal-200 bg-teal-50"
+      : status === "downgrade"
+        ? "border-amber-200 bg-amber-50"
+        : "border-line bg-panel/70";
+
+  return (
+    <div className={`mb-3 rounded-md border px-3 py-2 ${tone}`}>
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
+        <GitBranch size={16} className="text-teal" />
+        {t("stratDecision")}
+      </div>
+      <p className="text-sm leading-6 text-slate-700">
+        {reason ? scannerDecisionText(t, reason) : "-"}
+      </p>
+      <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 xl:grid-cols-4">
+        <span>{labelFor("plan", status)}</span>
+        <span>
+          {labelFor("plan", barType)}
+          {pattern ? ` · ${labelFor("plan", pattern)}` : ""}
+        </span>
+        <span>{labelFor("plan", direction)}</span>
+        <span>
+          {formatNumber(triggerPrice, 2, locale)} / {formatNumber(triggerStop, 2, locale)}
+        </span>
+        {baseDecision && finalDecision && baseDecision !== finalDecision ? (
+          <span className="font-semibold text-amber-700">
+            {labelFor("status", baseDecision)} → {labelFor("status", finalDecision)}
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -243,7 +309,24 @@ const SCANNER_DECISION_TEXT_KEYS: Record<string, string> = {
   volume_expansion: "conditionVolumeExpansion",
   volume_liquidity: "ruleVolumeLiquidity",
   volume_needs_confirmation: "reasonVolumeNeedsConfirmation",
-  weak_close_position: "ruleWeakClosePosition"
+  weak_close_position: "ruleWeakClosePosition",
+  strat_bearish_context: "riskStratBearishContext",
+  strat_bearish_downgrade: "reasonStratBearishDowngrade",
+  strat_bearish_trigger: "ruleStratBearishTrigger",
+  strat_bullish_trigger: "ruleStratBullishTrigger",
+  strat_bullish_trigger_needed: "conditionStratBullishTriggerNeeded",
+  strat_atr_extension: "ruleStratAtrExtension",
+  strat_consecutive_2u_no_chase: "ruleStratConsecutive2UNoChase",
+  strat_gap_no_chase_limit: "ruleStratGapNoChaseLimit",
+  strat_mother_bar_exceeds_atr: "ruleStratMotherBarExceedsAtr",
+  strat_no_chase_blocked: "reasonStratNoChaseBlocked",
+  strat_overextended_from_20ma: "ruleStratOverextendedFrom20ma",
+  strat_pending_trigger_armed: "reasonStratPendingTriggerArmed",
+  strat_risk_too_wide: "ruleStratRiskTooWide",
+  strat_signal_missing: "reasonStratSignalMissing",
+  strat_trigger_price_reached: "conditionStratTriggerPriceReached",
+  strat_waiting_for_trigger: "reasonStratWaitingForTrigger",
+  strat_wide_mother_bar: "ruleStratWideMotherBar"
 };
 
 function scannerDecisionText(t: ReturnType<typeof useAppI18n>["t"], key: string) {
@@ -265,6 +348,13 @@ function stringListFromRecord(data: Record<string, unknown>, key: string) {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function recordFromRecord(data: Record<string, unknown>, key: string) {
+  const value = data[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function humanizeKey(value: string) {

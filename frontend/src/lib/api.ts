@@ -81,6 +81,22 @@ export type ScannerDecision = {
   watch_reasons: string[];
   upgrade_conditions: string[];
   risk_notes: string[];
+  strat_confirmation?: {
+    status: string;
+    base_decision: string;
+    final_decision: string;
+    bar_type?: string | null;
+    pattern?: string | null;
+    direction?: string | null;
+    trigger_price?: number | null;
+    trigger_stop?: number | null;
+    order_type?: string | null;
+    stop_limit_price?: number | null;
+    max_entry_price?: number | null;
+    no_chase_rules?: Array<Record<string, unknown>>;
+    reason?: string | null;
+    can_create_trade_alone?: boolean;
+  } | null;
   metrics: Record<string, unknown>;
 };
 
@@ -106,6 +122,48 @@ export type PASetup = {
   validation_status: string | null;
   created_at: string | null;
   updated_at: string | null;
+};
+
+export type StratSignal = {
+  signal_id: string;
+  symbol_id: string;
+  timeframe: string;
+  ts: string;
+  bar_type: string;
+  previous_bar_type: string | null;
+  pattern: string | null;
+  direction: string | null;
+  trigger_price: number | null;
+  trigger_stop: number | null;
+  invalidation: string | null;
+  timeframe_continuity: Record<string, string> | null;
+  quality_score: number | null;
+  can_create_trade_alone: boolean;
+  created_at?: string | null;
+};
+
+export type StratTriggerPlan = {
+  symbol_id: string;
+  timeframe: string;
+  latest_bar_ts: string | null;
+  latest_bar_type: string | null;
+  previous_bar_type: string | null;
+  status: string;
+  pattern: string | null;
+  direction: string | null;
+  trigger_price: number | null;
+  trigger_stop: number | null;
+  order_type: string | null;
+  stop_limit_price: number | null;
+  max_entry_price: number | null;
+  risk_per_share: number | null;
+  risk_distance_pct: number | null;
+  atr_14: number | null;
+  distance_to_sma_20_pct: number | null;
+  consecutive_2u_count: number;
+  timeframe_continuity: Record<string, string> | null;
+  no_chase_rules: Array<Record<string, unknown>>;
+  can_create_trade_alone: boolean;
 };
 
 export type PAEvidenceBar = {
@@ -220,6 +278,8 @@ export type ETFUniverseSeedResponse = {
 export type CandidateDetail = {
   candidate: Candidate;
   pa_setup: PASetup | null;
+  strat_signal: StratSignal | null;
+  strat_plan: StratTriggerPlan | null;
   score_breakdown: Record<string, unknown> | null;
   scanner_decision: ScannerDecision | null;
   entry_plan: Record<string, unknown> | null;
@@ -739,6 +799,8 @@ export const api = {
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/activate`, request),
   updatePositionStop: (positionId: string, request: PositionStopUpdate) =>
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/stop`, request),
+  cancelPosition: (positionId: string) =>
+    postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/cancel`),
   reducePosition: (positionId: string, request: PositionReduce) =>
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/reduce`, request),
   closePosition: (positionId: string, request: PositionClose) =>

@@ -2,6 +2,7 @@ import json
 import math
 from collections import Counter
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -19,6 +20,8 @@ from backend.app.schemas.business import (
     CandidatePlanPreview,
     CandidatePASetup,
     CandidatePlanCreate,
+    CandidateStratSignal,
+    CandidateStratTriggerPlan,
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
@@ -63,6 +66,7 @@ from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.etf_seed_service import ETFSeedService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.scanner_service import ETFScannerService
+from backend.app.services.strat_service import StratService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
 DEFAULT_ACCOUNT_EQUITY = 10_000.0
@@ -518,9 +522,15 @@ class BusinessService:
         candidate = BusinessService._get_candidate_model(session, principal, candidate_id)
         pa_setup = BusinessService._candidate_pa_setup(session, candidate)
         entry_plan = pa_setup.entry_plan if pa_setup else None
+        strat_signal = BusinessService._candidate_strat_signal(session, candidate, pa_setup)
+        strat_plan = BusinessService._candidate_strat_plan(session, candidate, pa_setup)
         return CandidateDetail(
             candidate=BusinessService._candidate_response(session, candidate, pa_setup),
             pa_setup=CandidatePASetup.model_validate(pa_setup) if pa_setup else None,
+            strat_signal=(
+                CandidateStratSignal.model_validate(strat_signal) if strat_signal else None
+            ),
+            strat_plan=CandidateStratTriggerPlan.model_validate(strat_plan.to_payload()),
             score_breakdown=entry_plan.get("score_breakdown") if entry_plan else None,
             scanner_decision=BusinessService._candidate_scanner_decision(candidate, entry_plan),
             entry_plan=entry_plan,
@@ -687,7 +697,7 @@ class BusinessService:
         request = request or CandidatePlanCreate()
         entry_price = (
             request.entry_price
-            or candidate.entry_trigger
+            or BusinessService._candidate_plan_trigger(candidate, entry_plan)
             or _number_from_plan(entry_plan, "trigger_price")
         )
         initial_stop = (
@@ -846,6 +856,60 @@ class BusinessService:
         return session.get(db.PASetup, setup_id)
 
     @staticmethod
+    def _candidate_strat_signal(
+        session: Session,
+        candidate: db.Candidate,
+        setup: db.PASetup | None,
+    ) -> db.StratSignal | None:
+        timeframe = setup.timeframe if setup is not None else "1d"
+        reference_ts = setup.detected_ts if setup is not None else None
+        return StratService.latest_signal_model(
+            session=session,
+            symbol=candidate.symbol_id,
+            timeframe=timeframe,
+            reference_ts=reference_ts,
+        )
+
+    @staticmethod
+    def _candidate_strat_plan(
+        session: Session,
+        candidate: db.Candidate,
+        setup: db.PASetup | None,
+    ):
+        timeframe = setup.timeframe if setup is not None else "1d"
+        reference_ts = setup.detected_ts if setup is not None else None
+        facts = BusinessService._latest_fact_payload(
+            session,
+            symbol=candidate.symbol_id,
+            timeframe=timeframe,
+            reference_ts=reference_ts,
+        )
+        return StratService.latest_trigger_plan(
+            session=session,
+            symbol=candidate.symbol_id,
+            timeframe=timeframe,
+            reference_ts=reference_ts,
+            facts=facts,
+        )
+
+    @staticmethod
+    def _latest_fact_payload(
+        session: Session,
+        *,
+        symbol: str,
+        timeframe: str,
+        reference_ts: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        statement = select(db.PAFact).where(
+            db.PAFact.symbol_id == symbol,
+            db.PAFact.timeframe == timeframe,
+        )
+        if reference_ts is not None:
+            statement = statement.where(db.PAFact.ts <= reference_ts)
+        fact = session.scalar(statement.order_by(db.PAFact.ts.desc()).limit(1))
+        return fact.facts if fact is not None else None
+
+    @staticmethod
     def _validated_pa_setup_id(session: Session, pa_setup_id: str | None) -> str | None:
         if pa_setup_id is None:
             return None
@@ -893,6 +957,20 @@ class BusinessService:
             if isinstance(scanner_decision, dict)
             else None
         )
+
+    @staticmethod
+    def _candidate_plan_trigger(candidate: db.Candidate, entry_plan: dict | None) -> float | None:
+        scanner_decision = entry_plan.get("scanner_decision") if entry_plan else None
+        strat_confirmation = (
+            scanner_decision.get("strat_confirmation")
+            if isinstance(scanner_decision, dict)
+            else None
+        )
+        if isinstance(strat_confirmation, dict) and strat_confirmation.get("status") == "armed":
+            trigger_price = _number_from_plan(strat_confirmation, "trigger_price")
+            if trigger_price is not None:
+                return trigger_price
+        return candidate.entry_trigger
 
     @staticmethod
     def _normalize_scanner_decision(payload: dict) -> ScannerDecision | None:
@@ -991,7 +1069,7 @@ class BusinessService:
         exit_plan = setup.exit_plan if setup else None
         entry_price = (
             request.entry_price
-            or candidate.entry_trigger
+            or BusinessService._candidate_plan_trigger(candidate, entry_plan)
             or _number_from_plan(entry_plan, "trigger_price")
         )
         initial_stop = (
@@ -1233,14 +1311,41 @@ class BusinessService:
         request: PositionStopUpdate,
     ) -> Position:
         position = BusinessService._get_position_model(session, principal, position_id)
-        if position.status == "closed":
-            raise ValueError("Closed positions cannot update stops")
+        if position.status in ("closed", "cancelled"):
+            raise ValueError("Closed or cancelled positions cannot update stops")
 
         position.current_stop = request.new_stop
         if position.status == "planned" or position.initial_stop is None:
             position.initial_stop = request.new_stop
         _touch_position(position)
         BusinessService._audit(session, principal, "position.stop_update", "position", position_id)
+        session.commit()
+        session.refresh(position)
+        return BusinessService._position_response(session, principal, position)
+
+    @staticmethod
+    def cancel_position(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+    ) -> Position:
+        position = BusinessService._get_position_model(session, principal, position_id)
+        if position.status != "planned":
+            raise ValueError("Only planned positions can be cancelled")
+
+        position.status = "cancelled"
+        position.quantity = 0
+        position.current_r = 0
+        position.realized_pnl = position.realized_pnl or 0
+        position.unrealized_pnl = 0
+        _touch_position(position)
+        session.execute(
+            delete(db.ExitAlert).where(
+                db.ExitAlert.account_id == principal.account_id,
+                db.ExitAlert.position_id == position.position_id,
+            )
+        )
+        BusinessService._audit(session, principal, "position.cancel", "position", position_id)
         session.commit()
         session.refresh(position)
         return BusinessService._position_response(session, principal, position)

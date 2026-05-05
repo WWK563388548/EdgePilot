@@ -280,6 +280,35 @@ class PASetup(Base):
     )
 
 
+class StratSignal(Base):
+    __tablename__ = "strat_signals"
+    __table_args__ = (
+        Index("idx_strat_signals_symbol_tf_ts", "symbol_id", "timeframe", "ts"),
+        Index("idx_strat_signals_pattern_direction", "pattern", "direction"),
+    )
+
+    signal_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    symbol_id: Mapped[str] = mapped_column(Text)
+    timeframe: Mapped[str] = mapped_column(Text)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    bar_type: Mapped[str] = mapped_column(Text)
+    previous_bar_type: Mapped[str | None] = mapped_column(Text)
+    pattern: Mapped[str | None] = mapped_column(Text)
+    direction: Mapped[str | None] = mapped_column(Text)
+    trigger_price: Mapped[float | None] = mapped_column(Float)
+    trigger_stop: Mapped[float | None] = mapped_column(Float)
+    invalidation: Mapped[str | None] = mapped_column(Text)
+    timeframe_continuity: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    quality_score: Mapped[float | None] = mapped_column(Float)
+    can_create_trade_alone: Mapped[bool | None] = mapped_column(
+        Boolean,
+        server_default=text("false"),
+    )
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class ScannerOutcome(Base):
     __tablename__ = "scanner_outcomes"
     __table_args__ = (

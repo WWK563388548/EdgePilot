@@ -18,6 +18,7 @@ from backend.app.schemas.pa import (
 from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.pa_service import PAService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
+from backend.app.services.strat_service import StratService
 from backend.app.services.universes import default_symbols_when_omitted
 
 
@@ -37,6 +38,7 @@ class ScoredETFSetup:
     fundamental_lite_score: float
     risk_stop_score: float
     followthrough_score: float
+    decision: str
     entry_plan: dict[str, Any]
     exit_plan: dict[str, Any]
     invalidation: dict[str, Any]
@@ -81,7 +83,18 @@ class ETFScannerService:
                 symbols_processed=symbols,
                 facts_written=0,
             )
+        StratService.calculate_and_store_signals(
+            session=session,
+            symbols=symbols,
+            timeframe=request.timeframe,
+        )
         latest_facts = _latest_facts(session, symbols, request.timeframe)
+        latest_strat_signals = _latest_strat_signals(session, symbols, request.timeframe)
+        latest_strat_plans = _latest_strat_plans(
+            session=session,
+            latest_facts=latest_facts,
+            timeframe=request.timeframe,
+        )
         ranks_3m = _percentile_ranks(latest_facts, "return_3m")
         ranks_6m = _percentile_ranks(latest_facts, "return_6m")
         market_score, market_context = _market_context_score(session)
@@ -100,6 +113,8 @@ class ETFScannerService:
                 rank_6m=ranks_6m.get(symbol, 0),
                 market_score=market_score,
                 market_context=market_context,
+                strat_signal=latest_strat_signals.get(symbol),
+                strat_plan=latest_strat_plans.get(symbol),
             )
             if scored and scored.total_score >= request.min_score:
                 scored_setups.append(scored)
@@ -160,6 +175,42 @@ def _latest_facts(
     return latest
 
 
+def _latest_strat_signals(
+    session: Session,
+    symbols: list[str],
+    timeframe: str,
+) -> dict[str, db.StratSignal]:
+    latest: dict[str, db.StratSignal] = {}
+    for symbol in symbols:
+        signal = session.scalar(
+            select(db.StratSignal)
+            .where(db.StratSignal.symbol_id == symbol, db.StratSignal.timeframe == timeframe)
+            .order_by(db.StratSignal.ts.desc())
+            .limit(1)
+        )
+        if signal is not None:
+            latest[symbol] = signal
+    return latest
+
+
+def _latest_strat_plans(
+    *,
+    session: Session,
+    latest_facts: dict[str, db.PAFact],
+    timeframe: str,
+) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for symbol, fact in latest_facts.items():
+        latest[symbol] = StratService.latest_trigger_plan(
+            session=session,
+            symbol=symbol,
+            timeframe=timeframe,
+            reference_ts=fact.ts,
+            facts=fact.facts,
+        ).to_payload()
+    return latest
+
+
 def _score_oneil_core_setup(
     *,
     fact: db.PAFact,
@@ -167,6 +218,8 @@ def _score_oneil_core_setup(
     rank_6m: float,
     market_score: float,
     market_context: dict[str, Any],
+    strat_signal: db.StratSignal | None,
+    strat_plan: dict[str, Any] | None,
 ) -> ScoredETFSetup | None:
     facts = fact.facts
     close = _number(facts.get("close"))
@@ -233,7 +286,7 @@ def _score_oneil_core_setup(
     followthrough_score = _followthrough_score(facts)
     setup_grade = _setup_grade(total_score)
     trigger_price = _trigger_price(setup_type=setup_type, close=close, high=high)
-    decision = "candidate" if total_score >= 75 else "watch"
+    base_decision = "candidate" if total_score >= 75 else "watch"
     score_breakdown = {
         "trend": trend_score,
         "relative_strength": rs_score,
@@ -247,7 +300,7 @@ def _score_oneil_core_setup(
         base_score=base_score,
         base_depth=base_depth,
         close_position=close_position,
-        decision=decision,
+        decision=base_decision,
         distance_to_sma_20=distance_to_sma_20,
         initial_stop=initial_stop,
         market_score=market_score,
@@ -264,7 +317,10 @@ def _score_oneil_core_setup(
         trend_score=trend_score,
         trigger_price=trigger_price,
         volume_score=volume_score,
+        strat_signal=strat_signal,
+        strat_plan=strat_plan,
     )
+    decision = scanner_decision.get("decision", base_decision)
 
     return ScoredETFSetup(
         symbol_id=fact.symbol_id,
@@ -281,11 +337,13 @@ def _score_oneil_core_setup(
         fundamental_lite_score=fundamental_lite_score,
         risk_stop_score=risk_stop_score,
         followthrough_score=followthrough_score,
+        decision=decision,
         entry_plan={
             "side": "long",
             "trigger_type": "break_above_high" if setup_type != "pullback_to_20ma" else "reclaim_momentum",
             "trigger_price": trigger_price,
             "timeframe": fact.timeframe,
+            "strat_trigger_plan": strat_plan,
             "score_breakdown": score_breakdown,
             "scanner_decision": scanner_decision,
         },
@@ -536,6 +594,8 @@ def _scanner_decision(
     trend_score: float,
     trigger_price: float,
     volume_score: float,
+    strat_signal: db.StratSignal | None,
+    strat_plan: dict[str, Any] | None,
 ) -> dict[str, Any]:
     passed_rules: list[dict[str, Any]] = []
     failed_rules: list[dict[str, Any]] = []
@@ -637,8 +697,19 @@ def _scanner_decision(
     if market_score < 8:
         risk_notes.append("market_context_caution")
 
-    return ScannerDecision(
+    final_decision, strat_confirmation = _apply_strat_confirmation(
         decision=decision,
+        failed_rules=failed_rules,
+        passed_rules=passed_rules,
+        risk_notes=risk_notes,
+        strat_signal=strat_signal,
+        strat_plan=strat_plan,
+        upgrade_conditions=upgrade_conditions,
+        watch_reasons=watch_reasons,
+    )
+
+    return ScannerDecision(
+        decision=final_decision,
         failed_rules=failed_rules,
         initial_stop=initial_stop,
         metrics={
@@ -647,6 +718,7 @@ def _scanner_decision(
             "relative_volume": relative_volume,
             "rs_percentile_3m": round(rank_3m * 100, 1),
             "rs_percentile_6m": round(rank_6m * 100, 1),
+            "strat_trigger_plan": strat_plan,
         },
         passed_rules=passed_rules,
         risk_notes=_dedupe(risk_notes),
@@ -654,11 +726,125 @@ def _scanner_decision(
         setup_grade=setup_grade,
         setup_type=setup_type,
         total_score=total_score,
+        strat_confirmation=strat_confirmation,
         trigger_price=trigger_price,
         upgrade_conditions=_dedupe(upgrade_conditions),
         validation_status="shadow_only",
         watch_reasons=_dedupe(watch_reasons),
     ).model_dump(exclude_none=True)
+
+
+def _apply_strat_confirmation(
+    *,
+    decision: str,
+    failed_rules: list[dict[str, Any]],
+    passed_rules: list[dict[str, Any]],
+    risk_notes: list[str],
+    strat_signal: db.StratSignal | None,
+    strat_plan: dict[str, Any] | None,
+    upgrade_conditions: list[str],
+    watch_reasons: list[str],
+) -> tuple[str, dict[str, Any]]:
+    armed_plan = _usable_strat_plan(strat_plan)
+    if strat_signal is None and armed_plan is None:
+        watch_reasons.append("strat_signal_missing")
+        upgrade_conditions.append("strat_bullish_trigger_needed")
+        return decision, {
+            "status": "missing",
+            "base_decision": decision,
+            "final_decision": decision,
+            "reason": "strat_signal_missing",
+            "can_create_trade_alone": False,
+        }
+
+    if armed_plan is not None:
+        for rule in armed_plan.get("no_chase_rules", []):
+            if isinstance(rule, dict) and rule.get("level") == "block":
+                _add_rule_key(failed_rules, key=str(rule.get("code")), passed=False)
+                risk_notes.append(str(rule.get("code")))
+        if armed_plan.get("status") == "blocked":
+            final_decision = "watch" if decision == "candidate" else decision
+            watch_reasons.append("strat_no_chase_blocked")
+            return final_decision, {
+                "status": "blocked",
+                "base_decision": decision,
+                "final_decision": final_decision,
+                "bar_type": armed_plan.get("latest_bar_type"),
+                "pattern": armed_plan.get("pattern"),
+                "direction": armed_plan.get("direction"),
+                "trigger_price": armed_plan.get("trigger_price"),
+                "trigger_stop": armed_plan.get("trigger_stop"),
+                "order_type": armed_plan.get("order_type"),
+                "stop_limit_price": armed_plan.get("stop_limit_price"),
+                "max_entry_price": armed_plan.get("max_entry_price"),
+                "no_chase_rules": armed_plan.get("no_chase_rules", []),
+                "reason": "strat_no_chase_blocked",
+                "can_create_trade_alone": False,
+            }
+
+        if not (strat_signal is not None and strat_signal.pattern and strat_signal.direction):
+            watch_reasons.append("strat_pending_trigger_armed")
+            upgrade_conditions.append("strat_trigger_price_reached")
+            return decision, {
+                "status": "armed",
+                "base_decision": decision,
+                "final_decision": decision,
+                "bar_type": armed_plan.get("latest_bar_type"),
+                "pattern": armed_plan.get("pattern"),
+                "direction": armed_plan.get("direction"),
+                "trigger_price": armed_plan.get("trigger_price"),
+                "trigger_stop": armed_plan.get("trigger_stop"),
+                "order_type": armed_plan.get("order_type"),
+                "stop_limit_price": armed_plan.get("stop_limit_price"),
+                "max_entry_price": armed_plan.get("max_entry_price"),
+                "no_chase_rules": armed_plan.get("no_chase_rules", []),
+                "reason": "strat_pending_trigger_armed",
+                "can_create_trade_alone": False,
+            }
+
+    payload = {
+        "status": "wait",
+        "base_decision": decision,
+        "final_decision": decision,
+        "bar_type": strat_signal.bar_type if strat_signal is not None else armed_plan.get("latest_bar_type"),
+        "pattern": strat_signal.pattern if strat_signal is not None else armed_plan.get("pattern"),
+        "direction": strat_signal.direction if strat_signal is not None else armed_plan.get("direction"),
+        "trigger_price": strat_signal.trigger_price if strat_signal is not None else armed_plan.get("trigger_price"),
+        "trigger_stop": strat_signal.trigger_stop if strat_signal is not None else armed_plan.get("trigger_stop"),
+        "reason": "strat_waiting_for_trigger",
+        "can_create_trade_alone": False,
+    }
+    if strat_signal.pattern and strat_signal.direction == "long":
+        _add_rule_key(passed_rules, key="strat_bullish_trigger", passed=True)
+        payload["status"] = "confirm"
+        payload["reason"] = "strat_bullish_trigger"
+        return decision, payload
+
+    if strat_signal.pattern and strat_signal.direction == "short":
+        final_decision = "watch" if decision == "candidate" else "avoid"
+        _add_rule_key(failed_rules, key="strat_bearish_trigger", passed=False)
+        watch_reasons.append("strat_bearish_downgrade")
+        risk_notes.append("strat_bearish_context")
+        payload["status"] = "downgrade"
+        payload["final_decision"] = final_decision
+        payload["reason"] = "strat_bearish_trigger"
+        return final_decision, payload
+
+    watch_reasons.append("strat_waiting_for_trigger")
+    upgrade_conditions.append("strat_bullish_trigger_needed")
+    return decision, payload
+
+
+def _usable_strat_plan(strat_plan: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(strat_plan, dict):
+        return None
+    if strat_plan.get("direction") != "long":
+        return None
+    if strat_plan.get("status") not in {"armed", "blocked"}:
+        return None
+    if strat_plan.get("trigger_price") is None or strat_plan.get("trigger_stop") is None:
+        return None
+    return strat_plan
 
 
 def _add_score_rule(
@@ -751,7 +937,7 @@ def _upsert_pa_setup(session: Session, scored: ScoredETFSetup) -> db.PASetup:
         "entry_plan": scored.entry_plan,
         "exit_plan": scored.exit_plan,
         "invalidation": scored.invalidation,
-        "status": "candidate" if scored.total_score >= 75 else "watch",
+        "status": scored.decision,
         "validation_status": "shadow_only",
         "updated_at": datetime.now(UTC),
     }
@@ -773,7 +959,6 @@ def _upsert_candidate(
 ) -> db.Candidate:
     candidate_id = _candidate_id(account_id, scored)
     candidate = session.get(db.Candidate, candidate_id)
-    decision = "candidate" if scored.total_score >= 75 else "watch"
     payload = {
         "account_id": account_id,
         "symbol_id": scored.symbol_id,
@@ -784,7 +969,7 @@ def _upsert_candidate(
         "score_total": scored.total_score,
         "entry_trigger": scored.entry_plan.get("trigger_price"),
         "initial_stop": scored.exit_plan.get("initial_stop"),
-        "decision": decision,
+        "decision": scored.decision,
         "option_suitability": "stock_etf_only",
         "ai_review_json": _candidate_ai_review_placeholder(scored, setup_id),
     }

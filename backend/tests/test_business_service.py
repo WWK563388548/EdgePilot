@@ -168,6 +168,90 @@ def test_candidate_queries_support_offset_pagination(session) -> None:
     assert BusinessService.count_candidates(session, principal) == 3
 
 
+def test_candidate_detail_includes_latest_strat_signal(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    detected_ts = datetime(2026, 4, 26, tzinfo=UTC)
+    for offset, ohlc in enumerate(
+        (
+            (98, 100, 90, 98),
+            (100, 102, 97, 101),
+            (101, 101.5, 99, 101),
+        )
+    ):
+        session.add(
+            db.Bar(
+                symbol_id="SPY",
+                timeframe="1d",
+                ts=(detected_ts - timedelta(days=2 - offset)).replace(tzinfo=None),
+                open=ohlc[0],
+                high=ohlc[1],
+                low=ohlc[2],
+                close=ohlc[3],
+                volume=1_000_000,
+                source="test",
+            )
+        )
+    session.add(
+        db.PAFact(
+            fact_id="pafact_spy_1d_2026-04-26",
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=detected_ts,
+            facts={"sma_20": 101, "distance_to_sma_20_pct": 0.0198},
+        )
+    )
+    session.add(
+        db.PASetup(
+            setup_id="pasetup_spy_1d_2026-04-26_breakout",
+            symbol_id="SPY",
+            timeframe="1d",
+            detected_ts=detected_ts,
+            setup_type="breakout",
+            entry_plan={"trigger_price": 105.0},
+            validation_status="shadow_only",
+        )
+    )
+    session.add(
+        db.StratSignal(
+            signal_id="strat_spy_1d_2026-04-26",
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=detected_ts,
+            bar_type="2U",
+            previous_bar_type="1",
+            pattern="inside_breakout",
+            direction="long",
+            trigger_price=104.0,
+            trigger_stop=96.0,
+            timeframe_continuity={"1d": "bullish"},
+            can_create_trade_alone=False,
+        )
+    )
+    session.flush()
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_spy",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            pa_setup_id="pasetup_spy_1d_2026-04-26_breakout",
+            decision="candidate",
+        ),
+    )
+
+    detail = BusinessService.get_candidate_detail(session, principal, "cand_spy")
+
+    assert detail.strat_signal is not None
+    assert detail.strat_signal.pattern == "inside_breakout"
+    assert detail.strat_signal.can_create_trade_alone is False
+    assert detail.strat_plan is not None
+    assert detail.strat_plan.status == "armed"
+    assert detail.strat_plan.pattern == "2-1-2_continuation"
+    assert detail.strat_plan.order_type == "buy_stop_limit"
+
+
 def test_account_risk_settings_default_and_update(session) -> None:
     principal = _principal("user_a", "acct_a")
 
@@ -975,6 +1059,55 @@ def test_create_candidate_plan_requires_entry_and_stop(session) -> None:
         )
 
 
+def test_candidate_plan_prefers_armed_strat_trigger(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    detected_ts = datetime(2026, 4, 26, tzinfo=UTC)
+    session.add(
+        db.PASetup(
+            setup_id="pasetup_spy_armed_strat",
+            symbol_id="SPY",
+            timeframe="1d",
+            detected_ts=detected_ts,
+            setup_type="breakout",
+            entry_plan={
+                "trigger_price": 105.0,
+                "scanner_decision": {
+                    "decision": "candidate",
+                    "strat_confirmation": {
+                        "status": "armed",
+                        "trigger_price": 110.0,
+                    },
+                },
+            },
+            exit_plan={"initial_stop": 100.0},
+            validation_status="shadow_only",
+        )
+    )
+    session.flush()
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_armed_strat_plan",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            pa_setup_id="pasetup_spy_armed_strat",
+            entry_trigger=105.0,
+            initial_stop=100.0,
+            decision="candidate",
+        ),
+    )
+
+    preview = BusinessService.preview_candidate_plan(
+        session,
+        principal,
+        "cand_armed_strat_plan",
+    )
+
+    assert preview.entry_price == 110.0
+
+
 def test_activate_position_moves_planned_to_open(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.create_position(
@@ -1062,6 +1195,63 @@ def test_update_position_stop_allows_active_positions(session) -> None:
 
     assert updated.current_stop == 96
     assert updated.initial_stop == 90
+
+
+def test_cancel_position_marks_planned_as_cancelled_and_removes_risk(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_cancel",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="planned",
+            entry_price=100,
+            quantity=3,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_pos_spy_cancel_entry",
+            position_id="pos_spy_cancel",
+            action="enter",
+            acknowledged=False,
+        ),
+    )
+
+    cancelled = BusinessService.cancel_position(session, principal, "pos_spy_cancel")
+
+    assert cancelled.status == "cancelled"
+    assert cancelled.quantity == 0
+    assert cancelled.risk_amount == 0
+    assert BusinessService.get_portfolio_risk(session, principal).active_position_count == 0
+    assert BusinessService.count_exit_alerts(session, principal) == 0
+
+
+def test_cancel_position_requires_planned_status(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_cancel_open",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=3,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Only planned positions"):
+        BusinessService.cancel_position(session, principal, "pos_spy_cancel_open")
 
 
 def test_reduce_position_marks_trim_and_updates_realized_pnl(session) -> None:

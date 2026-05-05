@@ -429,6 +429,23 @@ def update_position_stop(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
+@router.post("/positions/{position_id}/cancel", response_model=Position)
+def cancel_position(
+    position_id: str,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> Position:
+    try:
+        return BusinessService.cancel_position(
+            session=session,
+            principal=principal,
+            position_id=position_id,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc).startswith("Position not found") else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
 @router.post("/positions/{position_id}/reduce", response_model=Position)
 def reduce_position(
     position_id: str,

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.schemas.scanner import ScannerDecision
 
 CandidateDecision = Literal["candidate", "watch", "avoid"]
-PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed"]
+PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed", "cancelled"]
 GuardrailLevel = Literal["block", "warning", "info"]
 
 
@@ -145,9 +145,54 @@ class CandidatePASetup(BaseModel):
     updated_at: datetime | None = None
 
 
+class CandidateStratSignal(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    signal_id: str
+    symbol_id: str
+    timeframe: str
+    ts: datetime
+    bar_type: str
+    previous_bar_type: str | None = None
+    pattern: str | None = None
+    direction: str | None = None
+    trigger_price: float | None = None
+    trigger_stop: float | None = None
+    invalidation: str | None = None
+    timeframe_continuity: dict[str, Any] | None = None
+    quality_score: float | None = None
+    can_create_trade_alone: bool = False
+
+
+class CandidateStratTriggerPlan(BaseModel):
+    symbol_id: str
+    timeframe: str
+    latest_bar_ts: datetime | None = None
+    latest_bar_type: str | None = None
+    previous_bar_type: str | None = None
+    status: str
+    pattern: str | None = None
+    direction: str | None = None
+    trigger_price: float | None = None
+    trigger_stop: float | None = None
+    order_type: str | None = None
+    stop_limit_price: float | None = None
+    max_entry_price: float | None = None
+    risk_per_share: float | None = None
+    risk_distance_pct: float | None = None
+    atr_14: float | None = None
+    distance_to_sma_20_pct: float | None = None
+    consecutive_2u_count: int = 0
+    timeframe_continuity: dict[str, Any] | None = None
+    no_chase_rules: list[dict[str, Any]] = Field(default_factory=list)
+    can_create_trade_alone: bool = False
+
+
 class CandidateDetail(BaseModel):
     candidate: Candidate
     pa_setup: CandidatePASetup | None = None
+    strat_signal: CandidateStratSignal | None = None
+    strat_plan: CandidateStratTriggerPlan | None = None
     score_breakdown: dict[str, Any] | None = None
     scanner_decision: ScannerDecision | None = None
     entry_plan: dict[str, Any] | None = None

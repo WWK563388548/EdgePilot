@@ -12,6 +12,7 @@ import { KeyLevelsBlock } from "@/components/workspace/organisms/detail/key-leve
 import { PlanFields } from "@/components/workspace/organisms/detail/plan-fields";
 import { ScannerDecisionBlock } from "@/components/workspace/organisms/detail/scanner-decision-block";
 import { ScoreBreakdownBlock } from "@/components/workspace/organisms/detail/score-breakdown-block";
+import { StratSignalBlock } from "@/components/workspace/organisms/detail/strat-signal-block";
 import type { CandidateDetail } from "@/lib/api";
 import { api } from "@/lib/api";
 import { formatNumber, nestedRecord } from "@/lib/format";
@@ -75,6 +76,7 @@ export function CandidateDetailContent({
             locale={locale}
             setup={setup}
           />
+          <StratSignalBlock locale={locale} plan={detail?.strat_plan} signal={detail?.strat_signal} />
           <ScannerDecisionBlock data={scannerDecision} locale={locale} />
           <PAEvidencePanel
             error={explain.isError}

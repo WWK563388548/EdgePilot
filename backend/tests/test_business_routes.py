@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.api.routes.business import (
     activate_position,
+    cancel_position,
     get_account_risk_settings,
     count_candidates,
     count_exit_alerts,
@@ -478,6 +479,13 @@ def test_position_routes(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         business_route.BusinessService,
+        "cancel_position",
+        lambda session, principal, position_id: _position().model_copy(
+            update={"position_id": position_id, "status": "cancelled", "quantity": 0}
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
         "reduce_position",
         lambda session, principal, position_id, request: _position().model_copy(
             update={"position_id": position_id, "status": "reduce", "current_stop": request.current_stop}
@@ -550,6 +558,14 @@ def test_position_routes(monkeypatch) -> None:
             principal=_principal(),
         ).current_stop
         == 430
+    )
+    assert (
+        cancel_position(
+            "pos_1",
+            session=None,
+            principal=_principal(),
+        ).status
+        == "cancelled"
     )
     assert (
         reduce_position(

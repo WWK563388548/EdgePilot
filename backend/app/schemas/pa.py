@@ -79,6 +79,26 @@ class PACalibrationStat(BaseModel):
     updated_at: datetime | None = None
 
 
+class StratSignal(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    signal_id: str
+    symbol_id: str
+    timeframe: str
+    ts: datetime
+    bar_type: str
+    previous_bar_type: str | None = None
+    pattern: str | None = None
+    direction: str | None = None
+    trigger_price: float | None = None
+    trigger_stop: float | None = None
+    invalidation: str | None = None
+    timeframe_continuity: dict[str, Any] | None = None
+    quality_score: float | None = None
+    can_create_trade_alone: bool = False
+    created_at: datetime | None = None
+
+
 class PAEvidenceBar(BaseModel):
     ts: datetime
     open: float | None = None
@@ -126,6 +146,24 @@ class ETFUniverseFactsRequest(BaseModel):
         if self.symbols is not None:
             self.symbols = [symbol.strip().upper() for symbol in self.symbols if symbol.strip()]
         return self
+
+
+class StratScanRequest(BaseModel):
+    symbols: list[str] | None = None
+    timeframe: Timeframe = "1d"
+
+    @model_validator(mode="after")
+    def normalize_symbols(self) -> "StratScanRequest":
+        if self.symbols is not None:
+            self.symbols = [symbol.strip().upper() for symbol in self.symbols if symbol.strip()]
+        return self
+
+
+class StratScanResponse(BaseModel):
+    timeframe: str
+    symbols_processed: list[str]
+    signals_written: int
+    skipped_symbols: list[str] = Field(default_factory=list)
 
 
 class PAFactsCalculationResponse(BaseModel):
