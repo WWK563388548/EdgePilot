@@ -164,10 +164,35 @@ class CandidateStratSignal(BaseModel):
     can_create_trade_alone: bool = False
 
 
+class CandidateStratTriggerPlan(BaseModel):
+    symbol_id: str
+    timeframe: str
+    latest_bar_ts: datetime | None = None
+    latest_bar_type: str | None = None
+    previous_bar_type: str | None = None
+    status: str
+    pattern: str | None = None
+    direction: str | None = None
+    trigger_price: float | None = None
+    trigger_stop: float | None = None
+    order_type: str | None = None
+    stop_limit_price: float | None = None
+    max_entry_price: float | None = None
+    risk_per_share: float | None = None
+    risk_distance_pct: float | None = None
+    atr_14: float | None = None
+    distance_to_sma_20_pct: float | None = None
+    consecutive_2u_count: int = 0
+    timeframe_continuity: dict[str, Any] | None = None
+    no_chase_rules: list[dict[str, Any]] = Field(default_factory=list)
+    can_create_trade_alone: bool = False
+
+
 class CandidateDetail(BaseModel):
     candidate: Candidate
     pa_setup: CandidatePASetup | None = None
     strat_signal: CandidateStratSignal | None = None
+    strat_plan: CandidateStratTriggerPlan | None = None
     score_breakdown: dict[str, Any] | None = None
     scanner_decision: ScannerDecision | None = None
     entry_plan: dict[str, Any] | None = None

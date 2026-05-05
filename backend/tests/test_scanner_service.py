@@ -39,9 +39,9 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert response.setups_written == 1
     assert response.candidates_written == 1
     assert response.candidates[0].strategy_name == "oneil_core_us_etf"
-    assert response.candidates[0].decision == "candidate"
+    assert response.candidates[0].decision == "watch"
     assert response.candidates[0].pa_setup_id is not None
-    assert response.decision_counts == {"candidate": 1}
+    assert response.decision_counts == {"watch": 1}
     assert response.latest_scan_date == response.candidates[0].scan_date
     assert response.latest_bar_date == response.candidates[0].scan_date
 
@@ -61,8 +61,8 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert setup.entry_plan is not None
     scanner_decision = setup.entry_plan["scanner_decision"]
     assert scanner_decision["version"] == "oneil_core_us_etf_v2"
-    assert scanner_decision["decision"] == "candidate"
-    assert scanner_decision["strat_confirmation"]["status"] == "confirm"
+    assert scanner_decision["decision"] == "watch"
+    assert scanner_decision["strat_confirmation"]["status"] == "blocked"
     assert scanner_decision["strat_confirmation"]["can_create_trade_alone"] is False
     assert scanner_decision["score"] == scanner_decision["total_score"]
     assert scanner_decision["trigger_price"]
@@ -71,7 +71,7 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     passed_keys = {rule["key"] for rule in scanner_decision["passed_rules"]}
     failed_keys = {rule["key"] for rule in scanner_decision["failed_rules"]}
     assert "rs_top_quartile" in passed_keys
-    assert "strat_bullish_trigger" in passed_keys
+    assert "strat_consecutive_2u_no_chase" in failed_keys
     assert "breakout_close_near_high" in passed_keys
     assert "base_depth_healthy" in passed_keys
     assert "breakout_volume_missing" in failed_keys
@@ -124,6 +124,7 @@ def test_scanner_decision_uses_bearish_strat_only_to_downgrade() -> None:
             trigger_stop=104,
             can_create_trade_alone=False,
         ),
+        strat_plan=None,
     )
 
     assert decision["decision"] == "watch"
@@ -132,6 +133,95 @@ def test_scanner_decision_uses_bearish_strat_only_to_downgrade() -> None:
     assert decision["strat_confirmation"]["final_decision"] == "watch"
     assert "strat_bearish_downgrade" in decision["watch_reasons"]
     assert any(rule["key"] == "strat_bearish_trigger" for rule in decision["failed_rules"])
+
+
+def test_scanner_decision_surfaces_armed_strat_plan() -> None:
+    decision = _scanner_decision(
+        base_score=12,
+        base_depth=0.18,
+        close_position=0.8,
+        decision="candidate",
+        distance_to_sma_20=0.03,
+        initial_stop=95,
+        market_score=8,
+        quality_failed_rules=[],
+        quality_passed_rules=["setup_location"],
+        rank_3m=0.9,
+        rank_6m=0.9,
+        relative_volume=1.2,
+        risk_stop_score=8,
+        rs_score=22,
+        setup_grade="A",
+        setup_type="breakout",
+        total_score=84,
+        trend_score=24,
+        trigger_price=105,
+        volume_score=10,
+        strat_signal=None,
+        strat_plan={
+            "status": "armed",
+            "latest_bar_type": "1",
+            "pattern": "inside_breakout",
+            "direction": "long",
+            "trigger_price": 106.01,
+            "trigger_stop": 101,
+            "order_type": "buy_stop_limit",
+            "stop_limit_price": 108.5,
+            "max_entry_price": 108.5,
+            "no_chase_rules": [{"level": "info", "code": "strat_gap_no_chase_limit"}],
+        },
+    )
+
+    assert decision["decision"] == "candidate"
+    assert decision["strat_confirmation"]["status"] == "armed"
+    assert decision["strat_confirmation"]["trigger_price"] == 106.01
+    assert decision["strat_confirmation"]["order_type"] == "buy_stop_limit"
+    assert "strat_pending_trigger_armed" in decision["watch_reasons"]
+    assert "strat_trigger_price_reached" in decision["upgrade_conditions"]
+
+
+def test_scanner_decision_blocks_no_chase_strat_plan() -> None:
+    decision = _scanner_decision(
+        base_score=12,
+        base_depth=0.18,
+        close_position=0.8,
+        decision="candidate",
+        distance_to_sma_20=0.03,
+        initial_stop=95,
+        market_score=8,
+        quality_failed_rules=[],
+        quality_passed_rules=["setup_location"],
+        rank_3m=0.9,
+        rank_6m=0.9,
+        relative_volume=1.2,
+        risk_stop_score=8,
+        rs_score=22,
+        setup_grade="A",
+        setup_type="breakout",
+        total_score=84,
+        trend_score=24,
+        trigger_price=105,
+        volume_score=10,
+        strat_signal=None,
+        strat_plan={
+            "status": "blocked",
+            "latest_bar_type": "2U",
+            "pattern": "2U_continuation",
+            "direction": "long",
+            "trigger_price": 106.01,
+            "trigger_stop": 90,
+            "order_type": "buy_stop_limit",
+            "no_chase_rules": [
+                {"level": "block", "code": "strat_risk_too_wide"},
+                {"level": "info", "code": "strat_gap_no_chase_limit"},
+            ],
+        },
+    )
+
+    assert decision["decision"] == "watch"
+    assert decision["strat_confirmation"]["status"] == "blocked"
+    assert "strat_no_chase_blocked" in decision["watch_reasons"]
+    assert any(rule["key"] == "strat_risk_too_wide" for rule in decision["failed_rules"])
 
 
 def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> None:

@@ -76,7 +76,7 @@ export function CandidateDetailContent({
             locale={locale}
             setup={setup}
           />
-          <StratSignalBlock locale={locale} signal={detail?.strat_signal} />
+          <StratSignalBlock locale={locale} plan={detail?.strat_plan} signal={detail?.strat_signal} />
           <ScannerDecisionBlock data={scannerDecision} locale={locale} />
           <PAEvidencePanel
             error={explain.isError}

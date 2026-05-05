@@ -315,8 +315,18 @@ const SCANNER_DECISION_TEXT_KEYS: Record<string, string> = {
   strat_bearish_trigger: "ruleStratBearishTrigger",
   strat_bullish_trigger: "ruleStratBullishTrigger",
   strat_bullish_trigger_needed: "conditionStratBullishTriggerNeeded",
+  strat_atr_extension: "ruleStratAtrExtension",
+  strat_consecutive_2u_no_chase: "ruleStratConsecutive2UNoChase",
+  strat_gap_no_chase_limit: "ruleStratGapNoChaseLimit",
+  strat_mother_bar_exceeds_atr: "ruleStratMotherBarExceedsAtr",
+  strat_no_chase_blocked: "reasonStratNoChaseBlocked",
+  strat_overextended_from_20ma: "ruleStratOverextendedFrom20ma",
+  strat_pending_trigger_armed: "reasonStratPendingTriggerArmed",
+  strat_risk_too_wide: "ruleStratRiskTooWide",
   strat_signal_missing: "reasonStratSignalMissing",
-  strat_waiting_for_trigger: "reasonStratWaitingForTrigger"
+  strat_trigger_price_reached: "conditionStratTriggerPriceReached",
+  strat_waiting_for_trigger: "reasonStratWaitingForTrigger",
+  strat_wide_mother_bar: "ruleStratWideMotherBar"
 };
 
 function scannerDecisionText(t: ReturnType<typeof useAppI18n>["t"], key: string) {

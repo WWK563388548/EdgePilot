@@ -94,6 +94,54 @@ def test_calculate_and_store_signals_is_idempotent() -> None:
     assert StratService.latest_signal(session, symbol="SPY").pattern == "inside_breakout"
 
 
+def test_calculate_trigger_plan_arms_next_session_inside_breakout() -> None:
+    start = datetime(2026, 5, 1)
+    bars = [
+        _bar(ts=start, open_=100, high=105, low=95, close=104),
+        _bar(ts=start + timedelta(days=1), open_=104, high=106, low=98, close=105),
+        _bar(ts=start + timedelta(days=2), open_=104, high=105.5, low=99, close=104),
+    ]
+
+    plan = StratService.calculate_trigger_plan(
+        bars=bars,
+        facts={"sma_20": 102, "distance_to_sma_20_pct": 0.0196},
+    )
+
+    assert plan.status == "armed"
+    assert plan.latest_bar_type == "1"
+    assert plan.previous_bar_type == "2U"
+    assert plan.pattern == "2-1-2_continuation"
+    assert plan.direction == "long"
+    assert plan.trigger_price == 105.51
+    assert plan.trigger_stop == 99
+    assert plan.order_type == "buy_stop_limit"
+    assert plan.can_create_trade_alone is False
+    assert any(rule["code"] == "strat_gap_no_chase_limit" for rule in plan.no_chase_rules)
+
+
+def test_calculate_trigger_plan_blocks_consecutive_2u_chase() -> None:
+    start = datetime(2026, 5, 1)
+    bars = [
+        _bar(ts=start, open_=100, high=101, low=98, close=100),
+        _bar(ts=start + timedelta(days=1), open_=100, high=102, low=99, close=101),
+        _bar(ts=start + timedelta(days=2), open_=101, high=103, low=100, close=102),
+        _bar(ts=start + timedelta(days=3), open_=102, high=104, low=101, close=103),
+    ]
+
+    plan = StratService.calculate_trigger_plan(
+        bars=bars,
+        facts={"sma_20": 101, "distance_to_sma_20_pct": 0.0198},
+    )
+
+    assert plan.status == "blocked"
+    assert plan.pattern == "2U_continuation"
+    assert plan.consecutive_2u_count == 3
+    assert any(
+        rule["code"] == "strat_consecutive_2u_no_chase" and rule["level"] == "block"
+        for rule in plan.no_chase_rules
+    )
+
+
 def test_scan_treats_explicit_empty_symbols_as_noop(monkeypatch) -> None:
     session = _session()
     monkeypatch.setattr("backend.app.services.strat_service.SessionLocal", lambda: session)
