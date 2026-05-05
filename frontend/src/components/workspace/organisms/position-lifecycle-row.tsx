@@ -52,6 +52,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["positions"] }),
       queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
+      queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
       queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       queryClient.invalidateQueries({ queryKey: ["alerts"] }),
       queryClient.invalidateQueries({ queryKey: ["alerts-count"] }),

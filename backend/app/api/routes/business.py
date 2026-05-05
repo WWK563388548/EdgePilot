@@ -28,6 +28,7 @@ from backend.app.schemas.business import (
     PositionStatus,
     PositionStopUpdate,
     PositionUpdate,
+    PortfolioRiskSummary,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
 from backend.app.schemas.outcome import (
@@ -66,6 +67,14 @@ def update_account_risk_settings(
         principal=principal,
         request=request,
     )
+
+
+@router.get("/risk/portfolio", response_model=PortfolioRiskSummary)
+def get_portfolio_risk(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+) -> PortfolioRiskSummary:
+    return BusinessService.get_portfolio_risk(session=session, principal=principal)
 
 
 @router.post("/candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)
@@ -491,6 +500,7 @@ def list_exit_alerts(
     session: DbSession,
     principal: VerifiedPrincipal,
     acknowledged: bool | None = None,
+    include_snoozed: bool = False,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[ExitAlert]:
@@ -498,6 +508,7 @@ def list_exit_alerts(
         session=session,
         principal=principal,
         acknowledged=acknowledged,
+        include_snoozed=include_snoozed,
         limit=limit,
         offset=offset,
     )
@@ -508,12 +519,14 @@ def count_exit_alerts(
     session: DbSession,
     principal: VerifiedPrincipal,
     acknowledged: bool | None = None,
+    include_snoozed: bool = False,
 ) -> CountResponse:
     return CountResponse(
         total=BusinessService.count_exit_alerts(
             session=session,
             principal=principal,
             acknowledged=acknowledged,
+            include_snoozed=include_snoozed,
         )
     )
 

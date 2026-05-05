@@ -61,6 +61,11 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     queryFn: api.dashboard,
     enabled: queriesEnabled
   });
+  const portfolioRisk = useQuery({
+    queryKey: ["portfolio-risk"],
+    queryFn: api.portfolioRisk,
+    enabled: queriesEnabled
+  });
   const candidates = useQuery({
     queryKey: ["candidates", candidateDecision, candidatePage],
     queryFn: () =>
@@ -181,7 +186,13 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <DataState isLoading={dashboard.isLoading} isError={dashboard.isError} locale={locale} />
 
-        {view === "overview" && <OverviewView locale={locale} summary={summary} />}
+        {view === "overview" && (
+          <OverviewView
+            locale={locale}
+            portfolioRisk={portfolioRisk.data}
+            summary={summary}
+          />
+        )}
         {view === "candidates" && (
           <CandidatesView
             data={candidateRows}

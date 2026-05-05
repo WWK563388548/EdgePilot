@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -38,6 +38,9 @@ from backend.app.schemas.business import (
     PositionReduce,
     PositionStopUpdate,
     PositionUpdate,
+    PortfolioRiskBucket,
+    PortfolioRiskItem,
+    PortfolioRiskSummary,
     GuardrailNotice,
 )
 from backend.app.schemas.ingestion import (
@@ -64,6 +67,7 @@ from backend.app.services.scanner_service import ETFScannerService
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
 DEFAULT_ACCOUNT_EQUITY = 10_000.0
 DEFAULT_MAX_RISK_PER_TRADE_PCT = 0.005
+DEFAULT_MAX_TOTAL_RISK_PCT = 0.02
 DEFAULT_MAX_OPEN_POSITIONS = 3
 DEFAULT_MAX_RISK_DISTANCE_PCT = 0.12
 
@@ -184,6 +188,13 @@ class BusinessService:
         return BusinessService._risk_settings_response(principal, settings)
 
     @staticmethod
+    def get_portfolio_risk(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> PortfolioRiskSummary:
+        return BusinessService._portfolio_risk_summary(session, principal)
+
+    @staticmethod
     def _get_account_risk_settings_model(
         session: Session,
         principal: AuthPrincipal,
@@ -202,6 +213,11 @@ class BusinessService:
                 settings.max_risk_per_trade_pct
                 if settings and settings.max_risk_per_trade_pct
                 else DEFAULT_MAX_RISK_PER_TRADE_PCT
+            ),
+            max_total_risk_pct=(
+                settings.max_total_risk_pct
+                if settings and settings.max_total_risk_pct
+                else DEFAULT_MAX_TOTAL_RISK_PCT
             ),
             max_open_positions=(
                 settings.max_open_positions
@@ -513,6 +529,151 @@ class BusinessService:
         )
 
     @staticmethod
+    def _portfolio_risk_summary(
+        session: Session,
+        principal: AuthPrincipal,
+        *,
+        extra_item: PortfolioRiskItem | None = None,
+        exclude_position_id: str | None = None,
+    ) -> PortfolioRiskSummary:
+        risk_settings = BusinessService.get_account_risk_settings(session, principal)
+        statement = (
+            select(db.Position)
+            .where(
+                db.Position.account_id == principal.account_id,
+                db.Position.status.in_(("planned", "open", "reduce")),
+            )
+            .order_by(db.Position.updated_at.desc())
+        )
+        rows = list(session.scalars(statement).all())
+        items: list[PortfolioRiskItem] = []
+        for row in rows:
+            if exclude_position_id and row.position_id == exclude_position_id:
+                continue
+            items.append(BusinessService._portfolio_risk_item(row, risk_settings))
+        if extra_item is not None:
+            items.append(extra_item)
+
+        total_risk_amount = round(
+            sum(item.risk_amount or 0 for item in items),
+            6,
+        )
+        total_risk_pct = round(total_risk_amount / risk_settings.account_equity, 6)
+        max_total_risk_amount = round(
+            risk_settings.account_equity * risk_settings.max_total_risk_pct,
+            6,
+        )
+        remaining_risk_amount = round(max_total_risk_amount - total_risk_amount, 6)
+        remaining_risk_pct = round(remaining_risk_amount / risk_settings.account_equity, 6)
+
+        by_symbol: dict[str, dict[str, float | int]] = {}
+        for item in items:
+            bucket = by_symbol.setdefault(
+                item.symbol_id,
+                {"risk_amount": 0.0, "position_count": 0},
+            )
+            bucket["risk_amount"] = float(bucket["risk_amount"]) + (item.risk_amount or 0)
+            bucket["position_count"] = int(bucket["position_count"]) + 1
+
+        buckets = [
+            PortfolioRiskBucket(
+                symbol_id=symbol,
+                risk_amount=round(float(bucket["risk_amount"]), 6),
+                risk_pct=round(float(bucket["risk_amount"]) / risk_settings.account_equity, 6),
+                position_count=int(bucket["position_count"]),
+            )
+            for symbol, bucket in by_symbol.items()
+        ]
+        buckets.sort(key=lambda bucket: bucket.risk_amount, reverse=True)
+
+        notices: list[GuardrailNotice] = []
+        if total_risk_pct > risk_settings.max_total_risk_pct:
+            notices.append(GuardrailNotice(level="block", code="portfolio_risk_budget_exceeded"))
+        elif remaining_risk_amount <= risk_settings.account_equity * risk_settings.max_risk_per_trade_pct:
+            notices.append(GuardrailNotice(level="warning", code="portfolio_risk_budget_low"))
+        if len(items) >= risk_settings.max_open_positions:
+            notices.append(GuardrailNotice(level="warning", code="portfolio_position_limit_reached"))
+
+        return PortfolioRiskSummary(
+            account_id=principal.account_id,
+            account_equity=risk_settings.account_equity,
+            max_total_risk_pct=risk_settings.max_total_risk_pct,
+            max_total_risk_amount=max_total_risk_amount,
+            max_open_positions=risk_settings.max_open_positions,
+            active_position_count=len(items),
+            total_risk_amount=total_risk_amount,
+            total_risk_pct=total_risk_pct,
+            remaining_risk_amount=remaining_risk_amount,
+            remaining_risk_pct=remaining_risk_pct,
+            planned_risk_amount=round(
+                sum(item.risk_amount or 0 for item in items if item.status == "planned"),
+                6,
+            ),
+            open_risk_amount=round(
+                sum(item.risk_amount or 0 for item in items if item.status == "open"),
+                6,
+            ),
+            reduced_risk_amount=round(
+                sum(item.risk_amount or 0 for item in items if item.status == "reduce"),
+                6,
+            ),
+            highest_symbol_risk=buckets[0] if buckets else None,
+            by_symbol=buckets,
+            positions=items,
+            notices=notices,
+        )
+
+    @staticmethod
+    def _portfolio_risk_item(
+        position: db.Position,
+        risk_settings: AccountRiskSettings,
+    ) -> PortfolioRiskItem:
+        stop = position.current_stop or position.initial_stop
+        risk_amount = _risk_amount(position.entry_price, stop, position.quantity)
+        return PortfolioRiskItem(
+            position_id=position.position_id,
+            symbol_id=position.symbol_id,
+            status=position.status,
+            entry_price=position.entry_price,
+            stop_price=stop,
+            quantity=position.quantity,
+            risk_amount=risk_amount,
+            risk_pct=(
+                round(risk_amount / risk_settings.account_equity, 6)
+                if risk_amount is not None
+                else None
+            ),
+            source="position",
+            updated_at=position.updated_at,
+        )
+
+    @staticmethod
+    def _preview_portfolio_risk_item(
+        *,
+        candidate: db.Candidate,
+        entry_price: float | None,
+        initial_stop: float | None,
+        quantity: float | None,
+        risk_settings: AccountRiskSettings,
+    ) -> PortfolioRiskItem:
+        risk_amount = _risk_amount(entry_price, initial_stop, quantity)
+        return PortfolioRiskItem(
+            position_id=_candidate_plan_position_id(candidate.candidate_id),
+            symbol_id=candidate.symbol_id,
+            status="planned",
+            entry_price=entry_price,
+            stop_price=initial_stop,
+            quantity=quantity,
+            risk_amount=risk_amount,
+            risk_pct=(
+                round(risk_amount / risk_settings.account_equity, 6)
+                if risk_amount is not None
+                else None
+            ),
+            source="preview",
+        )
+
+    @staticmethod
     def preview_candidate_plan(
         session: Session,
         principal: AuthPrincipal,
@@ -549,10 +710,25 @@ class BusinessService:
             suggested_quantity if suggested_quantity is not None and suggested_quantity > 0 else None
         )
         planned_risk_amount = _risk_amount(entry_price, initial_stop, planned_quantity)
-        active_position_count = BusinessService.count_positions(session, principal, status="open") + BusinessService.count_positions(
+        portfolio_before = BusinessService._portfolio_risk_summary(session, principal)
+        existing_plan = session.scalar(
+            select(db.Position).where(
+                db.Position.position_id == _candidate_plan_position_id(candidate.candidate_id),
+                db.Position.account_id == principal.account_id,
+            )
+        )
+        preview_item = BusinessService._preview_portfolio_risk_item(
+            candidate=candidate,
+            entry_price=entry_price,
+            initial_stop=initial_stop,
+            quantity=planned_quantity,
+            risk_settings=risk_settings,
+        )
+        portfolio_after_plan = BusinessService._portfolio_risk_summary(
             session,
             principal,
-            status="reduce",
+            extra_item=preview_item,
+            exclude_position_id=existing_plan.position_id if existing_plan is not None else None,
         )
         risk_distance_pct = (
             round(risk_per_unit / entry_price, 6)
@@ -565,7 +741,8 @@ class BusinessService:
             initial_stop=initial_stop,
             risk_distance_pct=risk_distance_pct,
             suggested_quantity=suggested_quantity,
-            active_position_count=active_position_count,
+            active_position_count=portfolio_before.active_position_count,
+            portfolio_after_plan=portfolio_after_plan,
             validation_status=validation_status,
             risk_settings=risk_settings,
         )
@@ -588,7 +765,9 @@ class BusinessService:
                 else None
             ),
             max_open_positions=risk_settings.max_open_positions,
-            active_position_count=active_position_count,
+            active_position_count=portfolio_before.active_position_count,
+            portfolio_before=portfolio_before,
+            portfolio_after_plan=portfolio_after_plan,
             validation_status=validation_status,
             guardrails=guardrails,
         )
@@ -601,6 +780,7 @@ class BusinessService:
         risk_distance_pct: float | None,
         suggested_quantity: int | None,
         active_position_count: int,
+        portfolio_after_plan: PortfolioRiskSummary,
         validation_status: str | None,
         risk_settings: AccountRiskSettings,
     ) -> list[GuardrailNotice]:
@@ -613,8 +793,10 @@ class BusinessService:
             guardrails.append(GuardrailNotice(level="block", code="stop_not_below_entry"))
         if risk_distance_pct is not None and risk_distance_pct > risk_settings.max_risk_distance_pct:
             guardrails.append(GuardrailNotice(level="warning", code="risk_distance_wide"))
-        if active_position_count >= risk_settings.max_open_positions:
+        if max(active_position_count, portfolio_after_plan.active_position_count) >= risk_settings.max_open_positions:
             guardrails.append(GuardrailNotice(level="warning", code="max_open_positions_reached"))
+        if portfolio_after_plan.total_risk_pct > risk_settings.max_total_risk_pct:
+            guardrails.append(GuardrailNotice(level="block", code="portfolio_risk_budget_exceeded"))
         if validation_status == "shadow_only" and risk_settings.shadow_only_requires_paper:
             guardrails.append(GuardrailNotice(level="info", code="shadow_only_paper_only"))
         if suggested_quantity is not None and suggested_quantity <= 0:
@@ -819,6 +1001,16 @@ class BusinessService:
         )
         if entry_price is None or initial_stop is None:
             raise ValueError("Candidate is missing entry trigger or initial stop")
+        position_id = _candidate_plan_position_id(candidate.candidate_id)
+        existing = session.scalar(
+            select(db.Position).where(
+                db.Position.position_id == position_id,
+                db.Position.account_id == principal.account_id,
+            )
+        )
+        if existing is not None and not BusinessService._candidate_plan_needs_fill(existing):
+            return BusinessService._position_response(session, principal, existing)
+
         preview = BusinessService.preview_candidate_plan(
             session,
             principal,
@@ -829,14 +1021,29 @@ class BusinessService:
         if blocking_guardrails:
             raise ValueError(f"Candidate plan blocked: {', '.join(blocking_guardrails)}")
 
-        position_id = _candidate_plan_position_id(candidate.candidate_id)
-        existing = session.scalar(
-            select(db.Position).where(
-                db.Position.position_id == position_id,
-                db.Position.account_id == principal.account_id,
-            )
-        )
         if existing is not None:
+            updated = BusinessService._fill_missing_candidate_plan_fields(
+                existing,
+                entry_price=entry_price,
+                initial_stop=initial_stop,
+                quantity=request.quantity
+                or (
+                    preview.suggested_quantity
+                    if preview.suggested_quantity is not None and preview.suggested_quantity > 0
+                    else None
+                ),
+            )
+            if updated:
+                _touch_position(existing)
+                BusinessService._audit(
+                    session,
+                    principal,
+                    "candidate.plan_update",
+                    "position",
+                    existing.position_id,
+                )
+                session.commit()
+                session.refresh(existing)
             return BusinessService._position_response(session, principal, existing)
 
         position = db.Position(
@@ -867,6 +1074,43 @@ class BusinessService:
         session.commit()
         session.refresh(position)
         return BusinessService._position_response(session, principal, position)
+
+    @staticmethod
+    def _candidate_plan_needs_fill(position: db.Position) -> bool:
+        return (
+            position.status == "planned"
+            and (
+                position.entry_price is None
+                or position.initial_stop is None
+                or position.current_stop is None
+                or position.quantity is None
+            )
+        )
+
+    @staticmethod
+    def _fill_missing_candidate_plan_fields(
+        position: db.Position,
+        *,
+        entry_price: float | None,
+        initial_stop: float | None,
+        quantity: float | None,
+    ) -> bool:
+        if position.status != "planned":
+            return False
+        updated = False
+        if position.entry_price is None and entry_price is not None:
+            position.entry_price = entry_price
+            updated = True
+        if position.initial_stop is None and initial_stop is not None:
+            position.initial_stop = initial_stop
+            updated = True
+        if position.current_stop is None and initial_stop is not None:
+            position.current_stop = initial_stop
+            updated = True
+        if position.quantity is None and quantity is not None:
+            position.quantity = quantity
+            updated = True
+        return updated
 
     @staticmethod
     def get_candidate_plan(
@@ -1137,6 +1381,7 @@ class BusinessService:
             reason=request.reason,
             new_stop=request.new_stop,
             triggered_rules=request.triggered_rules,
+            snoozed_until=request.snoozed_until,
             acknowledged=request.acknowledged,
         )
         session.add(alert)
@@ -1172,11 +1417,12 @@ class BusinessService:
         for position in positions:
             latest_bar = BusinessService._latest_bar(session, position.symbol_id)
             latest_fact = BusinessService._latest_fact(session, position.symbol_id)
+            market_context = BusinessService._latest_market_context(session)
             if latest_bar is None:
                 skipped_positions += 1
                 continue
             symbols.add(position.symbol_id)
-            for spec in BusinessService._exit_alert_specs(position, latest_bar, latest_fact):
+            for spec in BusinessService._exit_alert_specs(position, latest_bar, latest_fact, market_context):
                 alert_id = f"alert_{position.position_id}_{spec['rule']}_{latest_bar.ts.date().isoformat()}"
                 if session.get(db.ExitAlert, alert_id) is not None:
                     duplicate_alerts += 1
@@ -1236,10 +1482,19 @@ class BusinessService:
         )
 
     @staticmethod
+    def _latest_market_context(session: Session) -> db.MarketContextSnapshot | None:
+        return session.scalar(
+            select(db.MarketContextSnapshot)
+            .order_by(db.MarketContextSnapshot.snapshot_ts.desc())
+            .limit(1)
+        )
+
+    @staticmethod
     def _exit_alert_specs(
         position: db.Position,
         latest_bar: db.Bar,
         latest_fact: db.PAFact | None,
+        market_context: db.MarketContextSnapshot | None,
     ) -> list[dict[str, object]]:
         close = latest_bar.close
         high = latest_bar.high
@@ -1265,7 +1520,7 @@ class BusinessService:
             specs.append(
                 {
                     "rule": "daily_close_below_current_stop",
-                    "level": 3,
+                    "level": 4,
                     "action": "exit",
                     "reason": "daily_close_below_current_stop",
                     "new_stop": stop,
@@ -1275,6 +1530,8 @@ class BusinessService:
         facts = latest_fact.facts if latest_fact else None
         sma_20 = _number_from_record(facts, "sma_20")
         sma_50 = _number_from_record(facts, "sma_50")
+        relative_volume = _number_from_record(facts, "relative_volume")
+        current_r = BusinessService._position_r_from_close(position, close, stop)
         if sma_20 is not None and sma_50 is not None and close < sma_20 and close < sma_50:
             specs.append(
                 {
@@ -1306,8 +1563,26 @@ class BusinessService:
                 }
             )
 
-        risk = position.entry_price - stop if position.entry_price is not None and stop is not None else None
-        if risk is not None and risk > 0 and close >= position.entry_price + (2 * risk):
+        risk_stop = position.initial_stop or stop
+        risk = position.entry_price - risk_stop if position.entry_price is not None and risk_stop is not None else None
+        if (
+            risk is not None
+            and risk > 0
+            and position.entry_price is not None
+            and close >= position.entry_price + risk
+            and close < position.entry_price + (2 * risk)
+            and (stop is None or stop < position.entry_price)
+        ):
+            specs.append(
+                {
+                    "rule": "move_stop_to_breakeven_after_1r",
+                    "level": 1,
+                    "action": "tighten_stop",
+                    "reason": "move_stop_to_breakeven_after_1r",
+                    "new_stop": position.entry_price,
+                }
+            )
+        if risk is not None and risk > 0 and position.entry_price is not None and close >= position.entry_price + (2 * risk):
             specs.append(
                 {
                     "rule": "first_trim_target_reached_2r",
@@ -1317,19 +1592,121 @@ class BusinessService:
                     "new_stop": max(stop, position.entry_price),
                 }
             )
+        if (
+            current_r is not None
+            and current_r >= 2
+            and sma_20 is not None
+            and stop is not None
+            and sma_20 > stop
+            and close > sma_20
+        ):
+            specs.append(
+                {
+                    "rule": "trail_stop_to_20ma_after_profit",
+                    "level": 1,
+                    "action": "tighten_stop",
+                    "reason": "trail_stop_to_20ma_after_profit",
+                    "new_stop": round(max(stop, sma_20 * 0.98), 6),
+                }
+            )
+        if (
+            current_r is not None
+            and current_r < 0.5
+            and position.entry_date is not None
+            and (BusinessService._days_since_entry(latest_bar, position) or 0) >= 20
+        ):
+            specs.append(
+                {
+                    "rule": "time_stop_no_progress_20d",
+                    "level": 1,
+                    "action": "review_exit",
+                    "reason": "time_stop_no_progress_20d",
+                    "new_stop": stop,
+                }
+            )
+        if (
+            position.entry_price is not None
+            and position.entry_date is not None
+            and (BusinessService._days_since_entry(latest_bar, position) or 9999) <= 10
+            and close < position.entry_price
+            and relative_volume is not None
+            and relative_volume >= 1.2
+        ):
+            specs.append(
+                {
+                    "rule": "failed_breakout_heavy_volume",
+                    "level": 2,
+                    "action": "review_exit",
+                    "reason": "failed_breakout_heavy_volume",
+                    "new_stop": stop,
+                }
+            )
+        if (
+            market_context is not None
+            and BusinessService._market_context_is_risk_off(market_context)
+            and sma_20 is not None
+            and close < sma_20
+        ):
+            specs.append(
+                {
+                    "rule": "market_regime_risk_off",
+                    "level": 2,
+                    "action": "review_exit",
+                    "reason": "market_regime_risk_off",
+                    "new_stop": stop,
+                }
+            )
         return specs
+
+    @staticmethod
+    def _position_r_from_close(
+        position: db.Position,
+        close: float,
+        stop: float | None,
+    ) -> float | None:
+        risk_stop = position.initial_stop or stop
+        if position.entry_price is None or risk_stop is None:
+            return None
+        risk = position.entry_price - risk_stop
+        if risk <= 0:
+            return None
+        return round((close - position.entry_price) / risk, 6)
+
+    @staticmethod
+    def _days_since_entry(latest_bar: db.Bar, position: db.Position) -> int | None:
+        if position.entry_date is None:
+            return None
+        bar_ts = latest_bar.ts
+        entry_ts = position.entry_date
+        if bar_ts.tzinfo is not None and entry_ts.tzinfo is None:
+            entry_ts = entry_ts.replace(tzinfo=bar_ts.tzinfo)
+        elif bar_ts.tzinfo is None and entry_ts.tzinfo is not None:
+            entry_ts = entry_ts.replace(tzinfo=None)
+        return (bar_ts - entry_ts).days
+
+    @staticmethod
+    def _market_context_is_risk_off(market_context: db.MarketContextSnapshot) -> bool:
+        risk_level = (market_context.risk_level or "").lower()
+        us_bias = (market_context.us_bias or "").lower()
+        return risk_level in {"shock", "risk_off", "red"} or us_bias in {
+            "bearish",
+            "risk_off",
+            "down",
+        }
 
     @staticmethod
     def list_exit_alerts(
         session: Session,
         principal: AuthPrincipal,
         acknowledged: bool | None = None,
+        include_snoozed: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ExitAlert]:
         statement = BusinessService._exit_alert_list_statement(
             principal=principal,
             acknowledged=acknowledged,
+            include_snoozed=include_snoozed,
         )
         rows = session.scalars(
             statement.order_by(db.ExitAlert.alert_ts.desc()).offset(offset).limit(limit)
@@ -1341,10 +1718,12 @@ class BusinessService:
         session: Session,
         principal: AuthPrincipal,
         acknowledged: bool | None = None,
+        include_snoozed: bool = False,
     ) -> int:
         statement = BusinessService._exit_alert_list_statement(
             principal=principal,
             acknowledged=acknowledged,
+            include_snoozed=include_snoozed,
         )
         return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
 
@@ -1353,10 +1732,18 @@ class BusinessService:
         *,
         principal: AuthPrincipal,
         acknowledged: bool | None = None,
+        include_snoozed: bool = False,
     ):
         statement = select(db.ExitAlert).where(db.ExitAlert.account_id == principal.account_id)
         if acknowledged is not None:
             statement = statement.where(db.ExitAlert.acknowledged == acknowledged)
+        if not include_snoozed:
+            statement = statement.where(
+                or_(
+                    db.ExitAlert.snoozed_until.is_(None),
+                    db.ExitAlert.snoozed_until <= datetime.now(UTC),
+                )
+            )
         return statement
 
     @staticmethod

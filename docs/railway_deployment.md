@@ -8,10 +8,10 @@ After backend deployment you can show technical users:
 
 - `/health`
 - `/docs`
-- read-only ingestion query endpoints
-- the Next.js dashboard once the frontend is deployed and pointed at the backend URL
+- authenticated dashboard/business APIs
+- PA Lab, Candidates, Positions, Exit Alerts, Journal, and Settings in the Next.js frontend
 
-Keep all write endpoints protected with `INGESTION_ADMIN_TOKEN`.
+Keep ingestion/admin write endpoints protected with `INGESTION_ADMIN_TOKEN`. Business write endpoints require a verified Auth0 access token and a role that passes the backend role gate.
 
 ## Services
 
@@ -55,7 +55,7 @@ From the project canvas:
 3. Choose `Redis`.
 4. Rename the service to `Redis` if Railway lets you rename it.
 
-Redis is optional for the current heartbeat-only SSE stream, but adding it now keeps the environment close to the planned production shape.
+Redis is optional for the current MVP, but adding it now keeps the environment close to the planned production shape.
 
 ## Backend Configuration
 
@@ -89,6 +89,12 @@ REDIS_URL=${{ Redis.REDIS_URL }}
 ```
 
 Do not expose `INGESTION_ADMIN_TOKEN` to frontend users.
+
+After deploying the frontend, update `CORS_ALLOWED_ORIGINS` to include its public domain:
+
+```text
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://<frontend-domain>
+```
 
 ### Auth0 backend values
 
@@ -202,7 +208,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000,https://<frontend-domain>
 
 6. Redeploy the backend after changing `CORS_ALLOWED_ORIGINS`.
 
-Do not put `INGESTION_ADMIN_TOKEN` in frontend variables. The current frontend only reads data.
+Do not put `INGESTION_ADMIN_TOKEN` in frontend variables. The frontend uses Auth0 access tokens for business writes such as plan creation, position lifecycle actions, exit alert acknowledge/snooze, and risk settings updates.
 
 ## Smoke Test
 
@@ -224,9 +230,9 @@ curl -X POST https://<domain>/api/ingestion/market-context \
 
 ## Can This Be Shown To Users?
 
-For internal or technical users: yes, after `/health` and `/docs` work and the write token is configured.
+For internal or technical users: yes, after `/health` and `/docs` work, Auth0 is configured, and migrations have run.
 
-For normal end users: yes for a small beta demo after the frontend is deployed and the backend has real or seed data. Treat it as an internal beta, not public production, because auth is still a single admin token and the app does not yet have per-user accounts.
+For normal end users: not yet. Treat it as an internal beta until data quality gates, monitoring, backups, validation-lite, and clearer user-facing disclaimers are in place.
 
 Recommended demo order:
 
@@ -234,11 +240,13 @@ Recommended demo order:
 2. Show `/docs` as API proof.
 3. Trigger a protected market-context write.
 4. Show freshness/read endpoints.
-5. Open the Next.js dashboard and check Overview, Candidates, Positions, Exit Alerts, Journal, and Settings.
+5. Open the Next.js dashboard and check Overview, Candidates, PA Lab, Review, Positions, Exit Alerts, Journal, and Settings.
+6. Create a paper/manual plan from a candidate and confirm that Portfolio Risk updates.
+7. Evaluate exit alerts and confirm acknowledge/snooze works.
 
 ## Railway vs Tiger Data
 
-You can stay on Railway for the MVP. Railway is the right default for the current stage because it keeps backend, database, Redis, environment variables, and deploys in one small operational surface.
+You can stay on Railway for staging and internal beta. Railway is the right default for the current stage because it keeps backend, database, Redis, environment variables, and deploys in one small operational surface.
 
 Tiger Data/Tiger Cloud is a future option, not a mandatory next step. Revisit it when the workload becomes database-heavy enough that managed time-series features matter more than platform simplicity:
 
@@ -247,4 +255,21 @@ Tiger Data/Tiger Cloud is a future option, not a mandatory next step. Revisit it
 - stronger database operations are needed, such as high availability, point-in-time recovery, cross-region posture, and specialist support;
 - you want the app platform and database lifecycle separated.
 
-Railway also has volume backups, so this is not an urgent migration. The practical plan is: ship the MVP on Railway, measure data volume/cost/query latency, and only move the database to Tiger if those numbers justify it.
+Railway also has volume backups, so this is not an urgent migration. The practical plan is: ship staging/internal beta on Railway, measure data volume/cost/query latency, and only move the database to Tiger or AWS-managed infrastructure if those numbers justify it.
+
+## Railway vs AWS
+
+Do not move to AWS just because AWS is the eventual production target. Move when the operational needs justify the extra surface area.
+
+Recommended path:
+
+1. Railway staging/internal beta.
+2. Railway plus stronger database/backup discipline if the MVP remains small.
+3. AWS App Runner or Lightsail Containers later if you want the application stack on AWS.
+4. Separate managed database later if bars, analytics, and historical queries become the bottleneck.
+
+AWS candidates:
+
+- App Runner: good for a containerized FastAPI backend with source/image deployments and less infrastructure management than ECS.
+- Lightsail Containers: simpler AWS entry point for small container services.
+- ECS/Fargate: powerful, but too much operational surface for the current stage.

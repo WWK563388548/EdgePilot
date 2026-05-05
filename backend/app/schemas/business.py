@@ -13,6 +13,7 @@ GuardrailLevel = Literal["block", "warning", "info"]
 class AccountRiskSettingsBase(BaseModel):
     account_equity: float = Field(default=10_000, gt=0)
     max_risk_per_trade_pct: float = Field(default=0.005, gt=0, le=0.1)
+    max_total_risk_pct: float = Field(default=0.02, gt=0, le=0.5)
     max_open_positions: int = Field(default=3, ge=1, le=50)
     max_risk_distance_pct: float = Field(default=0.12, gt=0, le=0.5)
     shadow_only_requires_paper: bool = True
@@ -21,6 +22,7 @@ class AccountRiskSettingsBase(BaseModel):
 class AccountRiskSettingsUpdate(BaseModel):
     account_equity: float | None = Field(default=None, gt=0)
     max_risk_per_trade_pct: float | None = Field(default=None, gt=0, le=0.1)
+    max_total_risk_pct: float | None = Field(default=None, gt=0, le=0.5)
     max_open_positions: int | None = Field(default=None, ge=1, le=50)
     max_risk_distance_pct: float | None = Field(default=None, gt=0, le=0.5)
     shadow_only_requires_paper: bool | None = None
@@ -37,6 +39,46 @@ class AccountRiskSettings(AccountRiskSettingsBase):
 class GuardrailNotice(BaseModel):
     level: GuardrailLevel
     code: str
+
+
+class PortfolioRiskItem(BaseModel):
+    position_id: str
+    symbol_id: str
+    status: str | None = None
+    entry_price: float | None = None
+    stop_price: float | None = None
+    quantity: float | None = None
+    risk_amount: float | None = None
+    risk_pct: float | None = None
+    source: Literal["position", "preview"] = "position"
+    updated_at: datetime | None = None
+
+
+class PortfolioRiskBucket(BaseModel):
+    symbol_id: str
+    risk_amount: float
+    risk_pct: float
+    position_count: int
+
+
+class PortfolioRiskSummary(BaseModel):
+    account_id: str
+    account_equity: float
+    max_total_risk_pct: float
+    max_total_risk_amount: float
+    max_open_positions: int
+    active_position_count: int
+    total_risk_amount: float
+    total_risk_pct: float
+    remaining_risk_amount: float
+    remaining_risk_pct: float
+    planned_risk_amount: float
+    open_risk_amount: float
+    reduced_risk_amount: float
+    highest_symbol_risk: PortfolioRiskBucket | None = None
+    by_symbol: list[PortfolioRiskBucket] = Field(default_factory=list)
+    positions: list[PortfolioRiskItem] = Field(default_factory=list)
+    notices: list[GuardrailNotice] = Field(default_factory=list)
 
 
 class CandidateBase(BaseModel):
@@ -129,6 +171,8 @@ class CandidatePlanPreview(BaseModel):
     planned_risk_pct: float | None = None
     max_open_positions: int
     active_position_count: int
+    portfolio_before: PortfolioRiskSummary | None = None
+    portfolio_after_plan: PortfolioRiskSummary | None = None
     validation_status: str | None = None
     guardrails: list[GuardrailNotice] = Field(default_factory=list)
 
@@ -212,6 +256,7 @@ class ExitAlertBase(BaseModel):
     reason: str | None = None
     new_stop: float | None = None
     triggered_rules: str | None = None
+    snoozed_until: datetime | None = None
     acknowledged: bool = False
 
 
@@ -225,6 +270,7 @@ class ExitAlertUpdate(BaseModel):
     reason: str | None = None
     new_stop: float | None = None
     triggered_rules: str | None = None
+    snoozed_until: datetime | None = None
     acknowledged: bool | None = None
 
 

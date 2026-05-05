@@ -13,6 +13,7 @@ from backend.app.schemas.business import (
     CandidateCreate,
     CandidatePlanCreate,
     CandidateUpdate,
+    ExitAlertCreate,
     ExitAlertEvaluationRequest,
     PositionActivate,
     PositionClose,
@@ -177,6 +178,7 @@ def test_account_risk_settings_default_and_update(session) -> None:
         AccountRiskSettingsUpdate(
             account_equity=25_000,
             max_risk_per_trade_pct=0.01,
+            max_total_risk_pct=0.03,
             max_open_positions=4,
             max_risk_distance_pct=0.08,
             shadow_only_requires_paper=False,
@@ -187,6 +189,7 @@ def test_account_risk_settings_default_and_update(session) -> None:
     assert defaults.max_risk_per_trade_pct == 0.005
     assert updated.account_equity == 25_000
     assert updated.max_risk_per_trade_pct == 0.01
+    assert updated.max_total_risk_pct == 0.03
     assert updated.max_open_positions == 4
     assert updated.max_risk_distance_pct == 0.08
     assert updated.shadow_only_requires_paper is False
@@ -683,6 +686,54 @@ def test_create_candidate_plan_from_candidate_is_planned_and_idempotent(session)
     assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
 
 
+def test_create_candidate_plan_backfills_missing_legacy_plan_quantity(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_legacy_plan",
+            symbol_id="IWM",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            setup_type="breakout",
+            decision="candidate",
+            entry_trigger=280.09,
+            initial_stop=264.54,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="plan_cand_legacy_plan",
+            symbol_id="IWM",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            status="planned",
+            entry_price=280.09,
+            initial_stop=264.54,
+            current_stop=264.54,
+        ),
+    )
+
+    preview = BusinessService.preview_candidate_plan(session, principal, "cand_legacy_plan")
+    repaired = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_legacy_plan",
+        CandidatePlanCreate(),
+    )
+
+    assert preview.planned_quantity == 3
+    assert preview.planned_risk_amount == 46.65
+    assert preview.portfolio_before.total_risk_amount == 0
+    assert preview.portfolio_after_plan.total_risk_amount == 46.65
+    assert repaired.quantity == 3
+    assert repaired.risk_amount == 46.65
+    assert BusinessService.get_portfolio_risk(session, principal).total_risk_amount == 46.65
+
+
 def test_candidate_plan_preview_sizes_quantity_and_guardrails(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.update_account_risk_settings(
@@ -748,6 +799,128 @@ def test_candidate_plan_preview_sizes_quantity_and_guardrails(session) -> None:
     assert position.quantity == 20
     assert position.risk_amount == 200
     assert position.risk_pct == 0.01
+
+
+def test_portfolio_risk_summary_and_candidate_preview_after_plan(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.update_account_risk_settings(
+        session,
+        principal,
+        AccountRiskSettingsUpdate(
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_risk",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=10,
+            initial_stop=95,
+            current_stop=95,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_qqq_risk",
+            symbol_id="QQQ",
+            asset_type="etf",
+            status="planned",
+            entry_price=200,
+            quantity=4,
+            initial_stop=190,
+            current_stop=190,
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_iwm_risk",
+            symbol_id="IWM",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=90,
+        ),
+    )
+
+    summary = BusinessService.get_portfolio_risk(session, principal)
+    preview = BusinessService.preview_candidate_plan(session, principal, "cand_iwm_risk")
+
+    assert summary.total_risk_amount == 90
+    assert summary.total_risk_pct == 0.009
+    assert summary.remaining_risk_amount == 110
+    assert summary.planned_risk_amount == 40
+    assert summary.open_risk_amount == 50
+    assert summary.highest_symbol_risk.symbol_id == "SPY"
+    assert preview.portfolio_before is not None
+    assert preview.portfolio_after_plan is not None
+    assert preview.portfolio_before.total_risk_amount == 90
+    assert preview.portfolio_after_plan.total_risk_amount == 140
+    assert preview.portfolio_after_plan.remaining_risk_amount == 60
+
+
+def test_candidate_plan_blocks_when_portfolio_risk_budget_exceeded(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.update_account_risk_settings(
+        session,
+        principal,
+        AccountRiskSettingsUpdate(
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.01,
+            max_total_risk_pct=0.01,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_budget",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=5,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_budget_block",
+            symbol_id="IWM",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=90,
+        ),
+    )
+
+    preview = BusinessService.preview_candidate_plan(session, principal, "cand_budget_block")
+    with pytest.raises(ValueError, match="portfolio_risk_budget_exceeded"):
+        BusinessService.create_candidate_plan(
+            session,
+            principal,
+            "cand_budget_block",
+            CandidatePlanCreate(),
+        )
+
+    assert preview.portfolio_after_plan.total_risk_amount == 150
+    assert "portfolio_risk_budget_exceeded" in {notice.code for notice in preview.guardrails}
 
 
 def test_candidate_plan_blocks_invalid_stop(session) -> None:
@@ -1076,6 +1249,7 @@ def test_evaluate_exit_alerts_for_open_position_stop_and_trim(session) -> None:
     assert response.alerts_created == 2
     assert reasons == {"daily_close_below_current_stop", "first_trim_target_reached_2r"}
     assert {alert.action for alert in response.alerts} == {"exit", "trim"}
+    assert max(alert.level for alert in response.alerts if alert.reason == "daily_close_below_current_stop") == 4
 
 
 def test_evaluate_exit_alerts_uses_latest_pa_fact_for_ma_support(session) -> None:
@@ -1115,3 +1289,178 @@ def test_evaluate_exit_alerts_uses_latest_pa_fact_for_ma_support(session) -> Non
     assert response.alerts_created == 1
     assert response.alerts[0].action == "review_exit"
     assert response.alerts[0].reason == "close_below_20_50ma_support"
+
+
+def test_evaluate_exit_alerts_v2_adds_breakeven_time_and_failed_breakout_rules(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_breakeven",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_time_stop",
+            symbol_id="QQQ",
+            asset_type="etf",
+            status="open",
+            entry_date=datetime(2026, 4, 1),
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_failed_breakout",
+            symbol_id="IWM",
+            asset_type="etf",
+            status="open",
+            entry_date=datetime(2026, 4, 25),
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    session.add(_bar(symbol="SPY", ts=datetime(2026, 4, 27), close=111, high=112, low=110))
+    session.add(_bar(symbol="QQQ", ts=datetime(2026, 4, 27), close=103, high=104, low=102))
+    session.add(_bar(symbol="IWM", ts=datetime(2026, 4, 27), close=99, high=101, low=98))
+    session.add(
+        db.PAFact(
+            fact_id="pafact_iwm_1d_2026-04-27",
+            symbol_id="IWM",
+            timeframe="1d",
+            ts=datetime(2026, 4, 27),
+            facts={"relative_volume": 1.5},
+        )
+    )
+    session.commit()
+
+    response = BusinessService.evaluate_exit_alerts(
+        session,
+        principal,
+        ExitAlertEvaluationRequest(),
+    )
+    reasons = {alert.reason for alert in response.alerts}
+
+    assert "move_stop_to_breakeven_after_1r" in reasons
+    assert "time_stop_no_progress_20d" in reasons
+    assert "failed_breakout_heavy_volume" in reasons
+
+
+def test_evaluate_exit_alerts_v2_adds_trailing_and_market_context_rules(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_trail",
+            symbol_id="SMH",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=100,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_market",
+            symbol_id="SOXX",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    session.add(_bar(symbol="SMH", ts=datetime(2026, 4, 27), close=125, high=126, low=124))
+    session.add(_bar(symbol="SOXX", ts=datetime(2026, 4, 27), close=99, high=100, low=98))
+    session.add(
+        db.PAFact(
+            fact_id="pafact_smh_1d_2026-04-27",
+            symbol_id="SMH",
+            timeframe="1d",
+            ts=datetime(2026, 4, 27),
+            facts={"sma_20": 115},
+        )
+    )
+    session.add(
+        db.PAFact(
+            fact_id="pafact_soxx_1d_2026-04-27",
+            symbol_id="SOXX",
+            timeframe="1d",
+            ts=datetime(2026, 4, 27),
+            facts={"sma_20": 105},
+        )
+    )
+    session.add(
+        db.MarketContextSnapshot(
+            market="global",
+            snapshot_ts=datetime(2026, 4, 27),
+            risk_level="shock",
+            us_bias="bearish",
+        )
+    )
+    session.commit()
+
+    response = BusinessService.evaluate_exit_alerts(
+        session,
+        principal,
+        ExitAlertEvaluationRequest(),
+    )
+    reasons = {alert.reason for alert in response.alerts}
+
+    assert "trail_stop_to_20ma_after_profit" in reasons
+    assert "market_regime_risk_off" in reasons
+
+
+def test_snoozed_exit_alerts_are_hidden_until_due(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_snooze",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+        ),
+    )
+    alert = BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_snoozed",
+            position_id="pos_snooze",
+            level=1,
+            action="review_exit",
+            snoozed_until=datetime(2099, 5, 1, tzinfo=UTC),
+        ),
+    )
+
+    visible = BusinessService.list_exit_alerts(session, principal, acknowledged=False)
+    included = BusinessService.list_exit_alerts(
+        session,
+        principal,
+        acknowledged=False,
+        include_snoozed=True,
+    )
+
+    assert alert.snoozed_until.replace(tzinfo=UTC) == datetime(2099, 5, 1, tzinfo=UTC)
+    assert visible == []
+    assert [row.alert_id for row in included] == ["alert_snoozed"]

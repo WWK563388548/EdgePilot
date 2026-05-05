@@ -322,6 +322,7 @@ export type AccountRiskSettings = {
   account_id: string;
   account_equity: number;
   max_risk_per_trade_pct: number;
+  max_total_risk_pct: number;
   max_open_positions: number;
   max_risk_distance_pct: number;
   shadow_only_requires_paper: boolean;
@@ -334,6 +335,7 @@ export type AccountRiskSettingsUpdate = Partial<
     AccountRiskSettings,
     | "account_equity"
     | "max_risk_per_trade_pct"
+    | "max_total_risk_pct"
     | "max_open_positions"
     | "max_risk_distance_pct"
     | "shadow_only_requires_paper"
@@ -343,6 +345,46 @@ export type AccountRiskSettingsUpdate = Partial<
 export type GuardrailNotice = {
   level: "block" | "warning" | "info";
   code: string;
+};
+
+export type PortfolioRiskItem = {
+  position_id: string;
+  symbol_id: string;
+  status: string | null;
+  entry_price: number | null;
+  stop_price: number | null;
+  quantity: number | null;
+  risk_amount: number | null;
+  risk_pct: number | null;
+  source: "position" | "preview";
+  updated_at: string | null;
+};
+
+export type PortfolioRiskBucket = {
+  symbol_id: string;
+  risk_amount: number;
+  risk_pct: number;
+  position_count: number;
+};
+
+export type PortfolioRiskSummary = {
+  account_id: string;
+  account_equity: number;
+  max_total_risk_pct: number;
+  max_total_risk_amount: number;
+  max_open_positions: number;
+  active_position_count: number;
+  total_risk_amount: number;
+  total_risk_pct: number;
+  remaining_risk_amount: number;
+  remaining_risk_pct: number;
+  planned_risk_amount: number;
+  open_risk_amount: number;
+  reduced_risk_amount: number;
+  highest_symbol_risk: PortfolioRiskBucket | null;
+  by_symbol: PortfolioRiskBucket[];
+  positions: PortfolioRiskItem[];
+  notices: GuardrailNotice[];
 };
 
 export type CandidatePlanPreview = {
@@ -361,6 +403,8 @@ export type CandidatePlanPreview = {
   planned_risk_pct: number | null;
   max_open_positions: number;
   active_position_count: number;
+  portfolio_before: PortfolioRiskSummary | null;
+  portfolio_after_plan: PortfolioRiskSummary | null;
   validation_status: string | null;
   guardrails: GuardrailNotice[];
 };
@@ -419,6 +463,8 @@ export type ExitAlert = {
   action: string | null;
   reason: string | null;
   new_stop: number | null;
+  triggered_rules: string | null;
+  snoozed_until: string | null;
   acknowledged: boolean;
   alert_ts: string | null;
 };
@@ -591,6 +637,7 @@ export const api = {
   riskSettings: () => getJson<AccountRiskSettings>("/api/settings/risk"),
   updateRiskSettings: (request: AccountRiskSettingsUpdate) =>
     patchJson<AccountRiskSettings>("/api/settings/risk", request),
+  portfolioRisk: () => getJson<PortfolioRiskSummary>("/api/risk/portfolio"),
   candidates: (filters: CandidateFilters = {}) =>
     getJson<Candidate[]>(
       `/api/candidates${queryString({
@@ -703,6 +750,7 @@ export const api = {
     getJson<ExitAlert[]>(
       `/api/exit-alerts${queryString({
         acknowledged: "false",
+        include_snoozed: "false",
         limit: pagination.limit ?? 100,
         offset: pagination.offset
       })}`
@@ -710,11 +758,14 @@ export const api = {
   alertsCount: () =>
     getJson<CountResponse>(
       `/api/exit-alerts/count${queryString({
-        acknowledged: "false"
+        acknowledged: "false",
+        include_snoozed: "false"
       })}`
     ),
   evaluateExitAlerts: (request: ExitAlertEvaluationRequest = {}) =>
     postJson<ExitAlertEvaluationResponse>("/api/exit-alerts/evaluate", request),
+  updateAlert: (alertId: string, request: Partial<ExitAlert>) =>
+    patchJson<ExitAlert>(`/api/exit-alerts/${encodeURIComponent(alertId)}`, request),
   journal: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<JournalTrade[]>(
       `/api/journal/trades${queryString({
