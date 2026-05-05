@@ -97,6 +97,7 @@ function StratPendingPlan({
   plan: StratTriggerPlan;
 }) {
   const { labelFor, t } = useAppI18n();
+  const blocked = plan.status === "blocked";
   const continuity = plan.timeframe_continuity
     ? Object.entries(plan.timeframe_continuity)
         .map(([timeframe, state]) => `${labelFor("plan", timeframe)}: ${labelFor("plan", state)}`)
@@ -104,21 +105,34 @@ function StratPendingPlan({
     : "-";
 
   return (
-    <div className="mt-3 rounded-md border border-line bg-white px-3 py-3">
+    <div
+      className={`mt-3 rounded-md border px-3 py-3 ${blocked ? "border-amber-200 bg-amber-50/50" : "border-line bg-white"}`}
+    >
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h4 className="text-sm font-semibold text-ink">{t("stratPendingPlan")}</h4>
+        <h4 className="text-sm font-semibold text-ink">
+          {blocked ? t("stratBlockedTrigger") : t("stratPendingPlan")}
+        </h4>
         <StatusPill label={labelFor("plan", plan.status)} tone={plan.status === "armed" ? "good" : "warn"} />
       </div>
+      {blocked ? (
+        <div className="mb-3 rounded-md border border-amber-300 bg-white px-3 py-2">
+          <div className="text-xs font-semibold uppercase text-amber-700">{t("recommendedAction")}</div>
+          <div className="mt-1 text-base font-semibold text-ink">{t("doNotPlaceOrder")}</div>
+        </div>
+      ) : null}
       <p className="mb-3 text-sm leading-6 text-slate-700">
         {plan.status === "armed" ? t("stratPendingPlanArmed") : t("stratPendingPlanBlocked")}
       </p>
-      <DetailFieldPanel title={t("stratPendingPlan")}>
+      <DetailFieldPanel title={blocked ? t("theoreticalTrigger") : t("stratPendingPlan")}>
         <Field label={t("stratPattern")} value={labelFor("plan", plan.pattern)} />
         <Field label={t("stratDirection")} value={labelFor("plan", plan.direction)} />
-        <Field label={t("stratTriggerPrice")} value={formatNumber(plan.trigger_price, 2, locale)} />
+        <Field
+          label={blocked ? t("theoreticalTriggerPrice") : t("stratTriggerPrice")}
+          value={formatNumber(plan.trigger_price, 2, locale)}
+        />
         <Field label={t("stratTriggerStop")} value={formatNumber(plan.trigger_stop, 2, locale)} />
-        <Field label={t("orderType")} value={labelFor("plan", plan.order_type)} />
-        <Field label={t("maxEntryPrice")} value={formatNumber(plan.max_entry_price, 2, locale)} />
+        {blocked ? null : <Field label={t("orderType")} value={labelFor("plan", plan.order_type)} />}
+        {blocked ? null : <Field label={t("maxEntryPrice")} value={formatNumber(plan.max_entry_price, 2, locale)} />}
         <Field label={t("riskDistance")} value={formatPercent(plan.risk_distance_pct)} />
         <Field label={t("stratContinuity")} value={continuity} />
       </DetailFieldPanel>
@@ -134,7 +148,10 @@ function StratPendingPlan({
                   <span
                     className={`mt-2 h-2 w-2 shrink-0 rounded-full ${level === "block" ? "bg-rose-700" : level === "warning" ? "bg-amber-500" : "bg-teal"}`}
                   />
-                  <span>{noChaseRuleText(t, code)}</span>
+                  <span>
+                    <span className="font-semibold text-ink">{guardLevelLabel(t, level)}: </span>
+                    {noChaseRuleText(t, code)}
+                  </span>
                 </li>
               );
             })}
@@ -165,4 +182,14 @@ const NO_CHASE_TEXT_KEYS: Record<string, string> = {
 function noChaseRuleText(t: ReturnType<typeof useAppI18n>["t"], code: string) {
   const key = NO_CHASE_TEXT_KEYS[code];
   return key ? t(key) : code || "-";
+}
+
+function guardLevelLabel(t: ReturnType<typeof useAppI18n>["t"], level: string) {
+  if (level === "block") {
+    return t("guardBlock");
+  }
+  if (level === "warning") {
+    return t("guardWarning");
+  }
+  return t("guardInfo");
 }
