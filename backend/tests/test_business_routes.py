@@ -18,6 +18,7 @@ from backend.app.api.routes.business import (
     create_position,
     get_dashboard_summary,
     get_candidate_plan,
+    get_portfolio_risk,
     preview_candidate_plan,
     get_candidate_outcome,
     get_scanner_outcome_summary,
@@ -69,6 +70,7 @@ from backend.app.schemas.business import (
     PositionReduce,
     PositionStopUpdate,
     PositionUpdate,
+    PortfolioRiskSummary,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
 from backend.app.schemas.outcome import (
@@ -578,6 +580,7 @@ def test_risk_settings_and_plan_preview_routes(monkeypatch) -> None:
             account_id=principal.account_id,
             account_equity=20_000,
             max_risk_per_trade_pct=0.01,
+            max_total_risk_pct=0.02,
             max_open_positions=3,
             max_risk_distance_pct=0.1,
         ),
@@ -589,8 +592,28 @@ def test_risk_settings_and_plan_preview_routes(monkeypatch) -> None:
             account_id=principal.account_id,
             account_equity=request.account_equity or 10_000,
             max_risk_per_trade_pct=request.max_risk_per_trade_pct or 0.005,
+            max_total_risk_pct=request.max_total_risk_pct or 0.02,
             max_open_positions=request.max_open_positions or 3,
             max_risk_distance_pct=request.max_risk_distance_pct or 0.12,
+        ),
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "get_portfolio_risk",
+        lambda session, principal: PortfolioRiskSummary(
+            account_id=principal.account_id,
+            account_equity=20_000,
+            max_total_risk_pct=0.02,
+            max_total_risk_amount=400,
+            max_open_positions=3,
+            active_position_count=1,
+            total_risk_amount=120,
+            total_risk_pct=0.006,
+            remaining_risk_amount=280,
+            remaining_risk_pct=0.014,
+            planned_risk_amount=0,
+            open_risk_amount=120,
+            reduced_risk_amount=0,
         ),
     )
     monkeypatch.setattr(
@@ -623,11 +646,13 @@ def test_risk_settings_and_plan_preview_routes(monkeypatch) -> None:
         principal=_principal(),
     )
     preview = preview_candidate_plan("cand_1", session=None, principal=_principal())
+    portfolio = get_portfolio_risk(session=None, principal=_principal())
 
     assert settings.account_equity == 20_000
     assert updated.account_equity == 30_000
     assert preview.suggested_quantity == 20
     assert preview.candidate_id == "cand_1"
+    assert portfolio.remaining_risk_amount == 280
 
 
 def test_exit_alert_routes(monkeypatch) -> None:
@@ -652,12 +677,12 @@ def test_exit_alert_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_exit_alerts",
-        lambda session, principal, acknowledged, limit, offset: [_alert()],
+        lambda session, principal, acknowledged, include_snoozed, limit, offset: [_alert()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "count_exit_alerts",
-        lambda session, principal, acknowledged: 1,
+        lambda session, principal, acknowledged, include_snoozed: 1,
     )
     monkeypatch.setattr(
         business_route.BusinessService,

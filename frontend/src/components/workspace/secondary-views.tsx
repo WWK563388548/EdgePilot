@@ -28,6 +28,7 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
     maxOpenPositions: "",
     maxRiskDistancePct: "",
     maxRiskPerTradePct: "",
+    maxTotalRiskPct: "",
     shadowOnlyRequiresPaper: true
   });
   useEffect(() => {
@@ -39,6 +40,7 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
       maxOpenPositions: String(riskSettings.data.max_open_positions),
       maxRiskDistancePct: String(riskSettings.data.max_risk_distance_pct * 100),
       maxRiskPerTradePct: String(riskSettings.data.max_risk_per_trade_pct * 100),
+      maxTotalRiskPct: String(riskSettings.data.max_total_risk_pct * 100),
       shadowOnlyRequiresPaper: riskSettings.data.shadow_only_requires_paper
     });
   }, [riskSettings.data]);
@@ -49,12 +51,14 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
         max_open_positions: numberOrUndefined(riskForm.maxOpenPositions),
         max_risk_distance_pct: percentOrUndefined(riskForm.maxRiskDistancePct),
         max_risk_per_trade_pct: percentOrUndefined(riskForm.maxRiskPerTradePct),
+        max_total_risk_pct: percentOrUndefined(riskForm.maxTotalRiskPct),
         shadow_only_requires_paper: riskForm.shadowOnlyRequiresPaper
       }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["risk-settings"] }),
         queryClient.invalidateQueries({ queryKey: ["candidate-plan-preview"] }),
+        queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] })
       ]);
@@ -83,6 +87,12 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
             onChange={(maxRiskPerTradePct) => setRiskForm((value) => ({ ...value, maxRiskPerTradePct }))}
             suffix="%"
             value={riskForm.maxRiskPerTradePct}
+          />
+          <NumberInput
+            label={t("maxPortfolioRisk")}
+            onChange={(maxTotalRiskPct) => setRiskForm((value) => ({ ...value, maxTotalRiskPct }))}
+            suffix="%"
+            value={riskForm.maxTotalRiskPct}
           />
           <NumberInput
             label={t("maxOpenPositions")}

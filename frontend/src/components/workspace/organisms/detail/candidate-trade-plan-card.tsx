@@ -54,6 +54,7 @@ export function CandidateTradePlanCard({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["candidate-plan", candidate.candidate_id] }),
         queryClient.invalidateQueries({ queryKey: ["candidate-plan-preview", candidate.candidate_id] }),
+        queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] })
@@ -67,6 +68,11 @@ export function CandidateTradePlanCard({
   }, [candidate.candidate_id, resetCreatePlan]);
   const trackedPlan = createdPlan ?? candidatePlan.data ?? null;
   const planAlreadyTracked = trackedPlan !== null;
+  const planNeedsSizing =
+    planAlreadyTracked &&
+    trackedPlan?.status === "planned" &&
+    trackedPlan.quantity === null &&
+    (planPreview.data?.suggested_quantity ?? 0) > 0;
   const guardrails = planPreview.data?.guardrails ?? [];
   const blocked = guardrails.some((notice) => notice.level === "block");
   const planErrorMessage = createPlan.error
@@ -123,6 +129,21 @@ export function CandidateTradePlanCard({
                 locale
               )}`}
             />
+            <Field
+              label={t("portfolioRiskAfterPlan")}
+              value={
+                planPreview.data?.portfolio_after_plan
+                  ? `${formatMoney(planPreview.data.portfolio_after_plan.total_risk_amount, locale)} / ${formatPercent(
+                      planPreview.data.portfolio_after_plan.total_risk_pct,
+                      locale
+                    )}`
+                  : "-"
+              }
+            />
+            <Field
+              label={t("portfolioRiskRemaining")}
+              value={formatMoney(planPreview.data?.portfolio_after_plan?.remaining_risk_amount, locale)}
+            />
           </dl>
           {guardrails.length ? (
             <div className="mt-3 grid gap-2">
@@ -162,7 +183,7 @@ export function CandidateTradePlanCard({
             blocked ||
             candidatePlan.isLoading ||
             planPreview.isLoading ||
-            planAlreadyTracked ||
+            (planAlreadyTracked && !planNeedsSizing) ||
             createPlan.isPending
           }
           onClick={() => createPlan.mutate()}
@@ -171,6 +192,8 @@ export function CandidateTradePlanCard({
               ? t("missingPlanLevels")
               : blocked
                 ? t("planBlockedHelp")
+              : planNeedsSizing
+                ? t("completePlanSizingHelp")
               : planAlreadyTracked
                 ? t("planAlreadyTrackedHelp")
                 : t("planButtonHelp")
@@ -180,6 +203,8 @@ export function CandidateTradePlanCard({
           {createPlan.isPending ? <Loader2 className="animate-spin" size={16} /> : <ClipboardCheck size={16} />}
           {createPlan.isPending
             ? t("creatingPlan")
+            : planNeedsSizing
+              ? t("completePlanSizing")
             : planAlreadyTracked
               ? t("planAlreadyTrackedButton")
               : t("createPaperPlan")}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Check, Clock3, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { DataState } from "@/components/workspace/atoms/data-state";
@@ -96,6 +96,27 @@ export function AlertsTable({
   const { labelFor, t } = useAppI18n();
   const queryClient = useQueryClient();
   const [evaluationResult, setEvaluationResult] = useState<string | null>(null);
+  const highPriorityAlert = data.find((row) => (row.level ?? 0) >= 3);
+  const updateAlert = useMutation({
+    mutationFn: ({ alertId, snoozedUntil }: { alertId: string; snoozedUntil?: string }) =>
+      api.updateAlert(
+        alertId,
+        snoozedUntil
+          ? {
+              snoozed_until: snoozedUntil
+            }
+          : {
+              acknowledged: true
+            }
+      ),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["alerts"] }),
+        queryClient.invalidateQueries({ queryKey: ["alerts-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      ]);
+    }
+  });
   const evaluateAlerts = useMutation({
     mutationFn: () => api.evaluateExitAlerts(),
     onSuccess: async (response) => {
@@ -116,6 +137,7 @@ export function AlertsTable({
         queryClient.invalidateQueries({ queryKey: ["alerts"] }),
         queryClient.invalidateQueries({ queryKey: ["alerts-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] })
       ]);
@@ -144,6 +166,12 @@ export function AlertsTable({
         </button>
       }
     >
+      {highPriorityAlert ? (
+        <div className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <span className="font-semibold">{t("highPriorityExitAlert")}</span>{" "}
+          {labelFor("plan", highPriorityAlert.reason)}
+        </div>
+      ) : null}
       {evaluationResult || evaluateAlerts.isError ? (
         <div
           className={`border-b border-line px-4 py-3 text-sm ${
@@ -157,16 +185,18 @@ export function AlertsTable({
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
             <th className="px-4 py-3">{t("level")}</th>
-            <th className="px-4 py-3">{t("action")}</th>
+            <th className="px-4 py-3">{t("manage")}</th>
             <th className="px-4 py-3">{t("reason")}</th>
+            <th className="px-4 py-3">{t("rule")}</th>
             <th className="px-4 py-3">{t("newStop")}</th>
             <th className="px-4 py-3">{t("time")}</th>
+            <th className="px-4 py-3">{t("action")}</th>
           </tr>
         </thead>
         <tbody>
           {!data.length ? (
             <EmptyTableRow
-              colSpan={5}
+              colSpan={7}
               error={error}
               loading={loading}
               locale={locale}
@@ -178,8 +208,38 @@ export function AlertsTable({
               <td className="px-4 py-3">{formatValue(row.level)}</td>
               <td className="px-4 py-3">{labelFor("plan", row.action)}</td>
               <td className="px-4 py-3">{labelFor("plan", row.reason)}</td>
+              <td className="px-4 py-3">{labelFor("plan", row.triggered_rules)}</td>
               <td className="px-4 py-3">{formatValue(row.new_stop)}</td>
               <td className="px-4 py-3">{formatDate(row.alert_ts, locale)}</td>
+              <td className="px-4 py-3">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="focus-ring inline-flex h-8 items-center gap-1 rounded-md border border-line bg-white px-2 text-xs font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:opacity-60"
+                    disabled={updateAlert.isPending}
+                    onClick={() => updateAlert.mutate({ alertId: row.alert_id })}
+                    title={t("ackExitAlertHelp")}
+                    type="button"
+                  >
+                    <Check size={14} />
+                    {t("ackExitAlert")}
+                  </button>
+                  <button
+                    className="focus-ring inline-flex h-8 items-center gap-1 rounded-md border border-line bg-white px-2 text-xs font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:opacity-60"
+                    disabled={updateAlert.isPending}
+                    onClick={() =>
+                      updateAlert.mutate({
+                        alertId: row.alert_id,
+                        snoozedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+                      })
+                    }
+                    title={t("snoozeExitAlertHelp")}
+                    type="button"
+                  >
+                    <Clock3 size={14} />
+                    {t("snoozeExitAlert")}
+                  </button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
