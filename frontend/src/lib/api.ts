@@ -81,6 +81,18 @@ export type ScannerDecision = {
   watch_reasons: string[];
   upgrade_conditions: string[];
   risk_notes: string[];
+  strat_confirmation?: {
+    status: string;
+    base_decision: string;
+    final_decision: string;
+    bar_type?: string | null;
+    pattern?: string | null;
+    direction?: string | null;
+    trigger_price?: number | null;
+    trigger_stop?: number | null;
+    reason?: string | null;
+    can_create_trade_alone?: boolean;
+  } | null;
   metrics: Record<string, unknown>;
 };
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app import models as db
 from backend.app.core.database import Base
 from backend.app.schemas.pa import ETFOneilScannerRequest
-from backend.app.services.scanner_service import ETFScannerService
+from backend.app.services.scanner_service import ETFScannerService, _scanner_decision
 
 
 @pytest.fixture
@@ -62,6 +62,8 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     scanner_decision = setup.entry_plan["scanner_decision"]
     assert scanner_decision["version"] == "oneil_core_us_etf_v2"
     assert scanner_decision["decision"] == "candidate"
+    assert scanner_decision["strat_confirmation"]["status"] == "confirm"
+    assert scanner_decision["strat_confirmation"]["can_create_trade_alone"] is False
     assert scanner_decision["score"] == scanner_decision["total_score"]
     assert scanner_decision["trigger_price"]
     assert scanner_decision["initial_stop"]
@@ -69,6 +71,7 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     passed_keys = {rule["key"] for rule in scanner_decision["passed_rules"]}
     failed_keys = {rule["key"] for rule in scanner_decision["failed_rules"]}
     assert "rs_top_quartile" in passed_keys
+    assert "strat_bullish_trigger" in passed_keys
     assert "breakout_close_near_high" in passed_keys
     assert "base_depth_healthy" in passed_keys
     assert "breakout_volume_missing" in failed_keys
@@ -84,6 +87,51 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert outcome.candidate_id == candidate.candidate_id
     assert outcome.evaluation_status == "pending"
     assert outcome.bars_available == 0
+
+
+def test_scanner_decision_uses_bearish_strat_only_to_downgrade() -> None:
+    decision = _scanner_decision(
+        base_score=12,
+        base_depth=0.18,
+        close_position=0.8,
+        decision="candidate",
+        distance_to_sma_20=0.03,
+        initial_stop=95,
+        market_score=8,
+        quality_failed_rules=[],
+        quality_passed_rules=["setup_location"],
+        rank_3m=0.9,
+        rank_6m=0.9,
+        relative_volume=1.2,
+        risk_stop_score=8,
+        rs_score=22,
+        setup_grade="A",
+        setup_type="breakout",
+        total_score=84,
+        trend_score=24,
+        trigger_price=105,
+        volume_score=10,
+        strat_signal=db.StratSignal(
+            signal_id="strat_spy_1d_2026-04-30",
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=datetime(2026, 4, 30, tzinfo=UTC),
+            bar_type="2D",
+            previous_bar_type="1",
+            pattern="inside_breakdown",
+            direction="short",
+            trigger_price=96,
+            trigger_stop=104,
+            can_create_trade_alone=False,
+        ),
+    )
+
+    assert decision["decision"] == "watch"
+    assert decision["strat_confirmation"]["status"] == "downgrade"
+    assert decision["strat_confirmation"]["base_decision"] == "candidate"
+    assert decision["strat_confirmation"]["final_decision"] == "watch"
+    assert "strat_bearish_downgrade" in decision["watch_reasons"]
+    assert any(rule["key"] == "strat_bearish_trigger" for rule in decision["failed_rules"])
 
 
 def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> None:
