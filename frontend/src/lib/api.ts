@@ -770,6 +770,8 @@ export const api = {
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/activate`, request),
   updatePositionStop: (positionId: string, request: PositionStopUpdate) =>
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/stop`, request),
+  cancelPosition: (positionId: string) =>
+    postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/cancel`),
   reducePosition: (positionId: string, request: PositionReduce) =>
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/reduce`, request),
   closePosition: (positionId: string, request: PositionClose) =>

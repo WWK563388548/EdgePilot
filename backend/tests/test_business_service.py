@@ -1115,6 +1115,63 @@ def test_update_position_stop_allows_active_positions(session) -> None:
     assert updated.initial_stop == 90
 
 
+def test_cancel_position_marks_planned_as_cancelled_and_removes_risk(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_cancel",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="planned",
+            entry_price=100,
+            quantity=3,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_pos_spy_cancel_entry",
+            position_id="pos_spy_cancel",
+            action="enter",
+            acknowledged=False,
+        ),
+    )
+
+    cancelled = BusinessService.cancel_position(session, principal, "pos_spy_cancel")
+
+    assert cancelled.status == "cancelled"
+    assert cancelled.quantity == 0
+    assert cancelled.risk_amount == 0
+    assert BusinessService.get_portfolio_risk(session, principal).active_position_count == 0
+    assert BusinessService.count_exit_alerts(session, principal) == 0
+
+
+def test_cancel_position_requires_planned_status(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_cancel_open",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=3,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Only planned positions"):
+        BusinessService.cancel_position(session, principal, "pos_spy_cancel_open")
+
+
 def test_reduce_position_marks_trim_and_updates_realized_pnl(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.create_position(

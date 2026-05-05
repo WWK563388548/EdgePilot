@@ -34,9 +34,18 @@ export function ScannerOutcomeTable({
   onPageChange: (page: number) => void;
 }) {
   const { t } = useAppI18n();
+  const pendingRows = rows.filter(
+    (row) => row.evaluation_status === "pending" || row.bars_available < 20
+  ).length;
 
   return (
     <>
+      {pendingRows ? (
+        <div className="border-b border-line bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-950">
+          <span className="font-semibold">{t("outcomePendingTitle")}</span>
+          <span className="ml-2">{t("outcomePendingBody", { count: pendingRows })}</span>
+        </div>
+      ) : null}
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-line text-left text-sm">
           <thead className="bg-panel/70 text-xs font-semibold uppercase tracking-normal text-slate-500">
@@ -145,7 +154,16 @@ function OutcomeRow({ row, locale }: { row: ScannerOutcome; locale: Locale }) {
         <PercentValue locale={locale} value={row.mae_60d} />
       </td>
       <td className="whitespace-nowrap px-4 py-4 font-medium text-ink">
-        {formatNumber(row.bars_available, 0, locale)}
+        <div>{formatNumber(row.bars_available, 0, locale)}</div>
+        {row.bars_available === 0 ? (
+          <div className="mt-1 max-w-36 whitespace-normal text-xs font-medium leading-5 text-slate-500">
+            {t("outcomeNoFutureBars")}
+          </div>
+        ) : row.evaluation_status === "pending" ? (
+          <div className="mt-1 max-w-36 whitespace-normal text-xs font-medium leading-5 text-slate-500">
+            {t("outcomeNeedsMoreBars")}
+          </div>
+        ) : null}
       </td>
       <td className="whitespace-nowrap px-4 py-4 text-slate-600">
         <div className="inline-flex items-center gap-1.5">

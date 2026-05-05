@@ -36,6 +36,7 @@ export function StratSignalBlock({
         .map(([timeframe, state]) => `${labelFor("plan", timeframe)}: ${labelFor("plan", state)}`)
         .join(" / ")
     : "-";
+  const hasActionablePattern = Boolean(signal.pattern && signal.direction);
 
   return (
     <section className="rounded-md border border-teal/20 bg-teal-50/30 px-3 py-3">
@@ -43,28 +44,36 @@ export function StratSignalBlock({
         <GitBranch className="text-teal" size={18} />
         <h3 className="text-sm font-semibold text-ink">{t("stratTrigger")}</h3>
         <StatusPill label={signal.bar_type} tone="neutral" />
-        {signal.pattern ? (
+        {hasActionablePattern ? (
           <StatusPill label={labelFor("plan", signal.pattern)} tone="good" />
-        ) : null}
+        ) : (
+          <StatusPill label={t("stratBarOnlyBadge")} tone="neutral" />
+        )}
       </div>
 
-      <p className="mb-3 text-sm leading-6 text-slate-700">{t("stratNoStandalone")}</p>
+      <p className="mb-3 text-sm leading-6 text-slate-700">
+        {hasActionablePattern ? t("stratNoStandalone") : t("stratBarOnly")}
+      </p>
 
-      <DetailFieldPanel title={t("stratTrigger")}>
+      <DetailFieldPanel title={hasActionablePattern ? t("stratTrigger") : t("stratBarState")}>
         <Field label={t("stratBar")} value={labelFor("plan", signal.bar_type)} />
-        <Field label={t("stratPattern")} value={labelFor("plan", signal.pattern)} />
-        <Field label={t("stratDirection")} value={labelFor("plan", signal.direction)} />
-        <Field
-          label={t("stratTriggerPrice")}
-          value={formatNumber(signal.trigger_price, 2, locale)}
-        />
-        <Field
-          label={t("stratTriggerStop")}
-          value={formatNumber(signal.trigger_stop, 2, locale)}
-        />
-        <Field label={t("detected")} value={formatDate(signal.ts, locale)} />
+        {hasActionablePattern ? (
+          <>
+            <Field label={t("stratPattern")} value={labelFor("plan", signal.pattern)} />
+            <Field label={t("stratDirection")} value={labelFor("plan", signal.direction)} />
+            <Field
+              label={t("stratTriggerPrice")}
+              value={formatNumber(signal.trigger_price, 2, locale)}
+            />
+            <Field
+              label={t("stratTriggerStop")}
+              value={formatNumber(signal.trigger_stop, 2, locale)}
+            />
+            <Field label={t("invalidation")} value={labelFor("plan", signal.invalidation)} />
+          </>
+        ) : null}
         <Field label={t("stratContinuity")} value={continuity} />
-        <Field label={t("invalidation")} value={labelFor("plan", signal.invalidation)} />
+        <Field label={t("detected")} value={formatDate(signal.ts, locale)} />
       </DetailFieldPanel>
     </section>
   );

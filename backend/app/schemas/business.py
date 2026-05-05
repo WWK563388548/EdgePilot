@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.schemas.scanner import ScannerDecision
 
 CandidateDecision = Literal["candidate", "watch", "avoid"]
-PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed"]
+PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed", "cancelled"]
 GuardrailLevel = Literal["block", "warning", "info"]
 
 

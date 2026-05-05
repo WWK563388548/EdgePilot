@@ -1254,14 +1254,41 @@ class BusinessService:
         request: PositionStopUpdate,
     ) -> Position:
         position = BusinessService._get_position_model(session, principal, position_id)
-        if position.status == "closed":
-            raise ValueError("Closed positions cannot update stops")
+        if position.status in ("closed", "cancelled"):
+            raise ValueError("Closed or cancelled positions cannot update stops")
 
         position.current_stop = request.new_stop
         if position.status == "planned" or position.initial_stop is None:
             position.initial_stop = request.new_stop
         _touch_position(position)
         BusinessService._audit(session, principal, "position.stop_update", "position", position_id)
+        session.commit()
+        session.refresh(position)
+        return BusinessService._position_response(session, principal, position)
+
+    @staticmethod
+    def cancel_position(
+        session: Session,
+        principal: AuthPrincipal,
+        position_id: str,
+    ) -> Position:
+        position = BusinessService._get_position_model(session, principal, position_id)
+        if position.status != "planned":
+            raise ValueError("Only planned positions can be cancelled")
+
+        position.status = "cancelled"
+        position.quantity = 0
+        position.current_r = 0
+        position.realized_pnl = position.realized_pnl or 0
+        position.unrealized_pnl = 0
+        _touch_position(position)
+        session.execute(
+            delete(db.ExitAlert).where(
+                db.ExitAlert.account_id == principal.account_id,
+                db.ExitAlert.position_id == position.position_id,
+            )
+        )
+        BusinessService._audit(session, principal, "position.cancel", "position", position_id)
         session.commit()
         session.refresh(position)
         return BusinessService._position_response(session, principal, position)
