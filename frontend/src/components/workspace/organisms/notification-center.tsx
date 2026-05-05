@@ -1,7 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Check, Clock3, ExternalLink } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Bell, Check, Clock3, ExternalLink, X } from "lucide-react";
+import { useEffect } from "react";
 
 import { PaginationControls } from "@/components/workspace/molecules/pagination-controls";
 import { TableShell } from "@/components/workspace/molecules/table-shell";
@@ -25,7 +26,91 @@ type NotificationCenterProps = {
   locale: Locale;
 };
 
-export function NotificationCenter({
+export function NotificationCenter(props: NotificationCenterProps) {
+  const { error, loading, locale } = props;
+  const { t } = useAppI18n();
+
+  return (
+    <TableShell title={t("notifications")} loading={loading} error={error} locale={locale}>
+      <div className="border-b border-line bg-white px-4 py-3 text-sm text-slate-700">
+        {t("notificationsHelp")}
+      </div>
+      <NotificationList {...props} />
+    </TableShell>
+  );
+}
+
+type NotificationModalProps = NotificationCenterProps & {
+  open: boolean;
+  onClose: () => void;
+};
+
+export function NotificationModal({
+  open,
+  onClose,
+  ...props
+}: NotificationModalProps) {
+  const { t } = useAppI18n();
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/15 px-4 py-6 backdrop-blur-[1px] sm:py-8">
+      <button
+        aria-label={t("closeNotifications")}
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+        type="button"
+      />
+      <section
+        aria-modal="true"
+        className="relative flex max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-md border border-line bg-white shadow-2xl"
+        role="dialog"
+      >
+        <header className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-teal">
+              <Bell size={18} />
+            </span>
+            <div className="min-w-0">
+              <h2 className="truncate text-lg font-bold text-ink">{t("notifications")}</h2>
+              <p className="mt-1 text-sm text-slate-600">{t("notificationsHelp")}</p>
+            </div>
+          </div>
+          <button
+            className="focus-ring inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition-colors hover:border-teal hover:text-teal"
+            onClick={onClose}
+            title={t("closeNotifications")}
+            type="button"
+          >
+            <X size={18} />
+            <span className="sr-only">{t("closeNotifications")}</span>
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <NotificationList {...props} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function NotificationList({
   data,
   error,
   hasNextPage,
@@ -67,10 +152,7 @@ export function NotificationCenter({
   });
 
   return (
-    <TableShell title={t("notifications")} loading={loading} error={error} locale={locale}>
-      <div className="border-b border-line bg-white px-4 py-3 text-sm text-slate-700">
-        {t("notificationsHelp")}
-      </div>
+    <>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
@@ -162,41 +244,52 @@ export function NotificationCenter({
         pageSize={pageSize}
         totalCount={totalCount}
       />
-    </TableShell>
+    </>
   );
 }
 
 export function NotificationBell({
+  count,
   locale,
   onOpen
 }: {
+  count: number;
   locale: Locale;
   onOpen: () => void;
 }) {
   const { t } = useAppI18n();
-  const unreadCount = useQuery({
-    queryKey: ["notifications-unread-count"],
-    queryFn: () =>
-      api.notificationsCount({
-        acknowledged: false,
-        read: false
-      })
-  });
-  const count = unreadCount.data?.total ?? 0;
+  const hasUnread = count > 0;
 
   return (
     <button
-      className="focus-ring relative inline-flex h-10 items-center gap-2 rounded-md border border-line bg-panel px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-teal hover:text-teal"
+      className={`focus-ring relative inline-flex h-10 items-center gap-2 overflow-visible rounded-md border px-3 pr-4 text-sm font-semibold transition-colors ${
+        hasUnread
+          ? "border-rose-300 bg-rose-50 text-rose-800 shadow-[0_0_0_3px_rgba(225,29,72,0.08)] hover:border-rose-400 hover:text-rose-900"
+          : "border-line bg-panel text-slate-700 hover:border-teal hover:text-teal"
+      }`}
       onClick={onOpen}
       title={t("openNotifications")}
       type="button"
     >
-      <Bell size={16} />
+      <span
+        className="relative inline-flex h-5 w-5 items-center justify-center"
+        style={hasUnread ? { color: "#be123c" } : undefined}
+      >
+        <Bell size={16} strokeWidth={2.4} />
+        {hasUnread ? (
+          <span
+            className="absolute -right-1 -top-1 h-3 w-3 rounded-full ring-2 ring-white"
+            style={{ backgroundColor: "#e11d48" }}
+          />
+        ) : null}
+      </span>
       <span className="hidden sm:inline">{t("notifications")}</span>
-      {count > 0 ? (
+      {hasUnread ? (
         <span
           aria-label={t("unreadNotifications", { count })}
-          className="absolute -right-2 -top-2 min-w-5 rounded-full bg-rose-700 px-1.5 py-0.5 text-center text-[11px] font-bold text-white"
+          aria-live="polite"
+          className="absolute -right-2 -top-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none text-white shadow-sm ring-2 ring-white"
+          style={{ backgroundColor: "#be123c" }}
         >
           {count > 99 ? "99+" : count}
         </span>
@@ -214,7 +307,6 @@ function normalizedTargetView(value: string | null): WorkspaceView | null {
     "outcomes",
     "positions",
     "alerts",
-    "notifications",
     "journal",
     "settings"
   ];
