@@ -402,6 +402,34 @@ export type AccountRiskSettingsUpdate = Partial<
   >
 >;
 
+export type NotificationSeverity = "info" | "warning" | "action_required";
+
+export type NotificationPreferences = {
+  account_id: string;
+  in_app_enabled: boolean;
+  email_enabled: boolean;
+  sms_enabled: boolean;
+  min_severity: NotificationSeverity;
+  email_to: string | null;
+  phone_to: string | null;
+  event_preferences: Record<string, unknown>;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type NotificationPreferencesUpdate = Partial<
+  Pick<
+    NotificationPreferences,
+    | "in_app_enabled"
+    | "email_enabled"
+    | "sms_enabled"
+    | "min_severity"
+    | "email_to"
+    | "phone_to"
+    | "event_preferences"
+  >
+>;
+
 export type GuardrailNotice = {
   level: "block" | "warning" | "info";
   code: string;
@@ -544,6 +572,31 @@ export type ExitAlertEvaluationResponse = {
   alerts: ExitAlert[];
 };
 
+export type NotificationEvent = {
+  notification_id: string;
+  account_id: string;
+  event_type: string;
+  severity: NotificationSeverity;
+  source_type: string | null;
+  source_id: string | null;
+  title: string | null;
+  body: string | null;
+  target_view: string | null;
+  target_id: string | null;
+  metadata_json: Record<string, unknown> | null;
+  read_at: string | null;
+  acknowledged_at: string | null;
+  snoozed_until: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type NotificationEventUpdate = {
+  read?: boolean;
+  acknowledged?: boolean;
+  snoozed_until?: string | null;
+};
+
 export type JournalTrade = {
   trade_id: string;
   position_id: string | null;
@@ -579,7 +632,7 @@ export type VerificationEmailResponse = {
   job_id: string | null;
 };
 
-function queryString(params: Record<string, string | number | undefined>) {
+function queryString(params: Record<string, string | number | boolean | undefined>) {
   const searchParams = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== "") {
@@ -697,6 +750,10 @@ export const api = {
   riskSettings: () => getJson<AccountRiskSettings>("/api/settings/risk"),
   updateRiskSettings: (request: AccountRiskSettingsUpdate) =>
     patchJson<AccountRiskSettings>("/api/settings/risk", request),
+  notificationPreferences: () =>
+    getJson<NotificationPreferences>("/api/settings/notifications"),
+  updateNotificationPreferences: (request: NotificationPreferencesUpdate) =>
+    patchJson<NotificationPreferences>("/api/settings/notifications", request),
   portfolioRisk: () => getJson<PortfolioRiskSummary>("/api/risk/portfolio"),
   candidates: (filters: CandidateFilters = {}) =>
     getJson<Candidate[]>(
@@ -828,6 +885,43 @@ export const api = {
     postJson<ExitAlertEvaluationResponse>("/api/exit-alerts/evaluate", request),
   updateAlert: (alertId: string, request: Partial<ExitAlert>) =>
     patchJson<ExitAlert>(`/api/exit-alerts/${encodeURIComponent(alertId)}`, request),
+  notifications: (
+    pagination: {
+      acknowledged?: boolean;
+      includeSnoozed?: boolean;
+      limit?: number;
+      offset?: number;
+      read?: boolean;
+    } = {}
+  ) =>
+    getJson<NotificationEvent[]>(
+      `/api/notifications${queryString({
+        acknowledged: pagination.acknowledged,
+        include_snoozed: pagination.includeSnoozed,
+        limit: pagination.limit ?? 100,
+        offset: pagination.offset,
+        read: pagination.read
+      })}`
+    ),
+  notificationsCount: (
+    filters: {
+      acknowledged?: boolean;
+      includeSnoozed?: boolean;
+      read?: boolean;
+    } = {}
+  ) =>
+    getJson<CountResponse>(
+      `/api/notifications/count${queryString({
+        acknowledged: filters.acknowledged,
+        include_snoozed: filters.includeSnoozed,
+        read: filters.read
+      })}`
+    ),
+  updateNotification: (notificationId: string, request: NotificationEventUpdate) =>
+    patchJson<NotificationEvent>(
+      `/api/notifications/${encodeURIComponent(notificationId)}`,
+      request
+    ),
   journal: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<JournalTrade[]>(
       `/api/journal/trades${queryString({

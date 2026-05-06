@@ -1,12 +1,13 @@
-import json
-import math
 from collections import Counter
 from datetime import UTC, datetime
+from hashlib import sha1
+import json
+import math
 from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, exists, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -33,6 +34,10 @@ from backend.app.schemas.business import (
     JournalTrade,
     JournalTradeCreate,
     MarketContextSummary,
+    NotificationEvent,
+    NotificationEventUpdate,
+    NotificationPreferences,
+    NotificationPreferencesUpdate,
     Position,
     PositionActivate,
     PositionClose,
@@ -74,6 +79,8 @@ DEFAULT_MAX_RISK_PER_TRADE_PCT = 0.005
 DEFAULT_MAX_TOTAL_RISK_PCT = 0.02
 DEFAULT_MAX_OPEN_POSITIONS = 3
 DEFAULT_MAX_RISK_DISTANCE_PCT = 0.12
+NOTIFICATION_SEVERITY_RANK = {"info": 0, "warning": 1, "action_required": 2}
+NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY = "edgepilot_notification_tables_available"
 
 
 def _average(values) -> float | None:
@@ -192,6 +199,105 @@ class BusinessService:
         return BusinessService._risk_settings_response(principal, settings)
 
     @staticmethod
+    def get_notification_preferences(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> NotificationPreferences:
+        if not BusinessService._notification_tables_available(session):
+            return BusinessService._default_notification_preferences_response(principal)
+        preferences = BusinessService._notification_preferences_model(session, principal)
+        session.commit()
+        session.refresh(preferences)
+        return BusinessService._notification_preferences_response(preferences)
+
+    @staticmethod
+    def update_notification_preferences(
+        session: Session,
+        principal: AuthPrincipal,
+        request: NotificationPreferencesUpdate,
+    ) -> NotificationPreferences:
+        if not BusinessService._notification_tables_available(session):
+            return BusinessService._default_notification_preferences_response(principal, request)
+        preferences = BusinessService._notification_preferences_model(session, principal)
+        payload = request.model_dump(exclude_unset=True)
+        for key, value in payload.items():
+            setattr(preferences, key, value)
+        preferences.updated_at = datetime.now(UTC)
+        BusinessService._audit(
+            session,
+            principal,
+            "notification_preferences.update",
+            "notification_preferences",
+            principal.account_id,
+        )
+        session.commit()
+        session.refresh(preferences)
+        return BusinessService._notification_preferences_response(preferences)
+
+    @staticmethod
+    def _notification_preferences_model(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> db.NotificationPreference:
+        preferences = session.get(db.NotificationPreference, principal.account_id)
+        if preferences is None:
+            preferences = db.NotificationPreference(
+                account_id=principal.account_id,
+                in_app_enabled=True,
+                email_enabled=False,
+                sms_enabled=False,
+                min_severity="info",
+                event_preferences={},
+            )
+            session.add(preferences)
+            session.flush()
+        return preferences
+
+    @staticmethod
+    def _notification_preferences_response(
+        preferences: db.NotificationPreference,
+    ) -> NotificationPreferences:
+        return NotificationPreferences(
+            account_id=preferences.account_id,
+            in_app_enabled=preferences.in_app_enabled
+            if preferences.in_app_enabled is not None
+            else True,
+            email_enabled=preferences.email_enabled if preferences.email_enabled is not None else False,
+            sms_enabled=preferences.sms_enabled if preferences.sms_enabled is not None else False,
+            min_severity=preferences.min_severity or "info",
+            email_to=preferences.email_to,
+            phone_to=preferences.phone_to,
+            event_preferences=preferences.event_preferences or {},
+            created_at=preferences.created_at,
+            updated_at=preferences.updated_at,
+        )
+
+    @staticmethod
+    def _default_notification_preferences_response(
+        principal: AuthPrincipal,
+        request: NotificationPreferencesUpdate | None = None,
+    ) -> NotificationPreferences:
+        payload = request.model_dump(exclude_unset=True) if request else {}
+        return NotificationPreferences(
+            account_id=principal.account_id,
+            in_app_enabled=payload.get("in_app_enabled")
+            if payload.get("in_app_enabled") is not None
+            else True,
+            email_enabled=payload.get("email_enabled")
+            if payload.get("email_enabled") is not None
+            else False,
+            sms_enabled=payload.get("sms_enabled")
+            if payload.get("sms_enabled") is not None
+            else False,
+            min_severity=payload.get("min_severity") or "info",
+            email_to=payload.get("email_to"),
+            phone_to=payload.get("phone_to"),
+            event_preferences=payload.get("event_preferences") or {},
+            created_at=None,
+            updated_at=None,
+        )
+
+    @staticmethod
     def get_portfolio_risk(
         session: Session,
         principal: AuthPrincipal,
@@ -265,6 +371,25 @@ class BusinessService:
             ai_review_json=request.ai_review_json,
         )
         session.add(candidate)
+        if candidate.decision == "candidate":
+            BusinessService._create_notification_event(
+                session,
+                principal,
+                event_type="scanner_candidate_created",
+                severity="info",
+                source_type="candidate",
+                source_id=candidate.candidate_id,
+                title="New scanner candidate",
+                body=f"{candidate.symbol_id} was added as a candidate.",
+                target_view="candidates",
+                target_id=candidate.candidate_id,
+                metadata_json={
+                    "candidate_id": candidate.candidate_id,
+                    "symbol_id": candidate.symbol_id,
+                    "decision": candidate.decision,
+                    "score_total": candidate.score_total,
+                },
+            )
         BusinessService._audit(session, principal, "candidate.create", "candidate", candidate.candidate_id)
         session.commit()
         session.refresh(candidate)
@@ -324,6 +449,27 @@ class BusinessService:
                 recalculate_facts=request.recalculate_facts,
             ),
         )
+        BusinessService._create_notification_event(
+            session,
+            principal,
+            event_type="scanner_candidates_updated",
+            severity="info",
+            source_type="scanner",
+            source_id=None,
+            title="Scanner candidates updated",
+            body=f"{response.candidates_written} scanner candidates were generated.",
+            target_view="candidates",
+            target_id=None,
+            metadata_json={
+                "strategy_name": ONEIL_CORE_US_ETF_STRATEGY,
+                "candidates_written": response.candidates_written,
+                "decision_counts": response.decision_counts,
+                "latest_scan_date": response.latest_scan_date.isoformat()
+                if response.latest_scan_date
+                else None,
+                "source": "manual_scan",
+            },
+        )
         BusinessService._audit(
             session,
             principal,
@@ -356,6 +502,30 @@ class BusinessService:
                 min_score=request.min_score,
                 max_candidates=request.max_candidates,
             ),
+        )
+        BusinessService._create_notification_event(
+            session,
+            principal,
+            event_type="scanner_candidates_updated",
+            severity="info",
+            source_type="scanner",
+            source_id=None,
+            title="Scanner candidates updated",
+            body=f"{response.candidates_written} scanner candidates were generated after market refresh.",
+            target_view="candidates",
+            target_id=None,
+            metadata_json={
+                "strategy_name": ONEIL_CORE_US_ETF_STRATEGY,
+                "candidates_written": response.candidates_written,
+                "decision_counts": response.decision_counts,
+                "latest_scan_date": response.latest_scan_date.isoformat()
+                if response.latest_scan_date
+                else None,
+                "latest_bar_date": response.latest_bar_date.isoformat()
+                if response.latest_bar_date
+                else None,
+                "source": "market_refresh_scan",
+            },
         )
         BusinessService._audit(
             session,
@@ -1142,6 +1312,26 @@ class BusinessService:
             unrealized_pnl=0,
         )
         session.add(position)
+        BusinessService._create_notification_event(
+            session,
+            principal,
+            event_type="candidate_plan_created",
+            severity="info",
+            source_type="position",
+            source_id=position.position_id,
+            title="Plan added to tracking",
+            body=f"{position.symbol_id} is now tracked as a planned position.",
+            target_view="positions",
+            target_id=position.position_id,
+            metadata_json={
+                "position_id": position.position_id,
+                "candidate_id": candidate.candidate_id,
+                "symbol_id": position.symbol_id,
+                "entry_price": position.entry_price,
+                "initial_stop": position.initial_stop,
+                "quantity": position.quantity,
+            },
+        )
         BusinessService._audit(
             session,
             principal,
@@ -1546,6 +1736,29 @@ class BusinessService:
                 )
                 session.add(alert)
                 created.append(alert)
+                BusinessService._create_notification_event(
+                    session,
+                    principal,
+                    event_type=BusinessService._exit_alert_notification_type(spec["rule"]),
+                    severity=BusinessService._exit_alert_notification_severity(spec["rule"], spec["level"]),
+                    source_type="exit_alert",
+                    source_id=alert.alert_id,
+                    title=BusinessService._exit_alert_notification_title(position, spec),
+                    body=BusinessService._exit_alert_notification_body(position, spec),
+                    target_view="alerts",
+                    target_id=alert.alert_id,
+                    metadata_json={
+                        "alert_id": alert.alert_id,
+                        "position_id": position.position_id,
+                        "symbol_id": position.symbol_id,
+                        "level": spec["level"],
+                        "action": spec["action"],
+                        "reason": spec["reason"],
+                        "rule": spec["rule"],
+                        "new_stop": spec["new_stop"],
+                        "bar_ts": latest_bar.ts.isoformat() if latest_bar.ts else None,
+                    },
+                )
 
         if positions:
             BusinessService._audit(
@@ -1567,6 +1780,61 @@ class BusinessService:
             symbols_processed=sorted(symbols),
             alerts=[ExitAlert.model_validate(alert) for alert in created],
         )
+
+    @staticmethod
+    def _exit_alert_notification_type(rule: object) -> str:
+        if rule == "planned_entry_trigger_reached":
+            return "position_entry_triggered"
+        if rule == "daily_close_below_current_stop":
+            return "position_hard_stop"
+        if rule == "first_trim_target_reached_2r":
+            return "position_trim_target"
+        if rule == "move_stop_to_breakeven_after_1r":
+            return "position_breakeven_stop"
+        if rule == "trail_stop_to_20ma_after_profit":
+            return "position_trailing_stop"
+        if rule == "market_regime_risk_off":
+            return "portfolio_risk_warning"
+        return "position_exit_alert"
+
+    @staticmethod
+    def _exit_alert_notification_severity(rule: object, level: object) -> str:
+        if rule in {"planned_entry_trigger_reached", "daily_close_below_current_stop"}:
+            return "action_required"
+        if rule in {"first_trim_target_reached_2r", "market_regime_risk_off"}:
+            return "warning"
+        numeric_level = level if isinstance(level, int) else 0
+        if numeric_level >= 4:
+            return "action_required"
+        if numeric_level >= 2:
+            return "warning"
+        return "info"
+
+    @staticmethod
+    def _exit_alert_notification_title(position: db.Position, spec: dict[str, object]) -> str:
+        rule = spec["rule"]
+        if rule == "planned_entry_trigger_reached":
+            return f"{position.symbol_id} entry trigger reached"
+        if rule == "daily_close_below_current_stop":
+            return f"{position.symbol_id} hard stop alert"
+        if rule == "first_trim_target_reached_2r":
+            return f"{position.symbol_id} reached 2R trim area"
+        return f"{position.symbol_id} position alert"
+
+    @staticmethod
+    def _exit_alert_notification_body(position: db.Position, spec: dict[str, object]) -> str:
+        rule = spec["rule"]
+        if rule == "planned_entry_trigger_reached":
+            return "Review the planned entry trigger and decide whether to enter."
+        if rule == "daily_close_below_current_stop":
+            return "Daily close is below the tracked stop. Review exit action."
+        if rule == "first_trim_target_reached_2r":
+            return "Price reached the first trim area. Review partial profit taking."
+        if rule == "move_stop_to_breakeven_after_1r":
+            return "Position reached 1R. Review moving stop to breakeven."
+        if rule == "trail_stop_to_20ma_after_profit":
+            return "Position is profitable. Review trailing stop near the 20MA."
+        return "Review the latest position alert."
 
     @staticmethod
     def _latest_bar(session: Session, symbol_id: str, timeframe: str = "1d") -> db.Bar | None:
@@ -1863,6 +2131,13 @@ class BusinessService:
         for key, value in payload.items():
             setattr(alert, key, value)
         if payload:
+            if payload.get("acknowledged") is True:
+                BusinessService._acknowledge_notifications_for_source(
+                    session,
+                    principal,
+                    source_type="exit_alert",
+                    source_id=alert.alert_id,
+                )
             BusinessService._audit(session, principal, "exit_alert.update", "exit_alert", alert_id)
             session.commit()
             session.refresh(alert)
@@ -1883,6 +2158,317 @@ class BusinessService:
         if alert is None:
             raise ValueError(f"Exit alert not found: {alert_id}")
         return alert
+
+    @staticmethod
+    def list_notifications(
+        session: Session,
+        principal: AuthPrincipal,
+        read: bool | None = None,
+        acknowledged: bool | None = None,
+        include_snoozed: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[NotificationEvent]:
+        if not BusinessService._notification_tables_available(session):
+            return []
+        statement = BusinessService._notification_list_statement(
+            principal=principal,
+            read=read,
+            acknowledged=acknowledged,
+            include_snoozed=include_snoozed,
+        )
+        rows = session.scalars(
+            statement.order_by(db.NotificationEvent.created_at.desc()).offset(offset).limit(limit)
+        ).all()
+        return [NotificationEvent.model_validate(row) for row in rows]
+
+    @staticmethod
+    def count_notifications(
+        session: Session,
+        principal: AuthPrincipal,
+        read: bool | None = None,
+        acknowledged: bool | None = None,
+        include_snoozed: bool = False,
+    ) -> int:
+        if not BusinessService._notification_tables_available(session):
+            return 0
+        statement = BusinessService._notification_list_statement(
+            principal=principal,
+            read=read,
+            acknowledged=acknowledged,
+            include_snoozed=include_snoozed,
+        )
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def _notification_list_statement(
+        *,
+        principal: AuthPrincipal,
+        read: bool | None = None,
+        acknowledged: bool | None = None,
+        include_snoozed: bool = False,
+    ):
+        statement = select(db.NotificationEvent).where(
+            db.NotificationEvent.account_id == principal.account_id
+        )
+        statement = statement.where(
+            exists().where(
+                db.NotificationDeliveryLog.notification_id
+                == db.NotificationEvent.notification_id,
+                db.NotificationDeliveryLog.channel == "in_app",
+                db.NotificationDeliveryLog.status == "delivered",
+            )
+        )
+        if read is True:
+            statement = statement.where(db.NotificationEvent.read_at.is_not(None))
+        elif read is False:
+            statement = statement.where(db.NotificationEvent.read_at.is_(None))
+        if acknowledged is True:
+            statement = statement.where(db.NotificationEvent.acknowledged_at.is_not(None))
+        elif acknowledged is False:
+            statement = statement.where(db.NotificationEvent.acknowledged_at.is_(None))
+        if not include_snoozed:
+            statement = statement.where(
+                or_(
+                    db.NotificationEvent.snoozed_until.is_(None),
+                    db.NotificationEvent.snoozed_until <= datetime.now(UTC),
+                )
+            )
+        return statement
+
+    @staticmethod
+    def update_notification(
+        session: Session,
+        principal: AuthPrincipal,
+        notification_id: str,
+        request: NotificationEventUpdate,
+    ) -> NotificationEvent:
+        if not BusinessService._notification_tables_available(session):
+            raise ValueError(f"Notification not found: {notification_id}")
+        notification = BusinessService._get_notification_model(session, principal, notification_id)
+        now = datetime.now(UTC)
+        payload = request.model_dump(exclude_unset=True)
+        if "read" in payload:
+            notification.read_at = now if payload["read"] else None
+        if "acknowledged" in payload:
+            notification.acknowledged_at = now if payload["acknowledged"] else None
+            if payload["acknowledged"]:
+                notification.read_at = notification.read_at or now
+        if "snoozed_until" in payload:
+            notification.snoozed_until = payload["snoozed_until"]
+        if payload:
+            notification.updated_at = now
+            BusinessService._audit(
+                session,
+                principal,
+                "notification.update",
+                "notification",
+                notification_id,
+            )
+            session.commit()
+            session.refresh(notification)
+        return NotificationEvent.model_validate(notification)
+
+    @staticmethod
+    def _get_notification_model(
+        session: Session,
+        principal: AuthPrincipal,
+        notification_id: str,
+    ) -> db.NotificationEvent:
+        notification = session.scalar(
+            select(db.NotificationEvent).where(
+                db.NotificationEvent.notification_id == notification_id,
+                db.NotificationEvent.account_id == principal.account_id,
+            )
+        )
+        if notification is None:
+            raise ValueError(f"Notification not found: {notification_id}")
+        return notification
+
+    @staticmethod
+    def _create_notification_event(
+        session: Session,
+        principal: AuthPrincipal,
+        *,
+        event_type: str,
+        severity: str,
+        source_type: str | None = None,
+        source_id: str | None = None,
+        title: str | None = None,
+        body: str | None = None,
+        target_view: str | None = None,
+        target_id: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+    ) -> db.NotificationEvent | None:
+        if not BusinessService._notification_tables_available(session):
+            return None
+        preferences = BusinessService._notification_preferences_model(session, principal)
+        if not BusinessService._notification_allowed(preferences, event_type, severity):
+            return None
+        existing = BusinessService._find_existing_notification(
+            session,
+            principal,
+            event_type=event_type,
+            source_type=source_type,
+            source_id=source_id,
+        )
+        if existing is not None:
+            return existing
+        notification_id = BusinessService._notification_id(
+            principal.account_id,
+            event_type,
+            source_type,
+            source_id,
+        )
+        notification = db.NotificationEvent(
+            notification_id=notification_id,
+            account_id=principal.account_id,
+            event_type=event_type,
+            severity=severity,
+            source_type=source_type,
+            source_id=source_id,
+            title=title,
+            body=body,
+            target_view=target_view,
+            target_id=target_id,
+            metadata_json=metadata_json or {},
+        )
+        session.add(notification)
+        session.flush([notification])
+        BusinessService._add_notification_delivery_logs(session, preferences, notification)
+        return notification
+
+    @staticmethod
+    def _notification_allowed(
+        preferences: db.NotificationPreference,
+        event_type: str,
+        severity: str,
+    ) -> bool:
+        event_preferences = preferences.event_preferences or {}
+        if event_preferences.get(event_type) is False:
+            return False
+        min_severity = preferences.min_severity or "info"
+        return NOTIFICATION_SEVERITY_RANK.get(severity, 0) >= NOTIFICATION_SEVERITY_RANK.get(
+            min_severity,
+            0,
+        )
+
+    @staticmethod
+    def _find_existing_notification(
+        session: Session,
+        principal: AuthPrincipal,
+        *,
+        event_type: str,
+        source_type: str | None,
+        source_id: str | None,
+    ) -> db.NotificationEvent | None:
+        if source_id is None:
+            return None
+        return session.scalar(
+            select(db.NotificationEvent).where(
+                db.NotificationEvent.account_id == principal.account_id,
+                db.NotificationEvent.event_type == event_type,
+                db.NotificationEvent.source_type == source_type,
+                db.NotificationEvent.source_id == source_id,
+            )
+        )
+
+    @staticmethod
+    def _notification_id(
+        account_id: str,
+        event_type: str,
+        source_type: str | None,
+        source_id: str | None,
+    ) -> str:
+        raw = "|".join((account_id, event_type, source_type or "", source_id or uuid4().hex))
+        return f"notif_{sha1(raw.encode('utf-8')).hexdigest()[:24]}"
+
+    @staticmethod
+    def _add_notification_delivery_logs(
+        session: Session,
+        preferences: db.NotificationPreference,
+        notification: db.NotificationEvent,
+    ) -> None:
+        now = datetime.now(UTC)
+        if preferences.in_app_enabled is not False:
+            session.add(
+                db.NotificationDeliveryLog(
+                    delivery_id=f"delivery_{notification.notification_id}_in_app",
+                    notification_id=notification.notification_id,
+                    account_id=notification.account_id,
+                    channel="in_app",
+                    status="delivered",
+                    target="workspace",
+                    attempted_at=now,
+                    delivered_at=now,
+                )
+            )
+        if preferences.email_enabled and preferences.email_to:
+            session.add(
+                db.NotificationDeliveryLog(
+                    delivery_id=f"delivery_{notification.notification_id}_email",
+                    notification_id=notification.notification_id,
+                    account_id=notification.account_id,
+                    channel="email",
+                    status="queued",
+                    target=preferences.email_to,
+                    attempted_at=now,
+                )
+            )
+        if preferences.sms_enabled and preferences.phone_to:
+            session.add(
+                db.NotificationDeliveryLog(
+                    delivery_id=f"delivery_{notification.notification_id}_sms",
+                    notification_id=notification.notification_id,
+                    account_id=notification.account_id,
+                    channel="sms",
+                    status="queued",
+                    target=preferences.phone_to,
+                    attempted_at=now,
+                )
+            )
+
+    @staticmethod
+    def _acknowledge_notifications_for_source(
+        session: Session,
+        principal: AuthPrincipal,
+        *,
+        source_type: str,
+        source_id: str,
+    ) -> None:
+        if not BusinessService._notification_tables_available(session):
+            return
+        now = datetime.now(UTC)
+        notifications = session.scalars(
+            select(db.NotificationEvent).where(
+                db.NotificationEvent.account_id == principal.account_id,
+                db.NotificationEvent.source_type == source_type,
+                db.NotificationEvent.source_id == source_id,
+                db.NotificationEvent.acknowledged_at.is_(None),
+            )
+        ).all()
+        for notification in notifications:
+            notification.acknowledged_at = now
+            notification.read_at = notification.read_at or now
+            notification.updated_at = now
+
+    @staticmethod
+    def _notification_tables_available(session: Session) -> bool:
+        cached = session.info.get(NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY)
+        if isinstance(cached, bool):
+            return cached
+
+        inspector = inspect(session.connection())
+        available = all(
+            inspector.has_table(table_name)
+            for table_name in (
+                "notification_preferences",
+                "notification_events",
+                "notification_delivery_logs",
+            )
+        )
+        session.info[NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY] = available
+        return available
 
     @staticmethod
     def create_journal_trade(

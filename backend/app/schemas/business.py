@@ -8,6 +8,8 @@ from backend.app.schemas.scanner import ScannerDecision
 CandidateDecision = Literal["candidate", "watch", "avoid"]
 PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed", "cancelled"]
 GuardrailLevel = Literal["block", "warning", "info"]
+NotificationSeverity = Literal["info", "warning", "action_required"]
+NotificationChannel = Literal["in_app", "email", "sms"]
 
 
 class AccountRiskSettingsBase(BaseModel):
@@ -339,6 +341,77 @@ class ExitAlertEvaluationResponse(BaseModel):
     duplicate_alerts: int = 0
     symbols_processed: list[str] = Field(default_factory=list)
     alerts: list[ExitAlert] = Field(default_factory=list)
+
+
+class NotificationPreferencesBase(BaseModel):
+    in_app_enabled: bool = True
+    email_enabled: bool = False
+    sms_enabled: bool = False
+    min_severity: NotificationSeverity = "info"
+    email_to: str | None = None
+    phone_to: str | None = None
+    event_preferences: dict[str, Any] = Field(default_factory=dict)
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    in_app_enabled: bool | None = None
+    email_enabled: bool | None = None
+    sms_enabled: bool | None = None
+    min_severity: NotificationSeverity | None = None
+    email_to: str | None = None
+    phone_to: str | None = None
+    event_preferences: dict[str, Any] | None = None
+
+
+class NotificationPreferences(NotificationPreferencesBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    account_id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class NotificationEventUpdate(BaseModel):
+    read: bool | None = None
+    acknowledged: bool | None = None
+    snoozed_until: datetime | None = None
+
+
+class NotificationEvent(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    notification_id: str
+    account_id: str
+    event_type: str
+    severity: NotificationSeverity
+    source_type: str | None = None
+    source_id: str | None = None
+    title: str | None = None
+    body: str | None = None
+    target_view: str | None = None
+    target_id: str | None = None
+    metadata_json: dict[str, Any] | None = None
+    read_at: datetime | None = None
+    acknowledged_at: datetime | None = None
+    snoozed_until: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class NotificationDeliveryLog(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    delivery_id: str
+    notification_id: str
+    account_id: str
+    channel: NotificationChannel
+    status: str
+    target: str | None = None
+    provider_message_id: str | None = None
+    error_message: str | None = None
+    attempted_at: datetime | None = None
+    delivered_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class JournalTradeBase(BaseModel):

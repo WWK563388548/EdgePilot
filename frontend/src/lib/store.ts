@@ -7,6 +7,7 @@ export type WorkspaceView =
   | "outcomes"
   | "positions"
   | "alerts"
+  | "notifications"
   | "journal"
   | "settings";
 

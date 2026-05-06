@@ -47,7 +47,10 @@ export function CandidateTradePlanCard({
   const createPlan = useMutation({
     mutationFn: () =>
       api.createCandidatePlan(candidate.candidate_id, {
-        quantity: planPreview.data?.suggested_quantity ?? undefined
+        quantity:
+          planPreview.data?.suggested_quantity && planPreview.data.suggested_quantity > 0
+            ? planPreview.data.suggested_quantity
+            : undefined
       }),
     onSuccess: async (position) => {
       setCreatedPlan(position);
@@ -57,6 +60,9 @@ export function CandidateTradePlanCard({
         queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications-unread-count"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       ]);
     }

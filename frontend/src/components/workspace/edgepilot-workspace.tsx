@@ -20,6 +20,7 @@ import { OverviewView } from "@/components/workspace/overview-view";
 import { OutcomesView } from "@/components/workspace/outcomes-view";
 import { PALabView } from "@/components/workspace/pa-lab-view";
 import { AlertsTable, JournalTable, PositionsTable } from "@/components/workspace/organisms/account-tables";
+import { NotificationBell, NotificationModal } from "@/components/workspace/organisms/notification-center";
 import { SettingsPanel } from "@/components/workspace/secondary-views";
 import { WorkspaceFrame, WorkspaceHeader, WorkspaceNav, type WorkspaceNavItem } from "@/components/workspace/shell";
 import { api } from "@/lib/api";
@@ -49,12 +50,22 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const [candidatePage, setCandidatePage] = useState(0);
   const [positionPage, setPositionPage] = useState(0);
   const [alertPage, setAlertPage] = useState(0);
+  const [notificationPage, setNotificationPage] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [journalPage, setJournalPage] = useState(0);
   const queriesEnabled = auth.ready && auth.isAuthenticated && auth.emailVerified;
 
   useEffect(() => {
     document.documentElement.lang = localeTag[locale];
   }, [locale]);
+
+  useEffect(() => {
+    if (view === "notifications") {
+      setNotificationPage(0);
+      setNotificationsOpen(true);
+      setView("overview");
+    }
+  }, [setView, view]);
 
   const dashboard = useQuery({
     queryKey: ["dashboard"],
@@ -112,6 +123,28 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     queryFn: api.alertsCount,
     enabled: queriesEnabled
   });
+  const notifications = useQuery({
+    queryKey: ["notifications", notificationPage],
+    queryFn: () =>
+      api.notifications({
+        acknowledged: false,
+        limit: LIST_PAGE_SIZE + 1,
+        offset: notificationPage * LIST_PAGE_SIZE,
+        read: false
+    }),
+    enabled: queriesEnabled,
+    refetchInterval: notificationsOpen ? 15_000 : false
+  });
+  const notificationsCount = useQuery({
+    queryKey: ["notifications-count"],
+    queryFn: () =>
+      api.notificationsCount({
+        acknowledged: false,
+        read: false
+      }),
+    enabled: queriesEnabled,
+    refetchInterval: 15_000
+  });
   const journal = useQuery({
     queryKey: ["journal", journalPage],
     queryFn: () =>
@@ -132,6 +165,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const candidateRows = (candidates.data ?? []).slice(0, LIST_PAGE_SIZE);
   const positionRows = (positions.data ?? []).slice(0, LIST_PAGE_SIZE);
   const alertRows = (alerts.data ?? []).slice(0, LIST_PAGE_SIZE);
+  const notificationRows = (notifications.data ?? []).slice(0, LIST_PAGE_SIZE);
   const journalRows = (journal.data ?? []).slice(0, LIST_PAGE_SIZE);
   const hasCandidateNextPage =
     candidatesCount.data?.total !== undefined
@@ -145,6 +179,10 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     alertsCount.data?.total !== undefined
       ? (alertPage + 1) * LIST_PAGE_SIZE < alertsCount.data.total
       : (alerts.data ?? []).length > LIST_PAGE_SIZE;
+  const hasNotificationNextPage =
+    notificationsCount.data?.total !== undefined
+      ? (notificationPage + 1) * LIST_PAGE_SIZE < notificationsCount.data.total
+      : (notifications.data ?? []).length > LIST_PAGE_SIZE;
   const hasJournalNextPage =
     journalCount.data?.total !== undefined
       ? (journalPage + 1) * LIST_PAGE_SIZE < journalCount.data.total
@@ -177,6 +215,18 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   return (
     <WorkspaceFrame>
       <WorkspaceHeader
+        actions={
+          <NotificationBell
+            count={notificationsCount.data?.total ?? 0}
+            locale={locale}
+            onOpen={() => {
+              setNotificationPage(0);
+              setNotificationsOpen(true);
+              void notifications.refetch();
+              void notificationsCount.refetch();
+            }}
+          />
+        }
         locale={locale}
         riskMode={summary?.risk_mode ?? t("unknown")}
         riskTone={riskTone}
@@ -254,6 +304,23 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
         )}
         {view === "settings" && <SettingsPanel locale={locale} />}
       </div>
+      <NotificationModal
+        data={notificationRows}
+        error={notifications.isError}
+        hasNextPage={hasNotificationNextPage}
+        loading={notifications.isLoading}
+        locale={locale}
+        onClose={() => setNotificationsOpen(false)}
+        onNavigate={(targetView) => {
+          setNotificationsOpen(false);
+          setView(targetView);
+        }}
+        onPageChange={setNotificationPage}
+        open={notificationsOpen}
+        page={notificationPage}
+        pageSize={LIST_PAGE_SIZE}
+        totalCount={notificationsCount.data?.total}
+      />
     </WorkspaceFrame>
   );
 }

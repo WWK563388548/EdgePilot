@@ -17,10 +17,12 @@ export type WorkspaceNavItem = {
 };
 
 export function WorkspaceHeader({
+  actions,
   locale,
   riskMode,
   riskTone
 }: {
+  actions?: ReactNode;
   locale: Locale;
   riskMode: string;
   riskTone: "good" | "warn" | "bad" | "neutral";
@@ -41,6 +43,7 @@ export function WorkspaceHeader({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill label={labelFor("status", riskMode)} tone={riskTone} />
+          {actions}
           <LanguageSwitcher locale={locale} />
           <AuthButton />
           <div className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-panel px-3 text-sm text-slate-700">
