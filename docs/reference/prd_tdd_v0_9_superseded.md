@@ -1,13 +1,17 @@
 # EdgePilot PRD/TDD v0.9
 
+> Superseded reference.
+>
+> This document is retained for historical traceability only. The current maintained PRD/TDD summary is `docs/prd_tdd_v1_1.md`, with the full v1.1 archive at `docs/reference/edgepilot_prd_tdd_v1_1_full.md`.
+
 This is the repo-maintained PRD/TDD for EdgePilot v0.9. It captures the current product requirements, technical design, data contracts, risk rules, and implementation plan. It intentionally replaces the older stacked v0.3/v0.6 planning docs and avoids carrying superseded historical sections forward.
 
 Source basis: `EdgePilot_PRD_TDD_Implementation_Plan_v0_9_Strat_PA_Short_Framework.md`, dated 2026-05-04.
 
-Document roles:
+Historical document roles:
 
-- `docs/product_strategy_v0_9.md`: short strategy and roadmap summary.
-- `docs/prd_tdd_v0_9.md`: maintained implementation specification for current development.
+- `docs/reference/product_strategy_v0_9_superseded.md`: short strategy and roadmap summary.
+- `docs/reference/prd_tdd_v0_9_superseded.md`: maintained implementation specification for v0.9 development.
 - `docs/reference/edgepilot_prd_tdd_v0_9_full.md`: full original v0.9 research archive for traceability. If this maintained spec appears to omit important context, check the full archive before changing product direction.
 
 ## 1. Product Definition
