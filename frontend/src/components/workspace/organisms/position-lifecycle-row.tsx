@@ -28,6 +28,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
   const { labelFor, t } = useAppI18n();
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<ActionMode | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activationForm, setActivationForm] = useState({
     entryDate: datetimeLocalValue(new Date()),
     entryPrice: "",
@@ -69,6 +70,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
         quantity: request.quantity
       }),
     onSuccess: async () => {
+      setSuccessMessage(t("positionEntryRecorded"));
       setMode(null);
       await invalidateLifecycle();
     }
@@ -77,6 +79,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
   const updateStop = useMutation({
     mutationFn: (newStop: number) => api.updatePositionStop(position.position_id, { new_stop: newStop }),
     onSuccess: async () => {
+      setSuccessMessage(t("positionStopUpdated"));
       setMode(null);
       await invalidateLifecycle();
     }
@@ -98,6 +101,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
         quantity: request.quantity
       }),
     onSuccess: async () => {
+      setSuccessMessage(t("positionTrimRecorded"));
       setMode(null);
       await invalidateLifecycle();
     }
@@ -112,6 +116,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
         notes: request.notes
       }),
     onSuccess: async () => {
+      setSuccessMessage(t("positionClosedRecorded"));
       setMode(null);
       await invalidateLifecycle();
     }
@@ -120,6 +125,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
   const cancelPosition = useMutation({
     mutationFn: () => api.cancelPosition(position.position_id),
     onSuccess: async () => {
+      setSuccessMessage(t("positionPlanCancelled"));
       setMode(null);
       await invalidateLifecycle();
     }
@@ -143,6 +149,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
 
   const openMode = (nextMode: ActionMode) => {
     setMode((current) => (current === nextMode ? null : nextMode));
+    setSuccessMessage(null);
     activatePosition.reset();
     updateStop.reset();
     reducePosition.reset();
@@ -202,7 +209,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
     const exitPrice = positiveNumber(reduceForm.exitPrice);
     const quantity = optionalPositiveNumber(reduceForm.quantity);
     const currentStop = optionalPositiveNumber(reduceForm.currentStop);
-    if (exitPrice === null || quantity === null || currentStop === null) {
+    if (exitPrice === null || quantity === null || quantity === undefined || currentStop === null) {
       return;
     }
     reducePosition.mutate({
@@ -283,6 +290,11 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
             ) : null}
             {!hasActions ? <span className="text-slate-400">-</span> : null}
           </div>
+          {successMessage ? (
+            <p className="mt-2 rounded-md border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-medium text-teal-800">
+              {successMessage}
+            </p>
+          ) : null}
         </td>
       </tr>
       {mode ? (
