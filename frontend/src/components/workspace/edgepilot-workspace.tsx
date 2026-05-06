@@ -23,7 +23,7 @@ import { AlertsTable, JournalTable, PositionsTable } from "@/components/workspac
 import { NotificationBell, NotificationModal } from "@/components/workspace/organisms/notification-center";
 import { SettingsPanel } from "@/components/workspace/secondary-views";
 import { WorkspaceFrame, WorkspaceHeader, WorkspaceNav, type WorkspaceNavItem } from "@/components/workspace/shell";
-import { api } from "@/lib/api";
+import { api, type PositionStatus } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { localeTag, type Locale } from "@/lib/i18n-config";
 import { useWorkspaceStore } from "@/lib/store";
@@ -49,6 +49,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const [candidateDecision, setCandidateDecision] = useState<CandidateDecisionFilter>("candidate");
   const [candidatePage, setCandidatePage] = useState(0);
   const [positionPage, setPositionPage] = useState(0);
+  const [positionStatus, setPositionStatus] = useState<PositionStatus | "all">("all");
   const [alertPage, setAlertPage] = useState(0);
   const [notificationPage, setNotificationPage] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -96,17 +97,21 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     enabled: queriesEnabled
   });
   const positions = useQuery({
-    queryKey: ["positions", positionPage],
+    queryKey: ["positions", positionStatus, positionPage],
     queryFn: () =>
       api.positions({
         limit: LIST_PAGE_SIZE + 1,
-        offset: positionPage * LIST_PAGE_SIZE
+        offset: positionPage * LIST_PAGE_SIZE,
+        status: positionStatus === "all" ? undefined : positionStatus
       }),
     enabled: queriesEnabled
   });
   const positionsCount = useQuery({
-    queryKey: ["positions-count"],
-    queryFn: api.positionsCount,
+    queryKey: ["positions-count", positionStatus],
+    queryFn: () =>
+      api.positionsCount({
+        status: positionStatus === "all" ? undefined : positionStatus
+      }),
     enabled: queriesEnabled
   });
   const alerts = useQuery({
@@ -271,8 +276,13 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
             loading={positions.isLoading}
             locale={locale}
             onPageChange={setPositionPage}
+            onStatusFilterChange={(filter) => {
+              setPositionStatus(filter);
+              setPositionPage(0);
+            }}
             page={positionPage}
             pageSize={LIST_PAGE_SIZE}
+            statusFilter={positionStatus}
             totalCount={positionsCount.data?.total}
           />
         )}

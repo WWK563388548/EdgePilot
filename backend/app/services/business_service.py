@@ -1479,10 +1479,18 @@ class BusinessService:
         if position.status != "planned":
             raise ValueError("Position must be planned before activation")
 
+        quantity = request.quantity if request.quantity is not None else position.quantity
+        if quantity is None or quantity <= 0:
+            raise ValueError("Position quantity is required before activation")
+        stop = position.current_stop or position.initial_stop
+        if stop is None:
+            raise ValueError("Position stop is required before activation")
+        if stop >= request.entry_price:
+            raise ValueError("Position stop must be below entry price")
+
         position.status = "open"
         position.entry_price = request.entry_price
-        if request.quantity is not None:
-            position.quantity = request.quantity
+        position.quantity = quantity
         position.entry_date = request.entry_date or datetime.now(UTC)
         position.current_r = 0
         position.realized_pnl = position.realized_pnl or 0
@@ -1550,26 +1558,51 @@ class BusinessService:
         position = BusinessService._get_position_model(session, principal, position_id)
         if position.status not in ("open", "reduce"):
             raise ValueError("Position must be open or reduced before marking a trim")
+        if position.entry_price is None:
+            raise ValueError("Position is missing entry price")
+        if position.quantity is None or position.quantity <= 0:
+            raise ValueError("Position quantity is required before marking a trim")
+        if request.quantity is None:
+            raise ValueError("Reduced quantity is required")
 
         reduced_quantity = request.quantity
         if (
-            reduced_quantity is not None
-            and position.quantity is not None
-            and reduced_quantity >= position.quantity
+            reduced_quantity >= position.quantity
         ):
             raise ValueError("Reduced quantity must be smaller than current quantity; use close instead")
 
         realized_delta = _position_pnl(position.entry_price, request.exit_price, reduced_quantity)
+        exit_ts = request.exit_date or datetime.now(UTC)
+        r_multiple = _position_r_multiple(position, request.exit_price)
+        trade = db.TradeJournal(
+            trade_id=f"trade_{position.position_id}_trim_{uuid4().hex[:8]}",
+            account_id=principal.account_id,
+            position_id=position.position_id,
+            symbol_id=position.symbol_id,
+            entry_ts=position.entry_date,
+            exit_ts=exit_ts,
+            entry_price=position.entry_price,
+            exit_price=request.exit_price,
+            quantity=reduced_quantity,
+            gross_pnl=realized_delta,
+            net_pnl=realized_delta,
+            r_multiple=r_multiple,
+            setup_type=position.strategy_name,
+            exit_reason="trim",
+            mistake_tags=None,
+            notes=request.notes,
+        )
+        session.add(trade)
         if realized_delta is not None:
             position.realized_pnl = round((position.realized_pnl or 0) + realized_delta, 6)
-        if reduced_quantity is not None and position.quantity is not None:
-            position.quantity = round(position.quantity - reduced_quantity, 6)
+        position.quantity = round(position.quantity - reduced_quantity, 6)
         if request.current_stop is not None:
             position.current_stop = request.current_stop
-        position.current_r = _position_r_multiple(position, request.exit_price)
+        position.current_r = r_multiple
         position.status = "reduce"
         _touch_position(position)
         BusinessService._audit(session, principal, "position.reduce", "position", position_id)
+        BusinessService._audit(session, principal, "journal_trade.create", "journal_trade", trade.trade_id)
         session.commit()
         session.refresh(position)
         return BusinessService._position_response(session, principal, position)
@@ -1586,14 +1619,17 @@ class BusinessService:
             raise ValueError("Position is already closed")
         if position.status == "planned":
             raise ValueError("Planned positions must be activated before closing")
+        if position.status == "cancelled":
+            raise ValueError("Cancelled positions cannot be closed")
         if position.entry_price is None:
             raise ValueError("Position is missing entry price")
-        if (
-            request.quantity is not None
-            and position.quantity is not None
-            and request.quantity < position.quantity
-        ):
-            raise ValueError("Close quantity is smaller than current quantity; use reduce instead")
+        if position.quantity is None or position.quantity <= 0:
+            raise ValueError("Position quantity is required before closing")
+        if request.quantity is not None:
+            if request.quantity < position.quantity:
+                raise ValueError("Close quantity is smaller than current quantity; use reduce instead")
+            if request.quantity > position.quantity:
+                raise ValueError("Close quantity exceeds current quantity")
 
         exit_ts = request.exit_date or datetime.now(UTC)
         close_quantity = request.quantity if request.quantity is not None else position.quantity
@@ -1618,8 +1654,8 @@ class BusinessService:
             entry_price=position.entry_price,
             exit_price=request.exit_price,
             quantity=close_quantity,
-            gross_pnl=gross_pnl,
-            net_pnl=gross_pnl,
+            gross_pnl=closing_pnl,
+            net_pnl=closing_pnl,
             r_multiple=r_multiple,
             setup_type=position.strategy_name,
             exit_reason=request.exit_reason,

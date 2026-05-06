@@ -8,7 +8,7 @@ import { DataState } from "@/components/workspace/atoms/data-state";
 import { PaginationControls } from "@/components/workspace/molecules/pagination-controls";
 import { PositionLifecycleRow } from "@/components/workspace/organisms/position-lifecycle-row";
 import { TableShell } from "@/components/workspace/molecules/table-shell";
-import type { ExitAlert, JournalTrade, Position } from "@/lib/api";
+import type { ExitAlert, JournalTrade, Position, PositionStatus } from "@/lib/api";
 import { api } from "@/lib/api";
 import { formatDate, formatValue } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
@@ -35,12 +35,45 @@ export function PositionsTable({
   totalCount,
   hasNextPage,
   onPageChange,
+  onStatusFilterChange,
+  statusFilter,
   locale
-}: PaginatedTableProps<Position>) {
-  const { t } = useAppI18n();
+}: PaginatedTableProps<Position> & {
+  onStatusFilterChange: (filter: PositionStatus | "all") => void;
+  statusFilter: PositionStatus | "all";
+}) {
+  const { labelFor, t } = useAppI18n();
+  const filters: Array<PositionStatus | "all"> = [
+    "all",
+    "planned",
+    "open",
+    "reduce",
+    "exit_pending",
+    "closed",
+    "cancelled"
+  ];
 
   return (
     <TableShell title={t("positions")} loading={loading} error={error} locale={locale}>
+      <div className="flex flex-wrap gap-2 border-b border-line bg-white px-4 py-3">
+        {filters.map((filter) => {
+          const selected = statusFilter === filter;
+          return (
+            <button
+              className={`focus-ring h-8 rounded-md px-3 text-xs font-semibold transition-colors ${
+                selected
+                  ? "bg-ink text-white"
+                  : "border border-line bg-panel text-slate-700 hover:border-teal hover:text-teal"
+              }`}
+              key={filter}
+              onClick={() => onStatusFilterChange(filter)}
+              type="button"
+            >
+              {filter === "all" ? t("allPositions") : labelFor("status", filter)}
+            </button>
+          );
+        })}
+      </div>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>

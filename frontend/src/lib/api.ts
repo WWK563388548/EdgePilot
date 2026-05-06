@@ -523,6 +523,14 @@ export type PositionClose = {
   notes?: string;
 };
 
+export type PositionStatus =
+  | "planned"
+  | "open"
+  | "reduce"
+  | "exit_pending"
+  | "closed"
+  | "cancelled";
+
 export type Position = {
   position_id: string;
   symbol_id: string;
@@ -844,14 +852,20 @@ export const api = {
         bar_limit: barLimit
       })}`
     ),
-  positions: (pagination: { limit?: number; offset?: number } = {}) =>
+  positions: (pagination: { limit?: number; offset?: number; status?: PositionStatus } = {}) =>
     getJson<Position[]>(
       `/api/positions${queryString({
         limit: pagination.limit ?? 100,
-        offset: pagination.offset
+        offset: pagination.offset,
+        status: pagination.status
       })}`
     ),
-  positionsCount: () => getJson<CountResponse>("/api/positions/count"),
+  positionsCount: (filters: { status?: PositionStatus } = {}) =>
+    getJson<CountResponse>(
+      `/api/positions/count${queryString({
+        status: filters.status
+      })}`
+    ),
   activatePosition: (positionId: string, request: PositionActivate) =>
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/activate`, request),
   updatePositionStop: (positionId: string, request: PositionStopUpdate) =>
