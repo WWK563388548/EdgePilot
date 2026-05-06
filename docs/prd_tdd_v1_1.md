@@ -2,7 +2,7 @@
 
 This is the repo-maintained v1.1 PRD/TDD. It should be detailed enough to guide implementation without requiring every developer to read the full research archive.
 
-Full source archive: `docs/reference/edgepilot_prd_tdd_v1_1_full.md`.
+Full source archive: `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`.
 
 The full archive is the source of record for research context. This maintained document is the implementation-facing version.
 
@@ -709,5 +709,5 @@ AWS can wait until the product has enough operational load or compliance need to
 
 - Current strategy: `docs/product_strategy_v1_1.md`.
 - Current implementation PRD/TDD: `docs/prd_tdd_v1_1.md`.
-- Full source archive: `docs/reference/edgepilot_prd_tdd_v1_1_full.md`.
+- Full source archive: `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`.
 - Do not reintroduce standalone older-version docs unless there is an explicit migration reason.

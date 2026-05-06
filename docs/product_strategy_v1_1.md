@@ -2,7 +2,7 @@
 
 This is the current authoritative product strategy for EdgePilot.
 
-Full source archive: `docs/reference/edgepilot_prd_tdd_v1_1_full.md`.
+Full source archive: `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`.
 
 The full archive is intentionally retained because it includes the original v1.1 PRD/TDD text and historical context from earlier drafts. Separate v0.9 documents have been removed to avoid conflicting product direction.
 

@@ -22,7 +22,7 @@ Authoritative docs:
 
 - `docs/product_strategy_v1_1.md`
 - `docs/prd_tdd_v1_1.md`
-- `docs/reference/edgepilot_prd_tdd_v1_1_full.md`
+- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`
 
 Older standalone roadmap documents were removed after v1.1 alignment to avoid conflicting implementation guidance. Historical context is preserved inside the full v1.1 archive.
 
@@ -216,4 +216,4 @@ The product roadmap and implementation spec are tracked in:
 
 - `docs/product_strategy_v1_1.md`
 - `docs/prd_tdd_v1_1.md`
-- `docs/reference/edgepilot_prd_tdd_v1_1_full.md`
+- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`
