@@ -80,6 +80,7 @@ DEFAULT_MAX_TOTAL_RISK_PCT = 0.02
 DEFAULT_MAX_OPEN_POSITIONS = 3
 DEFAULT_MAX_RISK_DISTANCE_PCT = 0.12
 NOTIFICATION_SEVERITY_RANK = {"info": 0, "warning": 1, "action_required": 2}
+NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY = "edgepilot_notification_tables_available"
 
 
 def _average(values) -> float | None:
@@ -2453,8 +2454,12 @@ class BusinessService:
 
     @staticmethod
     def _notification_tables_available(session: Session) -> bool:
+        cached = session.info.get(NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY)
+        if isinstance(cached, bool):
+            return cached
+
         inspector = inspect(session.connection())
-        return all(
+        available = all(
             inspector.has_table(table_name)
             for table_name in (
                 "notification_preferences",
@@ -2462,6 +2467,8 @@ class BusinessService:
                 "notification_delivery_logs",
             )
         )
+        session.info[NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY] = available
+        return available
 
     @staticmethod
     def create_journal_trade(

@@ -304,6 +304,31 @@ def test_notification_preferences_default_and_update(session) -> None:
     assert updated.event_preferences["scanner_candidates_updated"] is False
 
 
+def test_notification_table_availability_is_cached_per_session(session, monkeypatch) -> None:
+    from backend.app.services import business_service
+
+    calls = 0
+
+    class FakeInspector:
+        def has_table(self, table_name: str) -> bool:
+            return table_name in {
+                "notification_preferences",
+                "notification_events",
+                "notification_delivery_logs",
+            }
+
+    def fake_inspect(connection) -> FakeInspector:
+        nonlocal calls
+        calls += 1
+        return FakeInspector()
+
+    monkeypatch.setattr(business_service, "inspect", fake_inspect)
+
+    assert BusinessService._notification_tables_available(session) is True
+    assert BusinessService._notification_tables_available(session) is True
+    assert calls == 1
+
+
 def test_account_scanner_replaces_only_current_account_candidates(session, monkeypatch) -> None:
     from backend.app.services import business_service
 
