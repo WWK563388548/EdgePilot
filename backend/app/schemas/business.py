@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.schemas.scanner import ScannerDecision
 
@@ -10,6 +10,8 @@ PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed", 
 GuardrailLevel = Literal["block", "warning", "info"]
 NotificationSeverity = Literal["info", "warning", "action_required"]
 NotificationChannel = Literal["in_app", "email", "sms"]
+AutomationJobType = Literal["market_refresh_scan"]
+JobRunStatus = Literal["running", "succeeded", "failed"]
 
 
 class AccountRiskSettingsBase(BaseModel):
@@ -444,6 +446,39 @@ class JournalTrade(JournalTradeBase):
 class PositionCloseResponse(BaseModel):
     position: Position
     journal_trade: JournalTrade
+
+
+class AutomationJobRunRequest(BaseModel):
+    symbols: list[str] | None = None
+    min_score: float = Field(default=60.0, ge=0, le=100)
+    max_candidates: int = Field(default=25, ge=1, le=200)
+    refresh_market_data: bool = True
+    recalculate_outcomes: bool = True
+    evaluate_alerts: bool = True
+    outcome_limit: int | None = Field(default=None, ge=1, le=5000)
+    alert_limit: int | None = Field(default=None, ge=1, le=500)
+
+    @model_validator(mode="after")
+    def normalize_symbols(self) -> "AutomationJobRunRequest":
+        if self.symbols is not None:
+            self.symbols = [symbol.strip().upper() for symbol in self.symbols if symbol.strip()]
+        return self
+
+
+class JobRun(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    run_id: str
+    account_id: str
+    job_type: str
+    status: str
+    trigger: str | None = None
+    records_written: int = 0
+    error_message: str | None = None
+    metadata_json: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: int | None = None
 
 
 class DataFreshnessSummary(BaseModel):

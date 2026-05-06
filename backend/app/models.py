@@ -612,3 +612,25 @@ class IngestionRun(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class JobRun(Base):
+    __tablename__ = "job_runs"
+    __table_args__ = (
+        Index("idx_job_runs_account_started", "account_id", "started_at"),
+        Index("idx_job_runs_account_status", "account_id", "status", "started_at"),
+    )
+
+    run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    job_type: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    trigger: Mapped[str | None] = mapped_column(Text)
+    records_written: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int | None] = mapped_column(Integer)

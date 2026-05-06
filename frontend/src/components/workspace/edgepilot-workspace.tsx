@@ -9,11 +9,13 @@ import {
   BriefcaseBusiness,
   ListChecks,
   Settings,
-  ShieldCheck
+  ShieldCheck,
+  Workflow
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AuthScreen } from "@/components/workspace/auth-screen";
+import { AutomationView } from "@/components/workspace/automation-view";
 import { CandidatesView, type CandidateDecisionFilter } from "@/components/workspace/candidates-view";
 import { DataState } from "@/components/workspace/atoms/data-state";
 import { OverviewView } from "@/components/workspace/overview-view";
@@ -36,6 +38,7 @@ const views: WorkspaceNavItem[] = [
   { id: "outcomes", labelKey: "outcomes", icon: Activity },
   { id: "positions", labelKey: "positions", icon: BriefcaseBusiness },
   { id: "alerts", labelKey: "alerts", icon: AlertTriangle },
+  { id: "automation", labelKey: "automation", icon: Workflow },
   { id: "journal", labelKey: "journal", icon: BookOpen },
   { id: "settings", labelKey: "settings", icon: Settings }
 ];
@@ -299,6 +302,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
             totalCount={alertsCount.data?.total}
           />
         )}
+        {view === "automation" && <AutomationView locale={locale} />}
         {view === "journal" && (
           <JournalTable
             data={journalRows}

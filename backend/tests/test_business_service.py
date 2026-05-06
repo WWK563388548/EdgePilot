@@ -10,11 +10,13 @@ from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
 from backend.app.schemas.business import (
     AccountRiskSettingsUpdate,
+    AutomationJobRunRequest,
     CandidateCreate,
     CandidatePlanCreate,
     CandidateUpdate,
     ExitAlertCreate,
     ExitAlertEvaluationRequest,
+    ExitAlertEvaluationResponse,
     ExitAlertUpdate,
     NotificationPreferencesUpdate,
     PositionActivate,
@@ -24,7 +26,7 @@ from backend.app.schemas.business import (
     PositionStopUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
-from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest
+from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest, ScannerOutcomeRecalculateResponse
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
@@ -694,6 +696,87 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
     assert len(refresh_notifications) == 1
     assert refresh_notifications[0].metadata_json["source"] == "market_refresh_scan"
     assert refresh_notifications[0].metadata_json["candidates_written"] == 1
+
+
+def test_run_automation_job_records_successful_steps(session, monkeypatch) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_refresh(db_session, request_principal, request):
+        assert request_principal.account_id == "acct_a"
+        assert request.symbols == ["SPY"]
+        return ETFUniverseSeedResponse(
+            account_id=request_principal.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols or [],
+            bars_written=2,
+            facts_written=2,
+            setups_written=1,
+            candidates_written=1,
+            decision_counts={"candidate": 1},
+            latest_scan_date=date(2026, 5, 4),
+            latest_bar_date=date(2026, 5, 4),
+        )
+
+    def _fake_outcomes(db_session, request_principal, request):
+        assert request.strategy_name == "oneil_core_us_etf"
+        return ScannerOutcomeRecalculateResponse(
+            account_id=request_principal.account_id,
+            candidates_scanned=1,
+            outcomes_written=1,
+            status_counts={"pending": 1},
+            symbols_processed=["SPY"],
+        )
+
+    def _fake_alerts(db_session, request_principal, request):
+        return ExitAlertEvaluationResponse(
+            account_id=request_principal.account_id,
+            positions_evaluated=1,
+            alerts_created=1,
+            symbols_processed=["SPY"],
+        )
+
+    monkeypatch.setattr(BusinessService, "refresh_account_oneil_core_universe", _fake_refresh)
+    monkeypatch.setattr(BusinessService, "recalculate_scanner_outcomes", _fake_outcomes)
+    monkeypatch.setattr(BusinessService, "evaluate_exit_alerts", _fake_alerts)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(symbols=["spy"]),
+    )
+
+    assert run.status == "succeeded"
+    assert run.records_written == 8
+    assert run.error_message is None
+    assert [step["name"] for step in run.metadata_json["steps"]] == [
+        "market_refresh_scan",
+        "scanner_outcomes",
+        "exit_alerts",
+    ]
+    assert BusinessService.count_job_runs(session, principal, status="succeeded") == 1
+    assert BusinessService.list_job_runs(session, principal)[0].run_id == run.run_id
+
+
+def test_run_automation_job_persists_failure(session, monkeypatch) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_refresh(db_session, request_principal, request):
+        raise RuntimeError("polygon unavailable")
+
+    monkeypatch.setattr(BusinessService, "refresh_account_oneil_core_universe", _fake_refresh)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(symbols=["spy"], recalculate_outcomes=False, evaluate_alerts=False),
+    )
+
+    assert run.status == "failed"
+    assert run.error_message == "polygon unavailable"
+    assert run.records_written == 0
+    assert BusinessService.count_job_runs(session, principal, status="failed") == 1
 
 
 def test_dashboard_candidate_count_only_counts_candidates(session) -> None:
