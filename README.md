@@ -24,7 +24,7 @@ Authoritative docs:
 - `docs/prd_tdd_v1_1.md`
 - `docs/reference/edgepilot_prd_tdd_v1_1_full.md`
 
-Superseded v0.9 docs are retained under `docs/reference/` only for traceability.
+Older standalone roadmap documents were removed after v1.1 alignment to avoid conflicting implementation guidance. Historical context is preserved inside the full v1.1 archive.
 
 ## Current Implementation
 
