@@ -6,21 +6,25 @@ It does **not** place broker orders. Every entry, trim, stop, and close remains 
 
 ## Current Strategy
 
-The current product strategy is v0.9:
+The current product strategy is v1.1:
 
-- PA is core.
-- Strat is a trigger layer inside PA, not a standalone strategy.
-- The system remains long-biased by default.
-- Bearish logic first reduces long risk.
-- Short watchlist and paper short are future research features.
-- Options are lowest-priority research/paper backlog.
+- Risk Engine, Position Ledger, and Exit Engine are the production foundation.
+- ETF Trend / Rotation is the first production alpha line.
+- Earnings Drift / Revision is the second production alpha line.
+- Growth Leader / O'Neil is an upside satellite, not the core engine.
+- PA and Strat are execution and structure layers, not standalone trading systems.
+- The system remains manual-confirmation only and does not place broker orders.
+- Multi-user SaaS support requires tenant isolation, auditability, legal acknowledgements, and data authorization boundaries.
+- Options remain lowest-priority research backlog.
 - AI can explain and challenge, but cannot upgrade a trade or override risk.
 
 Authoritative docs:
 
-- `docs/product_strategy_v0_9.md`
-- `docs/prd_tdd_v0_9.md`
-- `docs/reference/edgepilot_prd_tdd_v0_9_full.md`
+- `docs/product_strategy_v1_1.md`
+- `docs/prd_tdd_v1_1.md`
+- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`
+
+Older standalone roadmap documents were removed after v1.1 alignment to avoid conflicting implementation guidance. Historical context is preserved inside the full v1.1 archive.
 
 ## Current Implementation
 
@@ -42,8 +46,10 @@ Implemented:
 - Account risk settings and single-trade risk sizing.
 - Portfolio risk monitoring.
 - Exit alert engine.
+- In-app notifications.
+- Automation Job Runner.
 - Next.js frontend with zh/en/ja i18n.
-- Frontend views: Overview, Candidates, PA Lab, Review, Positions, Exit Alerts, Journal, Settings.
+- Frontend views: Overview, Candidates, PA Lab, Review, Positions, Exit Alerts, Automation, Notifications, Journal, Settings.
 - Railway deployment guide and Auth0 setup guide.
 
 ## Local Setup
@@ -208,6 +214,6 @@ Before staging:
 
 The product roadmap and implementation spec are tracked in:
 
-- `docs/product_strategy_v0_9.md`
-- `docs/prd_tdd_v0_9.md`
-- `docs/reference/edgepilot_prd_tdd_v0_9_full.md`
+- `docs/product_strategy_v1_1.md`
+- `docs/prd_tdd_v1_1.md`
+- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`

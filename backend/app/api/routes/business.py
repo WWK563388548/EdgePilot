@@ -5,6 +5,7 @@ from backend.app.schemas.common import CountResponse
 from backend.app.schemas.business import (
     AccountRiskSettings,
     AccountRiskSettingsUpdate,
+    AutomationJobRunRequest,
     Candidate,
     CandidateCreate,
     CandidateDetail,
@@ -19,6 +20,7 @@ from backend.app.schemas.business import (
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
+    JobRun,
     NotificationEvent,
     NotificationEventUpdate,
     NotificationPreferences,
@@ -100,6 +102,47 @@ def get_portfolio_risk(
     principal: VerifiedPrincipal,
 ) -> PortfolioRiskSummary:
     return BusinessService.get_portfolio_risk(session=session, principal=principal)
+
+
+@router.post("/jobs/automation/run", response_model=JobRun)
+def run_automation_job(
+    request: AutomationJobRunRequest,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> JobRun:
+    return BusinessService.run_automation_job(session=session, principal=principal, request=request)
+
+
+@router.get("/jobs/runs", response_model=list[JobRun])
+def list_job_runs(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[JobRun]:
+    return BusinessService.list_job_runs(
+        session=session,
+        principal=principal,
+        status=status_filter,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/jobs/runs/count", response_model=CountResponse)
+def count_job_runs(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    status_filter: str | None = Query(default=None, alias="status"),
+) -> CountResponse:
+    return CountResponse(
+        total=BusinessService.count_job_runs(
+            session=session,
+            principal=principal,
+            status=status_filter,
+        )
+    )
 
 
 @router.post("/candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)

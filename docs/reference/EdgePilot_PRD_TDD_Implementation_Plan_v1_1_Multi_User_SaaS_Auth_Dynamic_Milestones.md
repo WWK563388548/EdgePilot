@@ -2,7 +2,7 @@
 # PRD + 技术设计文档 + 实现计划  
 ## 小资金交易辅助系统：美股/美股ETF + 日股候选 + Strat PA + 做空研究框架 + 期权最低优先级版
 
-**版本**：v0.9  
+**版本**：v1.1  
 **日期**：2026-05-04
 **v0.2 更新重点**：追加前端实时 Dashboard、WebSocket/SSE 数据流、页面设计、组件设计、前端状态管理与实现计划。
 **v0.3 更新重点**：明确正式前端技术栈、数据库选型、时序数据设计、统计分析面板、Analytics API 与实现计划。
@@ -12,6 +12,8 @@
 **v0.7 更新重点**：追加 Anti-Overfitting Governance，将所有模块按 Production Decision、Risk-only、Research-only、Analytics-only 分类；限制实盘决策因子；引入 Decision Rights Registry、Parameter Budget、Walk-forward、Ablation Test、Baseline Comparison、Promotion Gate 与 Engine Influence Audit，防止系统复杂度导致过拟合。  
 **v0.8 更新重点**：进行 Priority Reset，将所有期权相关功能降为最低优先级，默认从 MVP 和实盘链路中移除；期权、0DTE、covered call、iron condor、iron butterfly、tail hedge、beta-weighted delta 等仅保留为 Research-only / Paper-only backlog。新增 Engine Minimalism Rule，明确“写进研究文档 ≠ 要实现进产品”，避免 engine 膨胀导致过拟合。  
 **v0.9 更新重点**：追加 Strat Trigger Layer，将 Strat 作为 PA Engine 的程序化触发层，而不是独立交易系统；将 Advanced PA 从后期 backlog 拆分为 Basic PA、PA/Strat Calibration、Advanced PA v1；追加 Short Capability Framework，默认系统仍为 long-biased，做空仅先支持 Bearish Context、Short Watchlist 和 Paper Short，live short 默认关闭；继续保持期权最低优先级，防止过拟合和 engine 膨胀。  
+**v1.0 更新重点**：重构 Alpha Strategy 架构，将 ETF Trend/Rotation 设为第一生产线，Earnings Drift/Revision 设为第二生产线，O’Neil/Growth Leader 设为弹性层；新增 Short Capability Framework v2，支持 Bearish Context、Short Watchlist、Paper Short、Inverse ETF Alternative、Live Short Gate；明确 Options 仍最低优先级，Short Options 永久禁止，做空默认不实盘。
+**v1.1 更新重点**：追加 Dynamic Milestone / First $100K Compounding Plan 与 Multi-User SaaS / Auth / Tenant Isolation。系统允许其他用户使用，但必须保持非投顾、非自动交易、数据授权合规、租户隔离、审计和权限控制；默认仍以独立交易账户复利、ETF/大票、PA/Strat、Exit Engine 为主线，Options 保持最低优先级。
 **目标用户**：日本居住的个人投资者  
 **核心原则**：不自动交易；系统只做筛选、计划、持仓管理、离场提醒和复盘；最终由用户手动确认与下单。
 
@@ -11619,3 +11621,2274 @@ Options remain lowest priority.
 v0.9 final principle:
 
 > EdgePilot should use Strat to make PA more objective, not to create another overfit signal factory. Bearish logic should protect capital first; shorting and options can wait until the core long-biased system proves positive expectancy.
+
+---
+
+# 73. Alpha Strategy Architecture v1.0：盈利策略架构重构
+
+## 73.1 为什么需要重构
+
+此前系统中 O’Neil-core / CANSLIM-lite 是较早出现的主筛选器之一，但这容易造成一个误解：
+
+> EdgePilot 的核心盈利来源是寻找成长大牛股。
+
+这不准确。
+
+O’Neil / CANSLIM 的确适合寻找潜力股和成长股 leader，但它不适合作为 EdgePilot 的唯一盈利核心。系统要追求的是：
+
+```text
+1. 先用更稳定、更可回测的 ETF / 大票趋势策略建立基础 edge。
+2. 再用财报后漂移和业绩修正捕捉催化型机会。
+3. 再用 O’Neil / Growth Leader 捕捉少数大行情。
+4. 最后由 PA / Strat Trigger / Exit Engine 提高入场和离场质量。
+```
+
+因此 v1.0 将 Alpha Engines 重构为：
+
+```text
+Alpha Engines
+├── Primary: ETF Trend / Rotation Engine
+├── Secondary: Earnings Drift / Revision Engine
+├── Satellite: Growth Leader / O’Neil Engine
+├── Context: Japan Overnight Impact Engine
+├── Defensive: Bearish Context / Short Framework
+└── Backlog: Options / 0DTE / Covered Call Research
+```
+
+---
+
+## 73.2 三条主要盈利生产线
+
+## A. ETF Trend / Rotation Engine：第一生产线
+
+### 定位
+
+这是 EdgePilot 的第一生产线，用于建立最基础、最可验证、最适合小账户的 edge。
+
+### Universe
+
+```text
+SPY
+QQQ
+IWM
+DIA
+SMH / SOXX
+XLK
+XLF
+XLE
+XLV
+TLT
+GLD
+SLV
+```
+
+### 信号类型
+
+```text
+1. ETF 相对强度排名。
+2. 趋势向上。
+3. 回踩 20MA / 50MA。
+4. 突破后回踩。
+5. Breakout Retest。
+6. VWAP Reclaim。
+7. Strat Trigger confirmation。
+```
+
+### 为什么优先
+
+```text
+1. 流动性好。
+2. 个股雷少。
+3. 数据稳定。
+4. 回测容易。
+5. 适合小账户验证。
+6. 适合先测试 PA + Exit Engine。
+```
+
+### 默认权限
+
+```text
+Production candidate after validation.
+Options expression disabled by default.
+Short version disabled by default.
+```
+
+---
+
+## B. Earnings Drift / Revision Engine：第二生产线
+
+### 定位
+
+利用财报后市场反应不足、业绩上修、财报后强势延续等可量化催化因素。
+
+### 适用对象
+
+```text
+US large-cap growth
+US liquid mid/large cap
+Japan Prime stocks
+Japan semiconductor / trading houses / banks / defense / exporters
+```
+
+### 输入
+
+```text
+earnings surprise
+revenue surprise
+guidance revision
+post-earnings gap
+post-earnings hold
+volume expansion
+relative strength continuation
+Japan upward revision
+自社株買い
+増配
+PBR improvement
+```
+
+### 交易方式
+
+```text
+不追财报当天第一波。
+等待：
+    gap hold
+    3–10 day digestion
+    PA / Strat trigger
+    sector confirmation
+```
+
+### 默认权限
+
+```text
+Research → Shadow → Paper → Micro Live.
+Live allowed only after validation.
+```
+
+---
+
+## C. Growth Leader / O’Neil Engine：弹性层
+
+### 定位
+
+O’Neil / CANSLIM 不再是唯一核心，而是股票弹性层。
+
+它负责寻找：
+
+```text
+强成长
+强相对强度
+强行业
+接近 52w high
+平台整理
+机构资金迹象
+财报增长支持
+```
+
+### 它不负责
+
+```text
+最终买点
+仓位大小
+离场
+现金流目标
+期权表达
+```
+
+### 正确流程
+
+```text
+O’Neil says:
+    这只股票值得关注。
+
+PA / Strat says:
+    现在有没有可执行触发。
+
+Risk Engine says:
+    这笔能不能做。
+
+Exit Engine says:
+    什么时候减仓或退出。
+```
+
+### 默认权限
+
+```text
+Candidate source only.
+No direct trade permission.
+```
+
+---
+
+# 74. Short Capability Framework v2：做空能力框架
+
+## 74.1 为什么必须考虑做空
+
+当前系统默认 long-biased，这适合初始阶段，但如果完全不考虑做空，会有几个问题：
+
+```text
+1. 熊市只能空仓，不能研究防守和反向机会。
+2. Bearish PA 只能用于退出，不能形成系统化观察。
+3. 系统无法评估 inverse ETF、short watchlist、paper short 的表现。
+4. EdgePilot 对市场下跌阶段的策略适应力不足。
+```
+
+但做空风险显著高于做多，尤其对小账户：
+
+```text
+1. 理论亏损无上限。
+2. gap up 风险大。
+3. short squeeze 风险大。
+4. borrow availability 不稳定。
+5. borrow fee / hard-to-borrow 风险。
+6. margin requirement 更复杂。
+7. 容易变成猜顶。
+```
+
+因此 v1.0 不是开放实盘做空，而是建立分阶段能力。
+
+---
+
+## 74.2 做空权限分级
+
+## Level 0：No Short，当前默认
+
+```text
+不做空。
+熊市只降风险、退出、空仓。
+```
+
+---
+
+## Level 1：Bearish Context Only
+
+允许：
+
+```text
+识别 bearish market regime
+识别弱势板块
+识别 bearish PA
+识别 bearish Strat trigger
+```
+
+用途仅限：
+
+```text
+avoid long
+reduce
+tighten stop
+exit
+watch only
+```
+
+不允许：
+
+```text
+live short
+short option
+inverse ETF live
+```
+
+默认应尽早实现。
+
+---
+
+## Level 2：Short Watchlist
+
+系统输出潜在 short candidates，但不允许实盘。
+
+候选条件：
+
+```text
+downtrend
+relative weakness
+breakdown
+failed bounce
+lower high
+below 20/50MA
+sector weak
+market regime bearish
+```
+
+输出：
+
+```text
+symbol
+short setup
+trigger
+cover stop
+reason
+risk notes
+paper eligible?
+```
+
+---
+
+## Level 3：Paper Short
+
+允许模拟空头交易。
+
+必须记录：
+
+```text
+short_entry
+cover_stop
+borrow_assumption
+gap_up_risk
+max_adverse_excursion
+final_R
+market_regime
+short_squeeze_signal
+```
+
+目标：
+
+```text
+验证 bearish setup 是否有 edge。
+验证做空执行是否可行。
+验证是否比简单空仓或 inverse ETF 更好。
+```
+
+---
+
+## Level 4：Inverse ETF Alternative Research
+
+在直接做空股票之前，先研究 inverse ETF 替代方案。
+
+例如：
+
+```text
+SH
+PSQ
+SQQQ, leveraged, research only
+SOXS, leveraged sector inverse, research only
+```
+
+注意：
+
+```text
+杠杆反向 ETF 有路径损耗，不适合长期持有。
+只做短期研究，不做长期资产。
+```
+
+优点：
+
+```text
+无借券问题
+无理论无限亏损
+最大亏损为投入本金
+更适合小账户 paper research
+```
+
+默认：
+
+```text
+Research / Paper only.
+```
+
+---
+
+## Level 5：Micro Live Short，后期才允许
+
+只在满足全部条件后才允许：
+
+```text
+Paper Short >= 50 trades
+expectancy > 0
+profit factor > 1.2
+max drawdown controlled
+short squeeze loss controlled
+borrow data available
+user rule adherence > 95%
+```
+
+允许范围：
+
+```text
+high liquidity ETF
+high liquidity large-cap
+no earnings window
+no meme stock
+no low float
+no high short interest squeeze risk
+```
+
+---
+
+## Level 6：Small Live Short，最终阶段
+
+只在更大账户、稳定执行后考虑。
+
+限制：
+
+```text
+max short exposure small
+no overnight short high-vol stocks
+no short before earnings
+no short after extended downside move
+no hard-to-borrow
+strict buy-to-cover stop
+```
+
+---
+
+# 75. Short Strategy Design
+
+## 75.1 Bearish Strategy Types
+
+```text
+1. Breakdown
+2. Failed Bounce
+3. Lower High Rejection
+4. Bearish 2D Strat Trigger
+5. Inside Bar Breakdown
+6. Gap-up Failure
+7. Weak Stock in Weak Sector
+8. ETF Breakdown
+9. Inverse ETF Rotation, research only
+```
+
+---
+
+## 75.2 Short Entry Rules
+
+A short candidate must satisfy:
+
+```text
+market_regime bearish or neutral-risk-off
+sector weak
+symbol relative weakness
+below key moving averages
+clear trigger
+clear cover stop
+liquidity sufficient
+no earnings event
+no high squeeze risk
+```
+
+---
+
+## 75.3 Short Exit Rules
+
+```text
+cover if stop hit
+cover if reclaim VWAP / 20MA
+cover if higher low forms
+cover if market regime improves
+cover if sector reverses
+cover if short squeeze warning appears
+cover before earnings
+cover if gap risk rises
+```
+
+---
+
+## 75.4 Short Risk Guard
+
+Checks:
+
+```text
+borrow availability
+borrow fee
+hard-to-borrow
+short interest
+days to cover
+low float
+meme risk
+earnings date
+news catalyst
+gap-up frequency
+market rebound risk
+margin requirement
+```
+
+Default actions:
+
+```text
+unknown borrow = paper only
+hard-to-borrow = reject
+earnings soon = reject
+high squeeze risk = reject
+low liquidity = reject
+```
+
+---
+
+# 76. PA / Strat 对做空的支持
+
+## 76.1 Strat 对做空的价值
+
+The Strat 天然支持双向，因为：
+
+```text
+2U = directional up
+2D = directional down
+3 = outside bar
+1 = inside bar
+```
+
+Long triggers:
+
+```text
+2U continuation
+inside bar break up
+3-1-2 up
+timeframe continuity bullish
+```
+
+Short triggers:
+
+```text
+2D continuation
+inside bar break down
+3-1-2 down
+timeframe continuity bearish
+```
+
+---
+
+## 76.2 做空中的 PA / Strat 使用方式
+
+不允许：
+
+```text
+2D = short
+```
+
+必须是：
+
+```text
+bearish context
++ weak symbol
++ weak sector
++ bearish PA structure
++ Strat trigger
++ short risk guard
+```
+
+---
+
+## 76.3 Bearish Context 用途
+
+在 Level 1 阶段，bearish signals 只用于：
+
+```text
+avoid long
+tighten stop
+reduce
+exit
+```
+
+这是做空系统的第一阶段，也是最重要阶段。
+
+---
+
+# 77. 数据模型追加：Direction / Short
+
+## 77.1 candidates 增加字段
+
+```sql
+ALTER TABLE candidates
+ADD COLUMN trade_direction TEXT DEFAULT 'long'; -- long, short, neutral, no_trade
+
+ALTER TABLE candidates
+ADD COLUMN short_eligibility TEXT DEFAULT 'not_allowed'; -- not_allowed, watch, paper, micro_live, live
+
+ALTER TABLE candidates
+ADD COLUMN bearish_context_score DOUBLE PRECISION;
+
+ALTER TABLE candidates
+ADD COLUMN short_risk_notes JSONB;
+```
+
+---
+
+## 77.2 positions 增加字段
+
+```sql
+ALTER TABLE positions
+ADD COLUMN position_side TEXT DEFAULT 'long'; -- long, short
+
+ALTER TABLE positions
+ADD COLUMN cover_stop DOUBLE PRECISION;
+
+ALTER TABLE positions
+ADD COLUMN borrow_fee DOUBLE PRECISION;
+
+ALTER TABLE positions
+ADD COLUMN borrow_status TEXT;
+
+ALTER TABLE positions
+ADD COLUMN squeeze_risk_score DOUBLE PRECISION;
+```
+
+---
+
+## 77.3 short_risk_assessments
+
+```sql
+CREATE TABLE short_risk_assessments (
+    assessment_id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
+    assessment_ts TIMESTAMPTZ NOT NULL,
+    borrow_status TEXT,
+    borrow_fee DOUBLE PRECISION,
+    hard_to_borrow BOOLEAN,
+    short_interest_pct DOUBLE PRECISION,
+    days_to_cover DOUBLE PRECISION,
+    low_float BOOLEAN,
+    meme_risk BOOLEAN,
+    earnings_risk BOOLEAN,
+    gap_up_risk_score DOUBLE PRECISION,
+    squeeze_risk_score DOUBLE PRECISION,
+    margin_requirement DOUBLE PRECISION,
+    allowed_action TEXT, -- reject, watch, paper, micro_live, live
+    reasons JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 77.4 paper_short_trades
+
+```sql
+CREATE TABLE paper_short_trades (
+    paper_short_trade_id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
+    strategy_name TEXT,
+    setup_type TEXT,
+    entry_ts TIMESTAMPTZ,
+    cover_ts TIMESTAMPTZ,
+    entry_price DOUBLE PRECISION,
+    cover_price DOUBLE PRECISION,
+    cover_stop DOUBLE PRECISION,
+    final_r DOUBLE PRECISION,
+    mfe_r DOUBLE PRECISION,
+    mae_r DOUBLE PRECISION,
+    market_regime TEXT,
+    bearish_context_score DOUBLE PRECISION,
+    squeeze_risk_score DOUBLE PRECISION,
+    exit_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 78. API 追加：Short Framework
+
+## 78.1 Short Watchlist
+
+```http
+GET /api/shorts/watchlist
+```
+
+---
+
+## 78.2 Short Risk Assessment
+
+```http
+GET /api/shorts/risk/{symbol}
+POST /api/shorts/risk/check
+```
+
+---
+
+## 78.3 Paper Short
+
+```http
+POST /api/shorts/paper
+GET  /api/shorts/paper
+GET  /api/shorts/paper/summary
+```
+
+---
+
+## 78.4 Bearish Context
+
+```http
+GET /api/market/bearish-context
+GET /api/symbols/{symbol}/bearish-context
+```
+
+---
+
+# 79. 前端追加：Short Lab
+
+## 79.1 新增页面
+
+```text
+Short Lab
+```
+
+放在：
+
+```text
+Dashboard
+Candidates
+Positions
+Exit Alerts
+Cashflow
+Analytics
+Validation
+PA Lab
+Short Lab
+Options Risk Lab
+Governance
+Journal
+Settings
+```
+
+---
+
+## 79.2 页面结构
+
+```text
+Short Lab
+├── Bearish Market Context
+├── Weak Sector Map
+├── Short Watchlist
+├── Short Candidate Detail
+├── Short Risk Guard
+├── Paper Short Trades
+├── Inverse ETF Research
+└── Short Validation Gate
+```
+
+---
+
+## 79.3 Candidate Detail
+
+显示：
+
+```text
+symbol
+bearish setup
+short trigger
+cover stop
+relative weakness
+sector weakness
+borrow status
+squeeze risk
+earnings risk
+gap-up risk
+allowed action
+```
+
+---
+
+## 79.4 Live warning
+
+当用户试图将 short 从 paper 转 live：
+
+```text
+Live short is disabled by default.
+Shorting has theoretically unlimited risk.
+Enable only after validation gate and manual confirmation.
+```
+
+---
+
+# 80. 默认配置追加
+
+```yaml
+shorts:
+  allow_short_stock_live: false
+  allow_short_etf_live: false
+  allow_short_options: false
+  allow_short_paper: true
+  allow_inverse_etf_live: false
+  allow_inverse_etf_paper: true
+
+  max_short_risk_pct: 0.0025
+  max_total_short_exposure_pct: 0.05
+  max_short_positions: 1
+
+  no_short_small_caps: true
+  no_short_meme_stocks: true
+  no_short_before_earnings: true
+  no_short_low_float: true
+  no_short_high_short_interest: true
+  no_short_hard_to_borrow: true
+  no_short_after_large_down_move: true
+  no_overnight_short_high_vol: true
+
+  paper_short_min_trades_before_micro_live: 50
+  paper_short_min_profit_factor: 1.20
+  paper_short_max_drawdown_pct: 0.08
+```
+
+---
+
+# 81. 实现计划调整 v1.0
+
+## 新优先级
+
+```text
+P0:
+    Risk Engine + Position Ledger + Exit Engine
+
+P1:
+    US ETF / Large-cap Scanner + Basic PA + Strat labeling
+
+P2:
+    Frontend Dashboard + Charts + Alerts
+
+P3:
+    Paper Trading + Journal + Analytics
+
+P4:
+    ETF Trend / Rotation Engine
+
+P5:
+    Earnings Drift / Revision Engine
+
+P6:
+    PA / Strat Calibration Lab
+
+P7:
+    Growth Leader / O’Neil Engine
+
+P8:
+    Capital Accumulation Mode
+
+P9:
+    Bearish Context + Short Watchlist + Paper Short
+
+P10:
+    Japan Expansion
+
+P11:
+    AI Reviewer
+
+P12:
+    Options Backlog / Research only
+```
+
+---
+
+## 81.1 为什么这样排
+
+```text
+1. ETF / 大票先于个股成长股。
+2. Earnings Drift 先于完整 O’Neil。
+3. O’Neil 是弹性层，不是唯一主线。
+4. 做空先做 context / paper，不直接 live。
+5. 期权继续最低优先级。
+6. Advanced PA 不再过度靠后，而通过 PA / Strat Calibration 进入中期核心。
+```
+
+---
+
+# 82. v1.0 最终策略定位
+
+EdgePilot 不再是：
+
+```text
+O’Neil + PA + Options 的混合 scanner
+```
+
+而是：
+
+```text
+Capital Accumulation Trading System
+├── ETF Trend / Rotation as first production line
+├── Earnings Drift / Revision as second production line
+├── Growth Leader / O’Neil as upside satellite
+├── PA / Strat as execution layer
+├── Exit Engine as profit protection layer
+├── Bearish Context / Short Paper as defensive research
+└── Options as lowest-priority research backlog
+```
+
+Final principle:
+
+> O’Neil finds potential leaders.  
+> ETF Rotation builds the base.  
+> Earnings Drift finds catalysts.  
+> PA / Strat handles execution.  
+> Exit Engine protects profit.  
+> Shorting starts as research.  
+> Options stay last.
+
+---
+
+# 83. Dynamic Milestone System：从 First $100K 到动态目标阶梯（v1.1）
+
+## 83.1 为什么需要从“现金流目标”改为“动态里程碑目标”
+
+EdgePilot 当前阶段不应被定义为“每月提款系统”，而应定义为：
+
+> 独立交易账户复利系统。
+
+第一目标是将 EdgePilot 交易账户滚到第一个 $100,000。  
+但 $100,000 不是终点，只是第一个关键里程碑。  
+后续目标应根据账户规模、策略稳定性、回撤控制和执行纪律动态调整。
+
+核心原则：
+
+```text
+1. 先活下来。
+2. 再证明 edge。
+3. 再小幅放大。
+4. 再滚到第一个 $100k。
+5. 再解锁下一阶段目标。
+6. 任何目标升级都不得倒逼风险。
+```
+
+---
+
+## 83.2 系统定位更新
+
+EdgePilot v1.1 的主定位：
+
+> EdgePilot 是一个支持多用户的独立交易账户复利系统。  
+> 对每个用户而言，系统目标是在不依赖 NISA、家庭储蓄、自动交易和高风险杠杆的前提下，通过 ETF Trend/Rotation、Earnings Drift/Revision、Growth Leader/O’Neil、PA/Strat 和严格风控，将独立交易账户逐步滚大。
+
+---
+
+## 83.3 默认目标阶梯
+
+```text
+Level 1: $2k–$10k
+    Mode: Survival / Validation
+    Goal: 活下来，验证系统，不追提款。
+
+Level 2: $10k–$25k
+    Mode: Small Account Growth
+    Goal: 建立正期望和稳定执行记录。
+
+Level 3: $25k–$50k
+    Mode: Controlled Scaling
+    Goal: 小幅放大已验证 setup。
+
+Level 4: $50k–$100k
+    Mode: First $100K Push
+    Goal: 稳定突破第一个 $100k，并守住。
+
+Level 5: $100k–$250k
+    Mode: Post-100K Growth
+    Goal: 继续复利，但开始强调保护和 Profit Sweep。
+
+Level 6: $250k–$500k
+    Mode: Cashflow Pilot
+    Goal: 小比例测试提款/利润扫入长期资产。
+
+Level 7: $500k–$1M
+    Mode: Cashflow + Preservation
+    Goal: 现金流与回撤控制并重。
+
+Level 8: $1M+
+    Mode: FIRE Support / Preservation
+    Goal: 税后现金流、低回撤、资产保护。
+```
+
+---
+
+## 83.4 Milestone 解锁规则
+
+账户到达某个 milestone 不等于自动提高风险。
+
+```text
+if equity >= next_milestone:
+    freeze_risk_increase = true
+    run_milestone_review = true
+```
+
+只有满足以下条件，才允许进入下一阶段：
+
+```text
+last_100_trades_expectancy > 0
+profit_factor >= configured_threshold
+max_drawdown <= allowed_threshold
+rule_adherence >= 90% / 95%
+no_recent_risk_halt = true
+manual_override_cost acceptable
+profit_concentration acceptable
+strategy_not_overfit = true
+```
+
+如果账户增长主要来自入金而非交易盈利：
+
+```text
+milestone_reached = true
+scaling_unlocked = false
+```
+
+---
+
+## 83.5 Contribution-adjusted Performance
+
+系统必须区分：
+
+```text
+Current Equity:
+    当前账户总净值。
+
+Net Deposits:
+    累计入金 - 出金。
+
+Trading P/L:
+    交易产生的真实收益。
+
+Contribution-adjusted Return:
+    剔除入金影响后的回报。
+
+TWR:
+    Time-weighted return，用于评估策略本身。
+
+MWR:
+    Money-weighted return，用于评估实际资金体验。
+```
+
+没有 contribution-adjusted 统计，系统会误把“追加本金”当作“交易能力”。
+
+---
+
+## 83.6 No Withdrawal Until First $100K
+
+默认：
+
+```yaml
+withdrawal_allowed: false
+profit_reinvest: true
+cashflow_mode: disabled
+```
+
+例外：
+
+```text
+1. 税金预留。
+2. 券商费用。
+3. 错误入金修正。
+4. 明确紧急手动 override。
+```
+
+$100k 之前，盈利默认留在 EdgePilot 账户中复利。
+
+---
+
+## 83.7 Drawdown Recovery Mode
+
+复利最怕大回撤。
+
+默认规则：
+
+```text
+if drawdown >= 5%:
+    risk_per_trade *= 0.5
+
+if drawdown >= 10%:
+    live_trading = disabled
+    mode = paper_review
+
+if consecutive_losses >= 3:
+    block_new_live_trades = true
+```
+
+用户可以降低阈值，但不能在未通过 review 的情况下提高阈值。
+
+---
+
+## 83.8 Goal Ladder Engine 数据模型
+
+```sql
+CREATE TABLE goal_ladders (
+    ladder_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    active_level INTEGER NOT NULL,
+    current_mode TEXT NOT NULL,
+    next_milestone_amount DOUBLE PRECISION,
+    base_currency TEXT DEFAULT 'USD',
+    withdrawal_allowed BOOLEAN DEFAULT FALSE,
+    cashflow_mode_enabled BOOLEAN DEFAULT FALSE,
+    profit_sweep_allowed BOOLEAN DEFAULT FALSE,
+    scaling_allowed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+```sql
+CREATE TABLE goal_milestones (
+    milestone_id TEXT PRIMARY KEY,
+    ladder_id TEXT NOT NULL,
+    level INTEGER NOT NULL,
+    label TEXT,
+    min_equity DOUBLE PRECISION,
+    max_equity DOUBLE PRECISION,
+    mode TEXT,
+    default_max_risk_pct DOUBLE PRECISION,
+    withdrawal_allowed BOOLEAN DEFAULT FALSE,
+    cashflow_allowed BOOLEAN DEFAULT FALSE,
+    options_allowed BOOLEAN DEFAULT FALSE,
+    short_live_allowed BOOLEAN DEFAULT FALSE,
+    unlock_requirements JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+```sql
+CREATE TABLE milestone_reviews (
+    review_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    milestone_id TEXT NOT NULL,
+    review_ts TIMESTAMPTZ NOT NULL,
+    equity DOUBLE PRECISION,
+    net_deposits DOUBLE PRECISION,
+    trading_pnl DOUBLE PRECISION,
+    contribution_adjusted_return DOUBLE PRECISION,
+    last_100_expectancy DOUBLE PRECISION,
+    profit_factor DOUBLE PRECISION,
+    max_drawdown DOUBLE PRECISION,
+    rule_adherence DOUBLE PRECISION,
+    profit_concentration JSONB,
+    decision TEXT, -- approved, rejected, watch
+    reasons JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 84. Multi-User SaaS / Auth / Tenant Isolation（v1.1）
+
+## 84.1 为什么允许其他人使用
+
+EdgePilot 已有 auth 和前端驾驶舱能力，因此可以从个人系统扩展为：
+
+```text
+single-user personal app
+    ↓
+private beta with invited users
+    ↓
+multi-user SaaS
+```
+
+但 SaaS 化后，系统性质发生变化：
+
+```text
+1. 必须有租户隔离。
+2. 必须有权限控制。
+3. 必须有审计日志。
+4. 必须有用户数据保护。
+5. 必须有市场数据授权边界。
+6. 必须有法律/投顾边界。
+7. 必须避免变成荐股服务、复制交易或自动交易平台。
+```
+
+---
+
+## 84.2 SaaS 产品定位
+
+EdgePilot SaaS 的定位：
+
+> EdgePilot SaaS 是一个多用户交易研究、计划、日志、风控和复盘工具。  
+> 它帮助用户记录交易计划、管理持仓、验证策略、查看风控提醒和复盘表现。  
+> 它不是券商，不自动下单，不托管资金，不代客管理资产，不提供个性化投资建议。
+
+---
+
+## 84.3 SaaS 非目标
+
+SaaS 版本明确不做：
+
+```text
+1. 自动下单。
+2. 托管用户资金。
+3. 替用户管理资产。
+4. 复制交易 / 跟单。
+5. 对外荐股信号群。
+6. 对用户作出个性化买卖建议。
+7. 未授权市场数据转售。
+8. 将平台策略包装成收益承诺。
+9. 展示“保证盈利”或“稳定收益”营销文案。
+10. 允许 AI 直接决定交易。
+```
+
+---
+
+## 84.4 法律与合规边界
+
+### 84.4.1 日本金融监管边界
+
+系统如面向日本用户提供服务，必须避免落入需要注册的金融商品交易业务、投资助言・代理業、投资管理、募集/销售等行为。
+
+安全定位：
+
+```text
+tooling
+journal
+analytics
+risk management
+education
+strategy testing
+user-defined screening
+```
+
+高风险定位：
+
+```text
+specific buy/sell advice
+portfolio management for users
+copy trading
+auto execution
+paid signal service
+solicitation of financial products
+managed fund or pooled capital
+```
+
+产品文案必须避免：
+
+```text
+“买这个”
+“保证收益”
+“跟着系统交易”
+“自动赚钱”
+“AI 代你交易”
+```
+
+推荐文案：
+
+```text
+“辅助研究”
+“交易计划与风险管理”
+“策略验证”
+“用户自主决策”
+“非投资建议”
+```
+
+---
+
+### 84.4.2 投资建议免责声明
+
+用户首次使用必须确认：
+
+```text
+1. EdgePilot 不提供投资建议。
+2. 系统输出不是买卖建议。
+3. 所有交易由用户自行判断并手动执行。
+4. 投资可能亏损本金。
+5. 过去表现不代表未来结果。
+6. Paper / backtest 不代表 live 结果。
+7. 用户理解期权、做空、杠杆等高风险产品可能造成重大亏损。
+```
+
+---
+
+### 84.4.3 市场数据授权边界
+
+SaaS 化后，行情数据风险显著上升。
+
+默认采用：
+
+```text
+Bring Your Own Data Key
+```
+
+也就是：
+
+```text
+用户自己配置 Polygon/Massive / J-Quants / broker data key。
+平台只保存加密凭证。
+平台不向未授权用户转售或再分发行情数据。
+```
+
+如果平台提供共享市场数据，必须确认：
+
+```text
+vendor license allows redistribution
+plan supports commercial SaaS use
+exchange fees and user entitlements handled
+user display rights handled
+```
+
+未确认授权前：
+
+```text
+shared market data = disabled
+```
+
+---
+
+### 84.4.4 个人信息保护
+
+SaaS 版本会处理：
+
+```text
+email
+login logs
+IP address
+portfolio names
+trade journals
+watchlists
+broker/API credential metadata
+billing information
+```
+
+因此必须遵守隐私保护和安全管理要求，至少包括：
+
+```text
+purpose of use
+privacy policy
+data retention
+security controls
+access logs
+user deletion/export
+breach response plan
+vendor/subprocessor management
+```
+
+---
+
+# 85. SaaS 用户与角色
+
+## 85.1 角色
+
+```text
+Platform Owner:
+    系统最高管理员，管理全局配置和部署。
+
+Platform Admin:
+    管理用户、租户、系统健康，但不能查看用户交易细节，除非有授权。
+
+Tenant Owner:
+    租户拥有者，管理成员、订阅、数据源、策略权限。
+
+Tenant Admin:
+    管理租户设置和成员权限。
+
+Trader:
+    普通用户，可创建 watchlist、position、journal、paper trades。
+
+Read-only Reviewer:
+    只读角色，用于复盘、教练或团队查看。
+
+Support:
+    支持人员，只能在用户授权下临时访问。
+```
+
+---
+
+## 85.2 权限原则
+
+```text
+least privilege
+tenant isolation
+no default cross-tenant access
+support access requires grant
+platform admin access is audited
+```
+
+---
+
+## 85.3 RBAC 权限示例
+
+```text
+tenant.manage_members
+tenant.manage_billing
+tenant.manage_data_sources
+strategy.configure
+candidate.view
+position.create
+position.update
+position.close_record
+journal.create
+journal.view
+analytics.view
+settings.risk.update
+settings.options.update
+support.grant_access
+audit.view
+```
+
+敏感权限：
+
+```text
+settings.risk.update
+settings.options.update
+data_source.credentials.update
+support.impersonate
+tenant.delete
+```
+
+必须二次确认和审计。
+
+---
+
+# 86. SaaS 数据隔离架构
+
+## 86.1 多租户模型
+
+推荐：
+
+```text
+shared database + tenant_id + row-level security
+```
+
+早期也可以选择：
+
+```text
+single database
+tenant_id everywhere
+application-layer enforcement
+later add PostgreSQL RLS
+```
+
+更高安全级别：
+
+```text
+database-per-tenant
+```
+
+但运维成本更高。
+
+---
+
+## 86.2 所有业务表必须加入 tenant_id
+
+以下表必须增加：
+
+```text
+symbols, if tenant-specific
+watchlists
+candidates
+positions
+exit_alerts
+trades_journal
+paper_trades
+strategy_settings
+risk_settings
+goal_ladders
+analytics_daily
+audit_logs
+api_credentials
+```
+
+原则：
+
+```text
+任何用户数据表没有 tenant_id = schema violation
+```
+
+---
+
+## 86.3 Row-Level Security
+
+PostgreSQL 建议启用 RLS：
+
+```sql
+ALTER TABLE positions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation_positions
+ON positions
+USING (tenant_id = current_setting('app.tenant_id')::text);
+```
+
+后端请求中必须设置：
+
+```text
+app.tenant_id
+app.user_id
+app.role
+```
+
+---
+
+# 87. Auth 设计
+
+## 87.1 登录方式
+
+MVP：
+
+```text
+email + password
+email verification
+password reset
+session cookie
+```
+
+后续：
+
+```text
+TOTP 2FA
+OAuth Google/GitHub
+Passkeys/WebAuthn
+magic link
+SAML/SSO, team plan
+```
+
+---
+
+## 87.2 会话安全
+
+```text
+HttpOnly secure cookies
+CSRF protection
+SameSite=Lax/Strict
+short-lived access session
+refresh token rotation
+device/session list
+logout all sessions
+IP/device anomaly detection
+```
+
+---
+
+## 87.3 密码安全
+
+```text
+Argon2id or bcrypt
+minimum password length
+breach password check, optional
+rate limit login attempts
+lockout / cooldown
+password reset token expiry
+```
+
+---
+
+## 87.4 邀请流程
+
+```text
+Tenant Owner invites user
+↓
+email invite
+↓
+user accepts
+↓
+user completes risk acknowledgement
+↓
+role assigned
+↓
+tenant dashboard access
+```
+
+---
+
+# 88. SaaS 数据模型
+
+## 88.1 users
+
+```sql
+CREATE TABLE users (
+    user_id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    email_verified BOOLEAN DEFAULT FALSE,
+    display_name TEXT,
+    password_hash TEXT,
+    mfa_enabled BOOLEAN DEFAULT FALSE,
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.2 tenants
+
+```sql
+CREATE TABLE tenants (
+    tenant_id TEXT PRIMARY KEY,
+    tenant_name TEXT NOT NULL,
+    tenant_type TEXT DEFAULT 'personal', -- personal, team, org
+    owner_user_id TEXT NOT NULL,
+    plan TEXT DEFAULT 'personal',
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.3 tenant_memberships
+
+```sql
+CREATE TABLE tenant_memberships (
+    membership_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT DEFAULT 'active',
+    invited_by TEXT,
+    joined_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (tenant_id, user_id)
+);
+```
+
+---
+
+## 88.4 invitations
+
+```sql
+CREATE TABLE invitations (
+    invitation_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.5 auth_sessions
+
+```sql
+CREATE TABLE auth_sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT,
+    refresh_token_hash TEXT,
+    user_agent TEXT,
+    ip_address TEXT,
+    expires_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.6 api_credentials
+
+```sql
+CREATE TABLE api_credentials (
+    credential_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL, -- polygon, jquants, ibkr, email, telegram
+    credential_type TEXT NOT NULL,
+    encrypted_secret BYTEA NOT NULL,
+    key_last4 TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.7 legal_acknowledgements
+
+```sql
+CREATE TABLE legal_acknowledgements (
+    acknowledgement_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    document_type TEXT NOT NULL, -- tos, privacy, risk_disclosure, no_advice
+    document_version TEXT NOT NULL,
+    accepted_at TIMESTAMPTZ NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT
+);
+```
+
+---
+
+## 88.8 support_access_grants
+
+```sql
+CREATE TABLE support_access_grants (
+    grant_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    granted_by_user_id TEXT NOT NULL,
+    support_user_id TEXT NOT NULL,
+    access_level TEXT NOT NULL, -- read_only, debug_metadata
+    reason TEXT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.9 audit_logs
+
+```sql
+CREATE TABLE audit_logs (
+    audit_id TEXT PRIMARY KEY,
+    tenant_id TEXT,
+    user_id TEXT,
+    actor_type TEXT, -- user, system, support, admin
+    action TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id TEXT,
+    before JSONB,
+    after JSONB,
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.10 subscriptions
+
+```sql
+CREATE TABLE subscriptions (
+    subscription_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    plan TEXT NOT NULL,
+    status TEXT NOT NULL,
+    billing_provider TEXT,
+    provider_customer_id TEXT,
+    provider_subscription_id TEXT,
+    current_period_start TIMESTAMPTZ,
+    current_period_end TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 88.11 usage_events
+
+```sql
+CREATE TABLE usage_events (
+    usage_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    user_id TEXT,
+    event_type TEXT NOT NULL,
+    quantity INTEGER DEFAULT 1,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 89. SaaS API 设计
+
+## 89.1 Auth
+
+```http
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/logout
+POST /api/auth/refresh
+POST /api/auth/password-reset/request
+POST /api/auth/password-reset/confirm
+POST /api/auth/mfa/setup
+POST /api/auth/mfa/verify
+GET  /api/auth/sessions
+DELETE /api/auth/sessions/{session_id}
+```
+
+---
+
+## 89.2 Tenants
+
+```http
+POST /api/tenants
+GET  /api/tenants
+GET  /api/tenants/{tenant_id}
+PATCH /api/tenants/{tenant_id}
+```
+
+---
+
+## 89.3 Members
+
+```http
+GET  /api/tenants/{tenant_id}/members
+POST /api/tenants/{tenant_id}/invitations
+PATCH /api/tenants/{tenant_id}/members/{user_id}
+DELETE /api/tenants/{tenant_id}/members/{user_id}
+```
+
+---
+
+## 89.4 Data Credentials
+
+```http
+GET  /api/tenants/{tenant_id}/credentials
+POST /api/tenants/{tenant_id}/credentials
+PATCH /api/tenants/{tenant_id}/credentials/{credential_id}
+DELETE /api/tenants/{tenant_id}/credentials/{credential_id}
+```
+
+---
+
+## 89.5 Legal
+
+```http
+GET  /api/legal/documents
+POST /api/legal/acknowledgements
+GET  /api/legal/acknowledgements/me
+```
+
+---
+
+## 89.6 Audit
+
+```http
+GET /api/audit/logs
+```
+
+---
+
+## 89.7 Billing
+
+```http
+GET  /api/billing/subscription
+POST /api/billing/checkout
+POST /api/billing/portal
+POST /api/billing/webhook
+```
+
+---
+
+# 90. SaaS 前端页面
+
+新增页面：
+
+```text
+Login
+Register
+Forgot Password
+MFA Setup
+Tenant Switcher
+Onboarding
+Legal Acknowledgement
+Team Members
+Invitations
+Data Source Settings
+Billing
+Audit Logs
+Support Access
+Admin Console
+```
+
+---
+
+## 90.1 Onboarding Flow
+
+```text
+1. Create account
+2. Verify email
+3. Create tenant/workspace
+4. Accept Terms / Privacy / Risk Disclosure / No Advice
+5. Choose mode:
+    - Personal
+    - Team
+6. Configure data source:
+    - Bring Your Own Data Key
+7. Set account goal:
+    - First $100K default
+    - custom milestone ladder
+8. Set risk limits
+9. Start paper mode
+```
+
+---
+
+## 90.2 Data Source Settings
+
+显示：
+
+```text
+Provider
+Status
+Last successful sync
+Entitlement mode
+Credential owner
+Data sharing allowed?
+```
+
+默认：
+
+```text
+data_sharing_allowed = false
+```
+
+---
+
+# 91. SaaS Plan / Billing
+
+## 91.1 Plan 草案
+
+```text
+Personal:
+    1 user
+    BYO data keys
+    journal
+    dashboard
+    paper trading
+    limited scanners
+
+Pro:
+    1 user
+    advanced analytics
+    PA / Strat calibration
+    more symbols
+    more history
+
+Team:
+    multiple users
+    shared workspaces
+    read-only reviewers
+    audit logs
+    shared playbooks
+
+Research:
+    paper-only advanced modules
+    no live flags
+    options research lab, if enabled
+```
+
+---
+
+## 91.2 Feature Flags
+
+```text
+feature_options_lab
+feature_short_paper
+feature_ai_reviewer
+feature_japan_market
+feature_team_members
+feature_audit_logs
+feature_advanced_pa
+feature_data_export
+```
+
+Features can be enabled per plan and per tenant.
+
+---
+
+# 92. SaaS 合规产品边界
+
+## 92.1 禁止类功能
+
+除非完成法律审查和相关注册，否则 SaaS 版本禁止：
+
+```text
+1. 平台统一给所有用户发“买入/卖出”信号。
+2. 针对具体用户资产情况给出个性化投资建议。
+3. 自动下单。
+4. 替用户管理仓位。
+5. 代客交易。
+6. 收取收益分成。
+7. 跟单/复制交易。
+8. 资金托管。
+9. 推荐未授权金融产品。
+```
+
+---
+
+## 92.2 允许类功能
+
+```text
+1. 用户自定义 watchlist。
+2. 用户自定义策略参数。
+3. 系统生成研究候选。
+4. 系统显示风险、止损、失效条件。
+5. Paper trading。
+6. Journal。
+7. Analytics。
+8. 教育性解释。
+9. 通用市场统计。
+```
+
+---
+
+## 92.3 输出文案要求
+
+候选输出不应写：
+
+```text
+Buy NVDA now.
+Sell QQQ now.
+This trade will profit.
+```
+
+应写：
+
+```text
+Candidate detected.
+Setup conditions met.
+Risk plan generated.
+Manual decision required.
+Not investment advice.
+```
+
+---
+
+# 93. Security / Privacy / Operations
+
+## 93.1 安全要求
+
+```text
+TLS everywhere
+encrypted credentials
+KMS or equivalent secret management
+tenant_id isolation
+audit logs
+rate limiting
+2FA for sensitive actions
+backup and restore
+least privilege admin access
+support access grants
+CSRF protection
+secure cookies
+```
+
+---
+
+## 93.2 隐私要求
+
+```text
+privacy policy
+purpose of use
+data retention policy
+user data export
+user data deletion
+subprocessor disclosure
+breach response process
+access logs
+```
+
+---
+
+## 93.3 运维要求
+
+```text
+system health
+data source health
+tenant usage metrics
+job monitoring
+error alerting
+security alerting
+daily backups
+restore drill
+audit export
+```
+
+---
+
+# 94. Multi-User Implementation Plan
+
+## Phase S0：Auth MVP
+
+```text
+email/password login
+email verification
+password reset
+session cookies
+basic user table
+single personal tenant per user
+```
+
+验收：
+
+```text
+用户可注册、登录、退出。
+每个用户自动创建 personal tenant。
+```
+
+---
+
+## Phase S1：Tenant Isolation
+
+```text
+tenant_id added to all user-owned tables
+membership table
+query scoping
+middleware sets tenant context
+basic audit logs
+```
+
+验收：
+
+```text
+用户 A 无法访问用户 B 的 candidates / positions / journal。
+```
+
+---
+
+## Phase S2：RBAC + Team
+
+```text
+roles
+permissions
+invitations
+member management
+read-only reviewer
+tenant admin
+```
+
+验收：
+
+```text
+Tenant Owner 可邀请成员并分配只读/编辑权限。
+```
+
+---
+
+## Phase S3：BYO Data Credentials
+
+```text
+encrypted credential storage
+provider test connection
+per-tenant data source settings
+data entitlement status
+```
+
+验收：
+
+```text
+用户可配置自己的 Polygon/Massive key。
+平台不会把一个用户的 market data 分发给另一个用户。
+```
+
+---
+
+## Phase S4：Legal / Risk Acknowledgement
+
+```text
+terms of service
+privacy policy
+risk disclosure
+no investment advice acknowledgement
+versioned acknowledgement table
+```
+
+验收：
+
+```text
+未接受最新版本风险声明的用户不能进入 Dashboard。
+```
+
+---
+
+## Phase S5：Billing / Plan / Feature Flags
+
+```text
+subscription table
+plan management
+feature flags
+billing provider integration
+usage events
+```
+
+验收：
+
+```text
+不同 plan 可控制功能。
+Options Lab 可按 plan/tenant 禁用。
+```
+
+---
+
+## Phase S6：Admin / Support / Audit
+
+```text
+admin console
+support access grant
+audit logs
+security event logs
+tenant deletion/export
+```
+
+验收：
+
+```text
+任何 support 访问都有授权和审计。
+```
+
+---
+
+# 95. v1.1 实现优先级
+
+更新后优先级：
+
+```text
+P0:
+    Risk Engine + Position Ledger + Exit Engine
+
+P1:
+    Auth MVP + Personal Tenant
+
+P1:
+    Journal / Analytics + Paper Trading
+
+P1:
+    Trading Account Milestone Dashboard
+
+P2:
+    ETF Trend / Rotation Engine
+
+P3:
+    Basic PA + Strat Trigger
+
+P4:
+    Tenant Isolation + BYO Data Credentials
+
+P5:
+    Earnings Drift / Revision
+
+P6:
+    PA / Strat Calibration
+
+P7:
+    Growth Leader / O’Neil
+
+P8:
+    Team / RBAC / Audit
+
+P9:
+    Bearish Context + Paper Short
+
+P10:
+    Japan Expansion
+
+P11:
+    AI Reviewer
+
+P12:
+    Options Backlog / Research only
+```
+
+重要变化：
+
+```text
+Auth 和 tenant isolation 提前。
+Options 继续最低。
+AI 继续靠后。
+做空继续 paper。
+```
+
+---
+
+# 96. v1.1 最终系统定位
+
+EdgePilot 不再只是个人交易系统，而是：
+
+> 一个支持多用户的交易账户复利与风控研究平台。
+
+但产品边界必须保持：
+
+```text
+No auto trading.
+No investment advice.
+No copy trading.
+No managed accounts.
+No broker execution.
+No data redistribution without license.
+```
+
+Final principle:
+
+> EdgePilot may become SaaS, but it must remain a decision-support and risk-management platform — not an investment adviser, broker, signal seller, or automated trading agent.

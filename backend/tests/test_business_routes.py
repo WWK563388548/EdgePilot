@@ -10,6 +10,7 @@ from backend.app.api.routes.business import (
     count_candidates,
     count_exit_alerts,
     count_journal_trades,
+    count_job_runs,
     count_notifications,
     count_positions,
     create_candidate,
@@ -26,6 +27,7 @@ from backend.app.api.routes.business import (
     get_candidate_outcome,
     get_scanner_outcome_summary,
     get_candidate_detail,
+    list_job_runs,
     list_scanner_outcomes,
     list_candidates,
     list_exit_alerts,
@@ -35,6 +37,7 @@ from backend.app.api.routes.business import (
     reduce_position,
     refresh_account_us_etf_oneil_core_scanner,
     recalculate_scanner_outcomes,
+    run_automation_job,
     run_account_us_etf_oneil_core_scanner,
     update_candidate,
     update_account_risk_settings,
@@ -51,6 +54,7 @@ from backend.app.main import app
 from backend.app.schemas.business import (
     AccountRiskSettings,
     AccountRiskSettingsUpdate,
+    AutomationJobRunRequest,
     Candidate,
     CandidateCreate,
     CandidateDetail,
@@ -67,6 +71,7 @@ from backend.app.schemas.business import (
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
+    JobRun,
     MarketContextSummary,
     NotificationEvent,
     NotificationEventUpdate,
@@ -110,6 +115,21 @@ def _principal() -> AuthPrincipal:
         role="owner",
         external_subject="local-dev",
         email_verified=True,
+    )
+
+
+def _job_run() -> JobRun:
+    return JobRun(
+        run_id="job_1",
+        account_id="acct_local",
+        job_type="market_refresh_scan",
+        status="succeeded",
+        trigger="manual",
+        records_written=4,
+        metadata_json={"steps": []},
+        started_at=datetime(2026, 5, 6, tzinfo=UTC),
+        completed_at=datetime(2026, 5, 6, tzinfo=UTC),
+        duration_ms=10,
     )
 
 
@@ -418,6 +438,40 @@ def test_account_refresh_route_uses_principal_account(monkeypatch) -> None:
     assert captured == {"account_id": "acct_local", "symbols": ["SPY"]}
     assert response.account_id == "acct_local"
     assert response.bars_written == 260
+
+
+def test_automation_job_routes(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    captured = {}
+
+    def _fake_run(session, principal, request):
+        captured["account_id"] = principal.account_id
+        captured["symbols"] = request.symbols
+        return _job_run()
+
+    monkeypatch.setattr(business_route.BusinessService, "run_automation_job", _fake_run)
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "list_job_runs",
+        lambda session, principal, status, limit, offset: [_job_run()],
+    )
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "count_job_runs",
+        lambda session, principal, status: 1,
+    )
+
+    run = run_automation_job(
+        session=None,
+        principal=_principal(),
+        request=AutomationJobRunRequest(symbols=["spy"]),
+    )
+
+    assert captured == {"account_id": "acct_local", "symbols": ["SPY"]}
+    assert run.status == "succeeded"
+    assert list_job_runs(session=None, principal=_principal(), status_filter="succeeded")[0].run_id == "job_1"
+    assert count_job_runs(session=None, principal=_principal(), status_filter="succeeded").total == 1
 
 
 def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:

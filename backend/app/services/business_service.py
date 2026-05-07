@@ -15,6 +15,7 @@ from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.schemas.business import (
     AccountRiskSettings,
     AccountRiskSettingsUpdate,
+    AutomationJobRunRequest,
     Candidate,
     CandidateCreate,
     CandidateDetail,
@@ -33,6 +34,7 @@ from backend.app.schemas.business import (
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
+    JobRun,
     MarketContextSummary,
     NotificationEvent,
     NotificationEventUpdate,
@@ -536,6 +538,239 @@ class BusinessService:
         )
         session.commit()
         return response
+
+    @staticmethod
+    def run_automation_job(
+        session: Session,
+        principal: AuthPrincipal,
+        request: AutomationJobRunRequest,
+    ) -> JobRun:
+        started_at = datetime.now(UTC)
+        run_id = f"job_{uuid4().hex}"
+        job = db.JobRun(
+            run_id=run_id,
+            account_id=principal.account_id,
+            job_type="market_refresh_scan",
+            status="running",
+            trigger="manual",
+            records_written=0,
+            metadata_json={"steps": [], "request": request.model_dump(mode="json")},
+            started_at=started_at,
+        )
+        session.add(job)
+        session.flush()
+
+        steps: list[dict[str, Any]] = []
+        records_written = 0
+        try:
+            if request.refresh_market_data:
+                refresh_response = BusinessService.refresh_account_oneil_core_universe(
+                    session,
+                    principal,
+                    AccountETFUniverseRefreshRequest(
+                        symbols=request.symbols,
+                        min_score=request.min_score,
+                        max_candidates=request.max_candidates,
+                    ),
+                )
+                records_written += (
+                    refresh_response.bars_written
+                    + refresh_response.facts_written
+                    + refresh_response.setups_written
+                    + refresh_response.candidates_written
+                )
+                steps.append(
+                    {
+                        "name": "market_refresh_scan",
+                        "status": "succeeded",
+                        "summary": {
+                            "bars_written": refresh_response.bars_written,
+                            "facts_written": refresh_response.facts_written,
+                            "setups_written": refresh_response.setups_written,
+                            "candidates_written": refresh_response.candidates_written,
+                            "decision_counts": refresh_response.decision_counts,
+                            "latest_scan_date": refresh_response.latest_scan_date.isoformat()
+                            if refresh_response.latest_scan_date
+                            else None,
+                            "latest_bar_date": refresh_response.latest_bar_date.isoformat()
+                            if refresh_response.latest_bar_date
+                            else None,
+                        },
+                    }
+                )
+            else:
+                scanner_response = BusinessService.run_account_oneil_core_scanner(
+                    session,
+                    principal,
+                    AccountETFOneilScannerRequest(
+                        symbols=request.symbols,
+                        min_score=request.min_score,
+                        max_candidates=request.max_candidates,
+                        recalculate_facts=True,
+                    ),
+                )
+                records_written += (
+                    scanner_response.facts_written
+                    + scanner_response.setups_written
+                    + scanner_response.candidates_written
+                )
+                steps.append(
+                    {
+                        "name": "oneil_core_scan",
+                        "status": "succeeded",
+                        "summary": {
+                            "facts_written": scanner_response.facts_written,
+                            "setups_written": scanner_response.setups_written,
+                            "candidates_written": scanner_response.candidates_written,
+                            "decision_counts": scanner_response.decision_counts,
+                            "latest_scan_date": scanner_response.latest_scan_date.isoformat()
+                            if scanner_response.latest_scan_date
+                            else None,
+                            "latest_bar_date": scanner_response.latest_bar_date.isoformat()
+                            if scanner_response.latest_bar_date
+                            else None,
+                        },
+                    }
+                )
+
+            if request.recalculate_outcomes:
+                outcome_response = BusinessService.recalculate_scanner_outcomes(
+                    session,
+                    principal,
+                    ScannerOutcomeRecalculateRequest(
+                        strategy_name=ONEIL_CORE_US_ETF_STRATEGY,
+                        limit=request.outcome_limit,
+                    ),
+                )
+                records_written += outcome_response.outcomes_written
+                steps.append(
+                    {
+                        "name": "scanner_outcomes",
+                        "status": "succeeded",
+                        "summary": {
+                            "candidates_scanned": outcome_response.candidates_scanned,
+                            "outcomes_written": outcome_response.outcomes_written,
+                            "skipped_candidates": outcome_response.skipped_candidates,
+                            "status_counts": outcome_response.status_counts,
+                        },
+                    }
+                )
+
+            if request.evaluate_alerts:
+                alert_response = BusinessService.evaluate_exit_alerts(
+                    session,
+                    principal,
+                    ExitAlertEvaluationRequest(limit=request.alert_limit),
+                )
+                records_written += alert_response.alerts_created
+                steps.append(
+                    {
+                        "name": "exit_alerts",
+                        "status": "succeeded",
+                        "summary": {
+                            "positions_evaluated": alert_response.positions_evaluated,
+                            "alerts_created": alert_response.alerts_created,
+                            "skipped_positions": alert_response.skipped_positions,
+                            "duplicate_alerts": alert_response.duplicate_alerts,
+                        },
+                    }
+                )
+
+            return BusinessService._complete_job_run(
+                session=session,
+                principal=principal,
+                run_id=run_id,
+                started_at=started_at,
+                status="succeeded",
+                records_written=records_written,
+                steps=steps,
+                request=request,
+            )
+        except Exception as exc:
+            session.rollback()
+            return BusinessService._complete_job_run(
+                session=session,
+                principal=principal,
+                run_id=run_id,
+                started_at=started_at,
+                status="failed",
+                records_written=records_written,
+                steps=steps,
+                request=request,
+                error_message=str(exc),
+            )
+
+    @staticmethod
+    def _complete_job_run(
+        *,
+        session: Session,
+        principal: AuthPrincipal,
+        run_id: str,
+        started_at: datetime,
+        status: str,
+        records_written: int,
+        steps: list[dict[str, Any]],
+        request: AutomationJobRunRequest,
+        error_message: str | None = None,
+    ) -> JobRun:
+        completed_at = datetime.now(UTC)
+        job = session.get(db.JobRun, run_id)
+        if job is None:
+            job = db.JobRun(
+                run_id=run_id,
+                account_id=principal.account_id,
+                job_type="market_refresh_scan",
+                trigger="manual",
+                started_at=started_at,
+            )
+            session.add(job)
+        job.status = status
+        job.records_written = records_written
+        job.error_message = error_message
+        job.completed_at = completed_at
+        job.duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+        job.metadata_json = {
+            "steps": steps,
+            "request": request.model_dump(mode="json"),
+        }
+        BusinessService._audit(session, principal, "job.run", "job_run", run_id)
+        session.commit()
+        session.refresh(job)
+        return JobRun.model_validate(job)
+
+    @staticmethod
+    def list_job_runs(
+        session: Session,
+        principal: AuthPrincipal,
+        *,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[JobRun]:
+        statement = BusinessService._job_runs_statement(principal=principal, status=status)
+        statement = statement.order_by(db.JobRun.started_at.desc()).limit(limit).offset(offset)
+        return [JobRun.model_validate(row) for row in session.scalars(statement).all()]
+
+    @staticmethod
+    def count_job_runs(
+        session: Session,
+        principal: AuthPrincipal,
+        *,
+        status: str | None = None,
+    ) -> int:
+        statement = BusinessService._job_runs_statement(principal=principal, status=status)
+        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+
+    @staticmethod
+    def _job_runs_statement(
+        *,
+        principal: AuthPrincipal,
+        status: str | None = None,
+    ):
+        statement = select(db.JobRun).where(db.JobRun.account_id == principal.account_id)
+        if status:
+            statement = statement.where(db.JobRun.status == status)
+        return statement
 
     @staticmethod
     def list_scanner_outcomes(
@@ -1479,10 +1714,18 @@ class BusinessService:
         if position.status != "planned":
             raise ValueError("Position must be planned before activation")
 
+        quantity = request.quantity if request.quantity is not None else position.quantity
+        if quantity is None or quantity <= 0:
+            raise ValueError("Position quantity is required before activation")
+        stop = position.current_stop or position.initial_stop
+        if stop is None:
+            raise ValueError("Position stop is required before activation")
+        if stop >= request.entry_price:
+            raise ValueError("Position stop must be below entry price")
+
         position.status = "open"
         position.entry_price = request.entry_price
-        if request.quantity is not None:
-            position.quantity = request.quantity
+        position.quantity = quantity
         position.entry_date = request.entry_date or datetime.now(UTC)
         position.current_r = 0
         position.realized_pnl = position.realized_pnl or 0
@@ -1550,26 +1793,51 @@ class BusinessService:
         position = BusinessService._get_position_model(session, principal, position_id)
         if position.status not in ("open", "reduce"):
             raise ValueError("Position must be open or reduced before marking a trim")
+        if position.entry_price is None:
+            raise ValueError("Position is missing entry price")
+        if position.quantity is None or position.quantity <= 0:
+            raise ValueError("Position quantity is required before marking a trim")
+        if request.quantity is None:
+            raise ValueError("Reduced quantity is required")
 
         reduced_quantity = request.quantity
         if (
-            reduced_quantity is not None
-            and position.quantity is not None
-            and reduced_quantity >= position.quantity
+            reduced_quantity >= position.quantity
         ):
             raise ValueError("Reduced quantity must be smaller than current quantity; use close instead")
 
         realized_delta = _position_pnl(position.entry_price, request.exit_price, reduced_quantity)
+        exit_ts = request.exit_date or datetime.now(UTC)
+        r_multiple = _position_r_multiple(position, request.exit_price)
+        trade = db.TradeJournal(
+            trade_id=f"trade_{position.position_id}_trim_{uuid4().hex[:8]}",
+            account_id=principal.account_id,
+            position_id=position.position_id,
+            symbol_id=position.symbol_id,
+            entry_ts=position.entry_date,
+            exit_ts=exit_ts,
+            entry_price=position.entry_price,
+            exit_price=request.exit_price,
+            quantity=reduced_quantity,
+            gross_pnl=realized_delta,
+            net_pnl=realized_delta,
+            r_multiple=r_multiple,
+            setup_type=position.strategy_name,
+            exit_reason="trim",
+            mistake_tags=None,
+            notes=request.notes,
+        )
+        session.add(trade)
         if realized_delta is not None:
             position.realized_pnl = round((position.realized_pnl or 0) + realized_delta, 6)
-        if reduced_quantity is not None and position.quantity is not None:
-            position.quantity = round(position.quantity - reduced_quantity, 6)
+        position.quantity = round(position.quantity - reduced_quantity, 6)
         if request.current_stop is not None:
             position.current_stop = request.current_stop
-        position.current_r = _position_r_multiple(position, request.exit_price)
+        position.current_r = r_multiple
         position.status = "reduce"
         _touch_position(position)
         BusinessService._audit(session, principal, "position.reduce", "position", position_id)
+        BusinessService._audit(session, principal, "journal_trade.create", "journal_trade", trade.trade_id)
         session.commit()
         session.refresh(position)
         return BusinessService._position_response(session, principal, position)
@@ -1586,14 +1854,17 @@ class BusinessService:
             raise ValueError("Position is already closed")
         if position.status == "planned":
             raise ValueError("Planned positions must be activated before closing")
+        if position.status == "cancelled":
+            raise ValueError("Cancelled positions cannot be closed")
         if position.entry_price is None:
             raise ValueError("Position is missing entry price")
-        if (
-            request.quantity is not None
-            and position.quantity is not None
-            and request.quantity < position.quantity
-        ):
-            raise ValueError("Close quantity is smaller than current quantity; use reduce instead")
+        if position.quantity is None or position.quantity <= 0:
+            raise ValueError("Position quantity is required before closing")
+        if request.quantity is not None:
+            if request.quantity < position.quantity:
+                raise ValueError("Close quantity is smaller than current quantity; use reduce instead")
+            if request.quantity > position.quantity:
+                raise ValueError("Close quantity exceeds current quantity")
 
         exit_ts = request.exit_date or datetime.now(UTC)
         close_quantity = request.quantity if request.quantity is not None else position.quantity
@@ -1618,8 +1889,8 @@ class BusinessService:
             entry_price=position.entry_price,
             exit_price=request.exit_price,
             quantity=close_quantity,
-            gross_pnl=gross_pnl,
-            net_pnl=gross_pnl,
+            gross_pnl=closing_pnl,
+            net_pnl=closing_pnl,
             r_multiple=r_multiple,
             setup_type=position.strategy_name,
             exit_reason=request.exit_reason,

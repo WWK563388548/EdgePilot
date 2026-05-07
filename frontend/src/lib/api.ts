@@ -222,6 +222,33 @@ export type CountResponse = {
   total: number;
 };
 
+export type JobRunStatus = "running" | "succeeded" | "failed";
+
+export type AutomationJobRunRequest = {
+  symbols?: string[];
+  min_score?: number;
+  max_candidates?: number;
+  refresh_market_data?: boolean;
+  recalculate_outcomes?: boolean;
+  evaluate_alerts?: boolean;
+  outcome_limit?: number | null;
+  alert_limit?: number | null;
+};
+
+export type JobRun = {
+  run_id: string;
+  account_id: string;
+  job_type: string;
+  status: JobRunStatus;
+  trigger: string | null;
+  records_written: number;
+  error_message: string | null;
+  metadata_json: Record<string, unknown> | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+};
+
 export type AccountScannerRequest = {
   symbols?: string[];
   min_score?: number;
@@ -523,6 +550,14 @@ export type PositionClose = {
   notes?: string;
 };
 
+export type PositionStatus =
+  | "planned"
+  | "open"
+  | "reduce"
+  | "exit_pending"
+  | "closed"
+  | "cancelled";
+
 export type Position = {
   position_id: string;
   symbol_id: string;
@@ -755,6 +790,22 @@ export const api = {
   updateNotificationPreferences: (request: NotificationPreferencesUpdate) =>
     patchJson<NotificationPreferences>("/api/settings/notifications", request),
   portfolioRisk: () => getJson<PortfolioRiskSummary>("/api/risk/portfolio"),
+  runAutomationJob: (request: AutomationJobRunRequest = {}) =>
+    postJson<JobRun>("/api/jobs/automation/run", request),
+  jobRuns: (pagination: { limit?: number; offset?: number; status?: JobRunStatus } = {}) =>
+    getJson<JobRun[]>(
+      `/api/jobs/runs${queryString({
+        limit: pagination.limit ?? 100,
+        offset: pagination.offset,
+        status: pagination.status
+      })}`
+    ),
+  jobRunsCount: (filters: { status?: JobRunStatus } = {}) =>
+    getJson<CountResponse>(
+      `/api/jobs/runs/count${queryString({
+        status: filters.status
+      })}`
+    ),
   candidates: (filters: CandidateFilters = {}) =>
     getJson<Candidate[]>(
       `/api/candidates${queryString({
@@ -844,14 +895,20 @@ export const api = {
         bar_limit: barLimit
       })}`
     ),
-  positions: (pagination: { limit?: number; offset?: number } = {}) =>
+  positions: (pagination: { limit?: number; offset?: number; status?: PositionStatus } = {}) =>
     getJson<Position[]>(
       `/api/positions${queryString({
         limit: pagination.limit ?? 100,
-        offset: pagination.offset
+        offset: pagination.offset,
+        status: pagination.status
       })}`
     ),
-  positionsCount: () => getJson<CountResponse>("/api/positions/count"),
+  positionsCount: (filters: { status?: PositionStatus } = {}) =>
+    getJson<CountResponse>(
+      `/api/positions/count${queryString({
+        status: filters.status
+      })}`
+    ),
   activatePosition: (positionId: string, request: PositionActivate) =>
     postJson<Position>(`/api/positions/${encodeURIComponent(positionId)}/activate`, request),
   updatePositionStop: (positionId: string, request: PositionStopUpdate) =>

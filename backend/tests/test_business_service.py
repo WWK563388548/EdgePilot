@@ -10,11 +10,13 @@ from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
 from backend.app.schemas.business import (
     AccountRiskSettingsUpdate,
+    AutomationJobRunRequest,
     CandidateCreate,
     CandidatePlanCreate,
     CandidateUpdate,
     ExitAlertCreate,
     ExitAlertEvaluationRequest,
+    ExitAlertEvaluationResponse,
     ExitAlertUpdate,
     NotificationPreferencesUpdate,
     PositionActivate,
@@ -24,7 +26,7 @@ from backend.app.schemas.business import (
     PositionStopUpdate,
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
-from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest
+from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest, ScannerOutcomeRecalculateResponse
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 
@@ -696,6 +698,87 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
     assert refresh_notifications[0].metadata_json["candidates_written"] == 1
 
 
+def test_run_automation_job_records_successful_steps(session, monkeypatch) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_refresh(db_session, request_principal, request):
+        assert request_principal.account_id == "acct_a"
+        assert request.symbols == ["SPY"]
+        return ETFUniverseSeedResponse(
+            account_id=request_principal.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols or [],
+            bars_written=2,
+            facts_written=2,
+            setups_written=1,
+            candidates_written=1,
+            decision_counts={"candidate": 1},
+            latest_scan_date=date(2026, 5, 4),
+            latest_bar_date=date(2026, 5, 4),
+        )
+
+    def _fake_outcomes(db_session, request_principal, request):
+        assert request.strategy_name == "oneil_core_us_etf"
+        return ScannerOutcomeRecalculateResponse(
+            account_id=request_principal.account_id,
+            candidates_scanned=1,
+            outcomes_written=1,
+            status_counts={"pending": 1},
+            symbols_processed=["SPY"],
+        )
+
+    def _fake_alerts(db_session, request_principal, request):
+        return ExitAlertEvaluationResponse(
+            account_id=request_principal.account_id,
+            positions_evaluated=1,
+            alerts_created=1,
+            symbols_processed=["SPY"],
+        )
+
+    monkeypatch.setattr(BusinessService, "refresh_account_oneil_core_universe", _fake_refresh)
+    monkeypatch.setattr(BusinessService, "recalculate_scanner_outcomes", _fake_outcomes)
+    monkeypatch.setattr(BusinessService, "evaluate_exit_alerts", _fake_alerts)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(symbols=["spy"]),
+    )
+
+    assert run.status == "succeeded"
+    assert run.records_written == 8
+    assert run.error_message is None
+    assert [step["name"] for step in run.metadata_json["steps"]] == [
+        "market_refresh_scan",
+        "scanner_outcomes",
+        "exit_alerts",
+    ]
+    assert BusinessService.count_job_runs(session, principal, status="succeeded") == 1
+    assert BusinessService.list_job_runs(session, principal)[0].run_id == run.run_id
+
+
+def test_run_automation_job_persists_failure(session, monkeypatch) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_refresh(db_session, request_principal, request):
+        raise RuntimeError("polygon unavailable")
+
+    monkeypatch.setattr(BusinessService, "refresh_account_oneil_core_universe", _fake_refresh)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(symbols=["spy"], recalculate_outcomes=False, evaluate_alerts=False),
+    )
+
+    assert run.status == "failed"
+    assert run.error_message == "polygon unavailable"
+    assert run.records_written == 0
+    assert BusinessService.count_job_runs(session, principal, status="failed") == 1
+
+
 def test_dashboard_candidate_count_only_counts_candidates(session) -> None:
     principal = _principal("user_a", "acct_a")
 
@@ -1316,6 +1399,52 @@ def test_activate_position_requires_planned_status(session) -> None:
         )
 
 
+def test_activate_position_requires_quantity_and_valid_stop(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_no_qty",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="planned",
+            entry_price=100,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_bad_stop",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="planned",
+            entry_price=100,
+            quantity=1,
+            initial_stop=101,
+            current_stop=101,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="quantity is required"):
+        BusinessService.activate_position(
+            session,
+            principal,
+            "pos_spy_no_qty",
+            PositionActivate(entry_price=101),
+        )
+    with pytest.raises(ValueError, match="stop must be below entry"):
+        BusinessService.activate_position(
+            session,
+            principal,
+            "pos_spy_bad_stop",
+            PositionActivate(entry_price=101),
+        )
+
+
 def test_update_position_stop_allows_active_positions(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.create_position(
@@ -1429,7 +1558,40 @@ def test_reduce_position_marks_trim_and_updates_realized_pnl(session) -> None:
     assert reduced.current_stop == 100
     assert reduced.realized_pnl == 80
     assert reduced.current_r == 2
+    journal_rows = BusinessService.list_journal_trades(session, principal)
+    assert len(journal_rows) == 1
+    assert journal_rows[0].position_id == "pos_spy_reduce"
+    assert journal_rows[0].quantity == 4
+    assert journal_rows[0].net_pnl == 80
+    assert journal_rows[0].r_multiple == 2
+    assert journal_rows[0].exit_reason == "trim"
     assert BusinessService.dashboard_summary(session, principal).open_position_count == 1
+
+
+def test_reduce_position_requires_quantity(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_reduce_no_qty",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=10,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Reduced quantity is required"):
+        BusinessService.reduce_position(
+            session,
+            principal,
+            "pos_spy_reduce_no_qty",
+            PositionReduce(exit_price=120),
+        )
 
 
 def test_close_position_creates_journal_trade(session) -> None:
@@ -1477,6 +1639,46 @@ def test_close_position_creates_journal_trade(session) -> None:
     assert BusinessService.dashboard_summary(session, principal).open_position_count == 0
 
 
+def test_close_position_after_reduce_keeps_journal_legs_separate(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_reduce_then_close",
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            status="open",
+            entry_date=datetime(2026, 4, 27, tzinfo=UTC),
+            entry_price=100,
+            quantity=10,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    BusinessService.reduce_position(
+        session,
+        principal,
+        "pos_spy_reduce_then_close",
+        PositionReduce(exit_price=120, quantity=4, current_stop=100),
+    )
+    response = BusinessService.close_position(
+        session,
+        principal,
+        "pos_spy_reduce_then_close",
+        PositionClose(exit_price=115, exit_reason="manual_review"),
+    )
+
+    assert response.position.status == "closed"
+    assert response.position.realized_pnl == 170
+    assert response.journal_trade.net_pnl == 90
+    journal_rows = BusinessService.list_journal_trades(session, principal)
+    assert len(journal_rows) == 2
+    assert sum(row.net_pnl or 0 for row in journal_rows) == 170
+
+
 def test_close_position_requires_active_position(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.create_position(
@@ -1499,6 +1701,60 @@ def test_close_position_requires_active_position(session) -> None:
             principal,
             "pos_spy_planned_close",
             PositionClose(exit_price=101),
+        )
+
+
+def test_close_position_rejects_cancelled_or_mismatched_quantity(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_cancelled_close",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="cancelled",
+            entry_price=100,
+            quantity=0,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_spy_close_qty",
+            symbol_id="SPY",
+            asset_type="etf",
+            status="open",
+            entry_price=100,
+            quantity=3,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Cancelled positions"):
+        BusinessService.close_position(
+            session,
+            principal,
+            "pos_spy_cancelled_close",
+            PositionClose(exit_price=101),
+        )
+    with pytest.raises(ValueError, match="smaller than current"):
+        BusinessService.close_position(
+            session,
+            principal,
+            "pos_spy_close_qty",
+            PositionClose(exit_price=101, quantity=2),
+        )
+    with pytest.raises(ValueError, match="exceeds current"):
+        BusinessService.close_position(
+            session,
+            principal,
+            "pos_spy_close_qty",
+            PositionClose(exit_price=101, quantity=4),
         )
 
 

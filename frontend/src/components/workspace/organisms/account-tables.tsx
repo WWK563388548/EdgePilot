@@ -8,7 +8,7 @@ import { DataState } from "@/components/workspace/atoms/data-state";
 import { PaginationControls } from "@/components/workspace/molecules/pagination-controls";
 import { PositionLifecycleRow } from "@/components/workspace/organisms/position-lifecycle-row";
 import { TableShell } from "@/components/workspace/molecules/table-shell";
-import type { ExitAlert, JournalTrade, Position } from "@/lib/api";
+import type { ExitAlert, JournalTrade, Position, PositionStatus } from "@/lib/api";
 import { api } from "@/lib/api";
 import { formatDate, formatValue } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
@@ -35,12 +35,54 @@ export function PositionsTable({
   totalCount,
   hasNextPage,
   onPageChange,
+  onStatusFilterChange,
+  statusFilter,
   locale
-}: PaginatedTableProps<Position>) {
-  const { t } = useAppI18n();
+}: PaginatedTableProps<Position> & {
+  onStatusFilterChange: (filter: PositionStatus | "all") => void;
+  statusFilter: PositionStatus | "all";
+}) {
+  const { labelFor, t } = useAppI18n();
+  const filters: Array<PositionStatus | "all"> = [
+    "all",
+    "planned",
+    "open",
+    "reduce",
+    "exit_pending",
+    "closed",
+    "cancelled"
+  ];
 
   return (
     <TableShell title={t("positions")} loading={loading} error={error} locale={locale}>
+      <div className="border-b border-line bg-white px-4 py-4">
+        <div className="mb-3 text-sm font-semibold text-ink">{t("positionLifecycleTitle")}</div>
+        <div className="grid gap-2 md:grid-cols-4">
+          <LifecycleStep label={t("positionLifecyclePlanned")} value={labelFor("status", "planned")} />
+          <LifecycleStep label={t("positionLifecycleOpen")} value={labelFor("status", "open")} />
+          <LifecycleStep label={t("positionLifecycleReduced")} value={labelFor("status", "reduce")} />
+          <LifecycleStep label={t("positionLifecycleClosed")} value={labelFor("status", "closed")} />
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 border-b border-line bg-white px-4 py-3">
+        {filters.map((filter) => {
+          const selected = statusFilter === filter;
+          return (
+            <button
+              className={`focus-ring h-8 rounded-md px-3 text-xs font-semibold transition-colors ${
+                selected
+                  ? "bg-ink text-white"
+                  : "border border-line bg-panel text-slate-700 hover:border-teal hover:text-teal"
+              }`}
+              key={filter}
+              onClick={() => onStatusFilterChange(filter)}
+              type="button"
+            >
+              {filter === "all" ? t("allPositions") : labelFor("status", filter)}
+            </button>
+          );
+        })}
+      </div>
       <table className="min-w-full text-left text-sm">
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
@@ -275,17 +317,19 @@ export function JournalTable({
         <thead className="bg-panel text-xs uppercase text-slate-500">
           <tr>
             <th className="px-4 py-3">{t("symbol")}</th>
+            <th className="px-4 py-3">{t("journalAction")}</th>
+            <th className="px-4 py-3">{t("qty")}</th>
             <th className="px-4 py-3">{t("entry")}</th>
             <th className="px-4 py-3">{t("exit")}</th>
             <th className="px-4 py-3">{t("netPnl")}</th>
             <th className="px-4 py-3">{t("rMultiple")}</th>
-            <th className="px-4 py-3">{t("exitReason")}</th>
+            <th className="px-4 py-3">{t("notes")}</th>
           </tr>
         </thead>
         <tbody>
           {!data.length ? (
             <EmptyTableRow
-              colSpan={6}
+              colSpan={8}
               error={error}
               loading={loading}
               locale={locale}
@@ -295,11 +339,26 @@ export function JournalTable({
           {data.map((row) => (
             <tr key={row.trade_id} className="border-t border-line">
               <td className="px-4 py-3 font-medium text-ink">{formatValue(row.symbol_id)}</td>
+              <td className="px-4 py-3">
+                <span
+                  className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${
+                    row.exit_reason === "trim"
+                      ? "bg-teal-50 text-teal-800 ring-1 ring-teal-200"
+                      : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                  }`}
+                >
+                  {journalActionLabel(row.exit_reason, t)}
+                </span>
+              </td>
+              <td className="px-4 py-3">{formatValue(row.quantity)}</td>
               <td className="px-4 py-3">{formatDate(row.entry_ts, locale)}</td>
               <td className="px-4 py-3">{formatDate(row.exit_ts, locale)}</td>
               <td className="px-4 py-3">{formatValue(row.net_pnl)}</td>
               <td className="px-4 py-3">{formatValue(row.r_multiple)}</td>
-              <td className="px-4 py-3">{formatValue(row.exit_reason)}</td>
+              <td className="px-4 py-3">
+                <div className="font-medium text-ink">{formatValue(row.exit_reason)}</div>
+                <div className="mt-1 max-w-72 text-xs leading-5 text-slate-500">{formatValue(row.notes)}</div>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -314,6 +373,28 @@ export function JournalTable({
       />
     </TableShell>
   );
+}
+
+function LifecycleStep({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-line bg-panel px-3 py-2">
+      <div className="text-xs font-semibold uppercase text-slate-500">{value}</div>
+      <div className="mt-1 text-sm font-medium text-ink">{label}</div>
+    </div>
+  );
+}
+
+function journalActionLabel(
+  reason: string | null | undefined,
+  t: ReturnType<typeof useAppI18n>["t"]
+) {
+  if (reason === "trim") {
+    return t("journalActionTrim");
+  }
+  if (reason) {
+    return t("journalActionClose");
+  }
+  return t("journalActionOther");
 }
 
 function EmptyTableRow({
