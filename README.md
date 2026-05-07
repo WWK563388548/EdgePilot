@@ -33,6 +33,7 @@ Older standalone roadmap documents were removed after v1.5.1 alignment to avoid 
 Implemented:
 
 - FastAPI backend with account-scoped Auth0/OIDC auth.
+- Tenant-lite foundation above accounts with `tenant_id`, tenant memberships, data credentials shell, Data Capability Matrix shell, legal acknowledgement records, and per-tenant job state shell.
 - PostgreSQL/Timescale-ready schema with Alembic migrations.
 - Polygon/Massive market data ingestion foundation.
 - PA facts, PA structures, PA setups, and calibration stats foundation.

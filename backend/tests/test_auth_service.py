@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.app.core.auth import AuthService
 from backend.app.core.database import Base
-from backend.app.models import AccountMembership, User
+from backend.app.models import Account, AccountMembership, Tenant, TenantDataCapability, TenantMembership, User
 
 
 def _session():
@@ -35,5 +35,10 @@ def test_principal_from_claims_fetches_missing_email_verification(monkeypatch) -
         assert principal.email == "user@example.com"
         assert principal.display_name == "Verified User"
         assert principal.email_verified is True
+        assert principal.tenant_id
         assert session.get(User, principal.user_id) is not None
+        assert session.get(Tenant, principal.tenant_id) is not None
+        assert session.get(Account, principal.account_id).tenant_id == principal.tenant_id
+        assert session.get(TenantMembership, (principal.tenant_id, principal.user_id)) is not None
         assert session.get(AccountMembership, (principal.account_id, principal.user_id)) is not None
+        assert session.query(TenantDataCapability).filter_by(tenant_id=principal.tenant_id).count() >= 1

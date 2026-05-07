@@ -112,6 +112,7 @@ def _principal() -> AuthPrincipal:
     return AuthPrincipal(
         user_id="user_local",
         account_id="acct_local",
+        tenant_id="tenant_local",
         role="owner",
         external_subject="local-dev",
         email_verified=True,
@@ -998,6 +999,7 @@ def test_unverified_email_is_rejected() -> None:
     principal = AuthPrincipal(
         user_id=principal.user_id,
         account_id=principal.account_id,
+        tenant_id=principal.tenant_id,
         role=principal.role,
         external_subject=principal.external_subject,
         email_verified=False,

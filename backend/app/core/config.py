@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     auth_audience: str = ""
     auth_jwks_url: str = ""
     auth_algorithms: str = "RS256"
+    auth_tenant_claim: str = "https://edgepilot/tenant_id"
     auth_account_claim: str = "https://edgepilot/account_id"
     auth_role_claim: str = "https://edgepilot/role"
     auth_email_claim: str = "https://edgepilot/email"

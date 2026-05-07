@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class AuthMeResponse(BaseModel):
     user_id: str
     account_id: str
+    tenant_id: str
     role: str
     email: str | None
     display_name: str | None

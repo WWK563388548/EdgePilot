@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, PlugZap, Save, Settings } from "lucide-react";
+import { Building2, Database, KeyRound, Loader2, PlugZap, Save, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Field } from "@/components/workspace/atoms/field";
@@ -22,6 +22,22 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
   const riskSettings = useQuery({
     queryKey: ["risk-settings"],
     queryFn: api.riskSettings
+  });
+  const authMe = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: api.me
+  });
+  const currentTenant = useQuery({
+    queryKey: ["current-tenant"],
+    queryFn: api.currentTenant
+  });
+  const dataCapabilities = useQuery({
+    queryKey: ["data-capabilities"],
+    queryFn: api.dataCapabilities
+  });
+  const dataCredentials = useQuery({
+    queryKey: ["data-credentials"],
+    queryFn: api.dataCredentials
   });
   const notificationPreferences = useQuery({
     queryKey: ["notification-preferences"],
@@ -267,6 +283,61 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
 
       <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
         <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">{t("workspaceBoundary")}</h2>
+            <p className="mt-1 text-xs text-slate-600">{t("workspaceBoundaryHelp")}</p>
+          </div>
+          <Building2 size={18} className="text-teal" />
+        </div>
+        <dl className="grid gap-3">
+          <Field label={t("tenantName")} value={currentTenant.data?.name ?? "-"} />
+          <Field label={t("tenantId")} value={currentTenant.data?.tenant_id ?? "-"} />
+          <Field label={t("account")} value={authMe.data?.account_id ?? "-"} />
+        </dl>
+      </div>
+
+      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">{t("dataCapabilityMatrix")}</h2>
+            <p className="mt-1 text-xs text-slate-600">{t("dataCapabilityMatrixHelp")}</p>
+          </div>
+          <Database size={18} className="text-teal" />
+        </div>
+        <div className="grid gap-3">
+          {(dataCapabilities.data ?? []).map((capability) => (
+            <div
+              className="grid gap-2 rounded-md border border-line bg-panel p-3 sm:grid-cols-[1fr_auto]"
+              key={capability.capability_id}
+            >
+              <div>
+                <div className="text-sm font-semibold text-ink">{capability.capability_key}</div>
+                <div className="mt-1 text-xs text-slate-600">
+                  {[capability.provider, capability.market, capability.asset_type, capability.timeframe]
+                    .filter(Boolean)
+                    .join(" · ") || "-"}
+                </div>
+                {capability.reason ? (
+                  <div className="mt-2 text-xs leading-5 text-slate-600">{capability.reason}</div>
+                ) : null}
+              </div>
+              <StatusPill
+                label={labelCapabilityStatus(capability.status, locale)}
+                tone={capabilityTone(capability.status)}
+              />
+            </div>
+          ))}
+          {dataCapabilities.isLoading ? (
+            <div className="text-sm font-medium text-slate-600">{t("loading")}</div>
+          ) : null}
+          {!dataCapabilities.isLoading && !dataCapabilities.data?.length ? (
+            <div className="text-sm font-medium text-slate-600">{t("noDataCapabilities")}</div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
+        <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold text-ink">{t("runtime")}</h2>
           <Settings size={18} className="text-teal" />
         </div>
@@ -282,7 +353,10 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
 
       <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">{t("connections")}</h2>
+          <div>
+            <h2 className="text-base font-semibold text-ink">{t("connections")}</h2>
+            <p className="mt-1 text-xs text-slate-600">{t("connectionsHelp")}</p>
+          </div>
           <PlugZap size={18} className="text-teal" />
         </div>
         <div className="grid gap-3">
@@ -293,6 +367,16 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-ink">{t("realtimeStream")}</span>
             <StatusPill label={sseUrl ? t("configured") : t("missing")} tone={sseUrl ? "good" : "bad"} />
+          </div>
+          <div className="flex items-center justify-between border-t border-line pt-3">
+            <span className="inline-flex items-center gap-2 text-sm font-medium text-ink">
+              <KeyRound size={15} />
+              {t("byokCredentials")}
+            </span>
+            <StatusPill
+              label={dataCredentials.data?.length ? t("configured") : t("notConfigured")}
+              tone={dataCredentials.data?.length ? "good" : "neutral"}
+            />
           </div>
         </div>
       </div>
@@ -341,4 +425,29 @@ function numberOrUndefined(value: string) {
 function percentOrUndefined(value: string) {
   const numeric = numberOrUndefined(value);
   return numeric === undefined ? undefined : numeric / 100;
+}
+
+function capabilityTone(status: string): "good" | "warn" | "bad" | "neutral" {
+  if (status === "available") {
+    return "good";
+  }
+  if (status === "stale" || status === "fallback_used") {
+    return "warn";
+  }
+  if (status === "missing" || status === "invalid") {
+    return "bad";
+  }
+  return "neutral";
+}
+
+function labelCapabilityStatus(status: string, locale: Locale) {
+  const labels: Record<string, Record<Locale, string>> = {
+    available: { zh: "可用", en: "Available", ja: "利用可" },
+    disabled: { zh: "未启用", en: "Disabled", ja: "無効" },
+    fallback_used: { zh: "使用回退", en: "Fallback used", ja: "代替使用" },
+    invalid: { zh: "无效", en: "Invalid", ja: "無効" },
+    missing: { zh: "缺失", en: "Missing", ja: "不足" },
+    stale: { zh: "过期", en: "Stale", ja: "古い" }
+  };
+  return labels[status]?.[locale] ?? status;
 }
