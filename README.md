@@ -6,25 +6,27 @@ It does **not** place broker orders. Every entry, trim, stop, and close remains 
 
 ## Current Strategy
 
-The current product strategy is v1.1:
+The current product strategy is v1.5.1:
 
 - Risk Engine, Position Ledger, and Exit Engine are the production foundation.
-- ETF Trend / Rotation is the first production alpha line.
-- Earnings Drift / Revision is the second production alpha line.
+- Tenant-lite, BYOK, and Data Capability are the private-beta platform foundation.
+- CSV execution import, real analytics, shadow mode, and paper validation come before more alpha complexity.
+- ETF Trend / Rotation remains the next production alpha line, but should land after the platform and validation base.
 - Growth Leader / O'Neil is an upside satellite, not the core engine.
 - PA and Strat are execution and structure layers, not standalone trading systems.
 - The system remains manual-confirmation only and does not place broker orders.
-- Multi-user SaaS support requires tenant isolation, auditability, legal acknowledgements, and data authorization boundaries.
+- Proxy data starts analytics-only; single proxy warnings cannot veto trades.
+- Missing proxy data must degrade safely and never crash the scanner.
 - Options remain lowest-priority research backlog.
 - AI can explain and challenge, but cannot upgrade a trade or override risk.
 
 Authoritative docs:
 
-- `docs/product_strategy_v1_1.md`
-- `docs/prd_tdd_v1_1.md`
-- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`
+- `docs/product_strategy_v1_5_1.md`
+- `docs/prd_tdd_v1_5_1.md`
+- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_5_1_Pragmatic_Rollout_Proxy_Robustness.md`
 
-Older standalone roadmap documents were removed after v1.1 alignment to avoid conflicting implementation guidance. Historical context is preserved inside the full v1.1 archive.
+Older standalone roadmap documents were removed after v1.5.1 alignment to avoid conflicting implementation guidance. Historical context is preserved inside the full v1.5.1 archive.
 
 ## Current Implementation
 
@@ -214,6 +216,6 @@ Before staging:
 
 The product roadmap and implementation spec are tracked in:
 
-- `docs/product_strategy_v1_1.md`
-- `docs/prd_tdd_v1_1.md`
-- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_1_Multi_User_SaaS_Auth_Dynamic_Milestones.md`
+- `docs/product_strategy_v1_5_1.md`
+- `docs/prd_tdd_v1_5_1.md`
+- `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_5_1_Pragmatic_Rollout_Proxy_Robustness.md`
