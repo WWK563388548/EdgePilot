@@ -2,7 +2,7 @@
 # PRD + 技术设计文档 + 实现计划  
 ## 小资金交易辅助系统：美股/美股ETF + 日股候选 + Strat PA + 做空研究框架 + 期权最低优先级版
 
-**版本**：v1.1  
+**版本**：v1.5.1  
 **日期**：2026-05-04
 **v0.2 更新重点**：追加前端实时 Dashboard、WebSocket/SSE 数据流、页面设计、组件设计、前端状态管理与实现计划。
 **v0.3 更新重点**：明确正式前端技术栈、数据库选型、时序数据设计、统计分析面板、Analytics API 与实现计划。
@@ -14,6 +14,11 @@
 **v0.9 更新重点**：追加 Strat Trigger Layer，将 Strat 作为 PA Engine 的程序化触发层，而不是独立交易系统；将 Advanced PA 从后期 backlog 拆分为 Basic PA、PA/Strat Calibration、Advanced PA v1；追加 Short Capability Framework，默认系统仍为 long-biased，做空仅先支持 Bearish Context、Short Watchlist 和 Paper Short，live short 默认关闭；继续保持期权最低优先级，防止过拟合和 engine 膨胀。  
 **v1.0 更新重点**：重构 Alpha Strategy 架构，将 ETF Trend/Rotation 设为第一生产线，Earnings Drift/Revision 设为第二生产线，O’Neil/Growth Leader 设为弹性层；新增 Short Capability Framework v2，支持 Bearish Context、Short Watchlist、Paper Short、Inverse ETF Alternative、Live Short Gate；明确 Options 仍最低优先级，Short Options 永久禁止，做空默认不实盘。
 **v1.1 更新重点**：追加 Dynamic Milestone / First $100K Compounding Plan 与 Multi-User SaaS / Auth / Tenant Isolation。系统允许其他用户使用，但必须保持非投顾、非自动交易、数据授权合规、租户隔离、审计和权限控制；默认仍以独立交易账户复利、ETF/大票、PA/Strat、Exit Engine 为主线，Options 保持最低优先级。
+**v1.2 更新重点**：追加 Return Expansion & Guardrail Anti-Overfitting、Private Beta Tenant-lite 落地路径、Read-only Broker Sync / Execution Import、Dividend & Corporate Actions、Data Capability Degradation、Exit Profile Engine、Regime Position Sizing Gate、Earnings Gap-and-Go、Inverse ETF Tactical Guard、Opportunity Utilization / B Setup Admission，以及 Future Semi-Automated Conditional Order Track。
+**v1.3 更新重点**：追加 Academic Edge Integration & Volatility-Aware Risk Framework，将波动率缩放、短期反转 vs 中期动量、VWAP / 日内季节性、策略化止损与处置效应纳入系统；新增 Volatility Scaled Position Sizing、ETF Momentum Horizon Model、VWAP Execution Filter、Strategy-specific Stop-Loss Policy、Academic Guardrail Governance、相关数据库/API/前端与测试门禁。
+**v1.4 更新重点**：追加 Market Structure & Behavioral Anomaly Integration，将 Market Breadth Divergence 与 Lottery/MAX Filter 作为生产候选模块纳入系统；新增 Market Breadth Engine、Breadth Divergence Regime Warning、Lottery/MAX Behavioral Filter、Academic Anomaly Modifier Framework、相关数据库/API/前端与回测门禁；Credit Spread / Cross-Asset、Pre-FOMC、Turn-of-the-Month、Overnight Drift、Dealer GEX 仅进入 Research Backlog。
+**v1.5 更新重点**：追加 Data-Aware Quant Proxy Framework，明确只有 Massive/Polygon 条件下的低成本可落地数据路线；新增 Data Source Capability Matrix v2、Quant Proxy Registry、Market Context Proxy Engine、Credit Proxy、Tail-Risk Proxy、Calendar/Overnight/Smart Money Flow proxy、免费 FRED/FINRA/SEC EDGAR 路线、FMP/Finnhub/J-Quants 后期升级路径，并将 GEX、真实 Skew、Borrow Fee、Insider/Buyback、EPS Surprise 等高数据要求模块锁定为 Research/Paid Later。
+**v1.5.1 更新重点**：追加 Pragmatic Rollout & Proxy Robustness，将 v1.5 的低成本 proxy 从“可设计”切分为 Production / Analytics-only / Research-only；新增 Proxy Lifecycle、Proxy Data Quality State、Decision Policy Matrix、Single Proxy Cannot Veto、Multi-Proxy Confirmation、Market Context Preflight、State Combination Test Matrix 与 MAX_20D → RSP/SPY → HYG/IEF 的分阶段上线计划，防止 proxy 伪相关、数据管道脆弱与状态机爆炸。
 **目标用户**：日本居住的个人投资者  
 **核心原则**：不自动交易；系统只做筛选、计划、持仓管理、离场提醒和复盘；最终由用户手动确认与下单。
 
@@ -299,6 +304,57 @@
 - Indices/Forex 数据，如果订阅支持。
 
 系统默认不使用 TradingView API，也不抓 TradingView 数据。
+
+### v1.5：Massive/Polygon 优先的低成本数据路线
+
+v1.5 明确：
+
+```text
+Massive/Polygon 是当前美股、美股 ETF、期权研究和市场 proxy 的主数据源。
+第一阶段不购买昂贵另类数据。
+所有高级研究必须先寻找 Massive/Polygon 可实现的 proxy。
+```
+
+Current production-capable data from Massive/Polygon:
+
+```text
+US stocks / ETF daily bars
+US intraday aggregates, if subscribed
+grouped daily market data
+OHLCV / VWAP
+dividends / splits, if available in plan
+options chain snapshot, if subscribed
+options IV / Greeks / OI / quotes, if available in plan
+short interest, if available in plan
+```
+
+Massive/Polygon 可直接支持的 v1.5 proxy：
+
+```text
+RSP/SPY:
+    market breadth proxy
+
+IWM/SPY:
+    small-cap risk appetite proxy
+
+HYG/IEF:
+    credit risk appetite proxy
+
+VIXY/SPY or VIX/SPY:
+    tail-risk proxy
+
+MAX_20D:
+    lottery / extreme spike filter
+
+Calendar tags:
+    TOM / Monday / overnight return
+
+VWAP / last-hour volume:
+    smart money / execution confirmation
+```
+
+Missing or partial data should not crash the system.  
+Every module must declare required capabilities and fallback proxy.
 
 ---
 
@@ -855,20 +911,57 @@ TOPIX ETF
 JP sector ETFs, if data available
 ```
 
-### 评分
+### 评分（v1.3：Momentum Horizon Model）
+
+v1.3 起，ETF Rotation 不再把 1M momentum 作为核心正向加分项。  
+系统采用“中期动量 + 短期反转/过热惩罚”框架。
 
 ```text
-1M momentum: 20
-3M momentum: 25
-6M momentum: 20
-trend score: 20
-relative strength vs benchmark: 15
+6M momentum: 30
+3M momentum: 30
+12M momentum: 15
+trend score: 15
+relative strength vs benchmark: 10
+1M overextension penalty: 0 to -20
+```
+
+解释：
+
+```text
+3M / 6M / 12M:
+    用于识别中期趋势与真正的资金主线。
+
+1M:
+    不再作为主要加分项。
+    用于识别短期过热、追高风险和是否需要等待 Pullback。
+```
+
+Entry mode mapping：
+
+```text
+3M/6M strong + 1M normal:
+    Breakout / Pullback both allowed.
+
+3M/6M strong + 1M z-score > 2:
+    Breakout chase disabled.
+    Pullback / Retest required.
+
+3M/6M strong + 1M z-score > 3:
+    Watch only unless A+ event setup.
+
+1M strong but 3M/6M weak:
+    short-term bounce only, not rotation leader.
+
+1M weak but 3M/6M strong:
+    possible healthy pullback, watch for reclaim.
 ```
 
 输出：
 
 - Leading ETF。
 - Improving ETF。
+- Overextended Leader。
+- Pullback Watch。
 - Weakening ETF。
 - Avoid ETF。
 
@@ -1105,6 +1198,56 @@ absolute_option_premium_limit_pct = 5%
 account_drawdown_stop = 10%
 ```
 
+### v1.3：Volatility Scaled Position Sizing
+
+单笔风险不再只由账户百分比和止损距离决定。  
+系统必须引入近期波动率调整仓位，避免在高 ATR / 高 VIX / 高 realized volatility 环境中使用过大仓位。
+
+基础公式：
+
+```text
+base_position = account_risk_amount / stop_distance
+
+volatility_multiplier =
+    clamp(target_volatility / realized_volatility, min=0.4, max=1.0)
+
+final_position =
+    base_position
+  × volatility_multiplier
+  × regime_multiplier
+  × correlation_multiplier
+  × cashflow_multiplier
+```
+
+MVP 规则：
+
+```text
+ATR_pct = ATR(14) / close
+vol_rank = ATR_pct percentile over 252 trading days
+
+If vol_rank > 80%:
+    position_size *= 0.50
+
+If vol_rank 60%–80%:
+    position_size *= 0.75
+
+If vol_rank 20%–60%:
+    position_size *= 1.00
+
+If vol_rank < 20%:
+    position_size *= 1.00
+    do not increase above normal until validated
+```
+
+硬限制：
+
+```text
+Volatility scaling can reduce risk.
+Volatility scaling cannot override max position size.
+Low volatility cannot automatically increase leverage.
+Liquidity and correlation limits still apply.
+```
+
 ### 小账户规则
 
 ```text
@@ -1218,15 +1361,37 @@ If break previous higher low:
 #### C. Profit Protection
 
 ```text
-If position reaches +1R:
-    move stop near breakeven
+v1.2 update:
+Profit protection is no longer a universal +1R breakeven rule.
 
-If reaches +2R:
-    suggest reduce 30%–50%
+Each position must use an Exit Profile:
 
-If reaches +3R:
-    trail with 10MA/20MA or structure low
+ETF / large-cap trend:
+    +1R:
+        no automatic breakeven stop.
+        mark as Raise Stop Candidate only.
+    +1.5R to +2R:
+        move stop to structure low / controlled breakeven only if MFE/MAE calibration supports it.
+    +2R:
+        partial profit or meaningful stop raise may be suggested.
+    +3R:
+        runner mode with structure low / 20MA / higher-low trailing.
+
+Momentum leader:
+    +1R:
+        no automatic breakeven.
+        monitor volume, RS, market context, and structure.
+    +2R:
+        reduce 1/3 or trail under nearest structure low.
+    +3R:
+        runner mode.
+
+Short-term / option-related positions:
+    faster protection allowed because theta, IV, and execution risk are higher.
 ```
+
+Legacy +1R breakeven may be tested in Exit Optimization Lab, but it is not the default production rule.
+
 
 #### D. Trailing Stop
 
@@ -13892,3 +14057,5517 @@ No data redistribution without license.
 Final principle:
 
 > EdgePilot may become SaaS, but it must remain a decision-support and risk-management platform — not an investment adviser, broker, signal seller, or automated trading agent.
+
+
+---
+
+# 97. v1.2 版本定位：从“安全系统”升级为“可盈利且可验证的系统”
+
+v1.1 已经建立了完整的多用户、权限、租户隔离和动态里程碑框架。但 v1.2 需要补齐两个现实问题：
+
+```text
+1. 系统过度防守可能过滤掉利润。
+2. 纯手动成交记录会让 Exit Engine、MFE/MAE、Calibration Engine 的数据失真。
+```
+
+因此 v1.2 的目标不是继续增加防御墙，而是：
+
+```text
+1. 保留硬安全规则，防止系统死亡。
+2. 对软防护规则做消融测试，防止防守过拟合。
+3. 增加 Return Expansion Engine，提高盈利弹性。
+4. 增加真实成交数据回流，减少手工记账误差。
+5. 规划未来半自动条件单能力，但不进入 MVP，不破坏当前非自动交易边界。
+```
+
+核心原则：
+
+```text
+Hard rules prevent ruin.
+Soft rules must prove value.
+Execution data must be real.
+No target chasing.
+No unvalidated automation.
+```
+
+---
+
+# 98. Private Beta Tenant-lite Architecture：<10 用户阶段的落地方案
+
+## 98.1 背景
+
+v1.1 已经设计 Multi-User SaaS / Auth / Tenant Isolation。  
+但最初用户预计不足 10 个，因此不应该一开始按完整商业 SaaS 最高规格实现。
+
+v1.2 采用：
+
+> Tenant-lite Private Beta
+
+即：
+
+```text
+架构上预留 SaaS 能力。
+实现上保持小规模、低复杂度、可快速落地。
+```
+
+---
+
+## 98.2 现在必须做
+
+```text
+1. tenant_id / user_id 基础隔离。
+2. BYOK encrypted credential storage。
+3. per-tenant API rate limit。
+4. Data Capability Matrix。
+5. CSV execution import。
+6. Dividend / Corporate Actions accounting。
+7. public market data vs private user data 分层。
+8. Redis channel namespace。
+9. basic audit log。
+```
+
+---
+
+## 98.3 Beta 后再做
+
+```text
+1. read-only broker integration。
+2. 更完整的 tenant-level worker queue。
+3. API key tier detection。
+4. feature degradation UI。
+5. broker reconciliation。
+6. usage-based job scheduling。
+```
+
+---
+
+## 98.4 商业 SaaS 阶段再做
+
+```text
+1. full PostgreSQL RLS。
+2. multi-region infra。
+3. enterprise observability。
+4. billing / subscription。
+5. advanced RBAC。
+6. broker sync marketplace。
+7. formal legal / compliance review。
+```
+
+---
+
+# 99. BYOK Rate Limit Isolation：租户级 API 限流隔离
+
+## 99.1 问题
+
+在 BYOK 模式下，不同用户的 API key 权限不同：
+
+```text
+User A:
+    Polygon free / basic key
+    very low rate limit
+
+User B:
+    Polygon advanced key
+    high rate limit
+```
+
+如果系统共用一个全局扫描队列，低速 key 会导致：
+
+```text
+1. HTTP 429 Too Many Requests。
+2. 当前 tenant 扫描失败。
+3. 其他 tenant 被阻塞。
+4. batch job 不稳定。
+```
+
+---
+
+## 99.2 v1.2 解决方案
+
+新增：
+
+```text
+Tenant API Key Registry
+Tenant Capability Profile
+Tenant Rate Limit Config
+Per-tenant Token Bucket
+Per-tenant Job State
+```
+
+每个 tenant 独立配置：
+
+```text
+provider
+api_key_id
+plan_tier
+rate_limit_per_minute
+rate_limit_per_day
+burst_limit
+enabled_features
+last_successful_call
+last_429_at
+throttle_until
+```
+
+---
+
+## 99.3 调度规则
+
+```text
+1. 每个 tenant 独立限流。
+2. API 429 只影响当前 tenant。
+3. 一个 tenant throttled 不影响其他 tenant。
+4. 免费 key 自动降低扫描频率。
+5. premium key 可获得更高扫描频率。
+6. job status 必须显示 queued / running / throttled / failed / completed。
+```
+
+---
+
+## 99.4 数据库追加
+
+```sql
+CREATE TABLE tenant_api_keys (
+    api_key_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    encrypted_api_key TEXT NOT NULL,
+    plan_tier TEXT,
+    rate_limit_per_minute INTEGER,
+    rate_limit_per_day INTEGER,
+    enabled BOOLEAN DEFAULT TRUE,
+    last_successful_call TIMESTAMPTZ,
+    last_429_at TIMESTAMPTZ,
+    throttle_until TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE tenant_job_states (
+    job_state_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    provider TEXT,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    error_code TEXT,
+    error_message TEXT,
+    retry_after_seconds INTEGER,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 100. Data Capability Matrix：数据能力降级机制
+
+## 100.1 目的
+
+不同用户的数据源能力不同。系统不能因为某个字段缺失而崩溃。
+
+例如：
+
+```text
+Polygon key 没有 options Greeks。
+J-Quants plan 没有 minute/tick。
+没有 borrow fee / short interest 数据。
+没有 financials。
+没有 earnings data。
+```
+
+---
+
+## 100.2 Capability Profile
+
+```json
+{
+  "tenant_id": "tenant_001",
+  "polygon": {
+    "us_stocks_eod": true,
+    "us_intraday": true,
+    "options_chain": true,
+    "options_greeks": false,
+    "financials": false
+  },
+  "jquants": {
+    "jp_eod": true,
+    "jp_financials": true,
+    "jp_intraday": false
+  },
+  "broker": {
+    "read_only_positions": false,
+    "read_only_executions": false
+  }
+}
+```
+
+---
+
+## 100.3 功能降级规则
+
+```text
+If options_greeks = false:
+    Options Greeks Engine = Disabled / Degraded
+
+If jp_intraday = false:
+    Japan Intraday PA = Disabled
+
+If financials = false:
+    Earnings Drift / Revision = Locked
+
+If borrow data unavailable:
+    Short Risk Guard = Locked
+
+If broker read-only unavailable:
+    Execution Quality Score = CSV/manual only
+```
+
+前端必须显示：
+
+```text
+Feature locked
+Reason
+Required data capability
+How to unlock
+Fallback mode
+```
+
+---
+
+## 100.4 数据库追加
+
+```sql
+CREATE TABLE tenant_data_capabilities (
+    tenant_id TEXT PRIMARY KEY,
+    capabilities JSONB NOT NULL,
+    last_checked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 101. Execution Import & Read-only Broker Sync Roadmap
+
+## 101.1 背景
+
+Exit Engine、MFE/MAE、Profit Protection、Execution Quality Score 都依赖真实成交数据。  
+如果只靠用户手动录入：
+
+```text
+成交价可能错。
+减仓记录可能漏。
+佣金/费用可能漏。
+滑点统计不可信。
+MFE/MAE calibration 会失真。
+```
+
+因此 v1.2 提高 Read-only Broker Sync 的优先级。
+
+---
+
+## 101.2 分阶段路线
+
+### Phase B0：Manual Position Entry
+
+```text
+用户手动录入：
+    ticker
+    entry price
+    quantity
+    stop
+    strategy
+    setup
+```
+
+适合 MVP 初期，但不可靠。
+
+---
+
+### Phase B1：CSV Execution Import
+
+优先实现。
+
+功能：
+
+```text
+券商成交记录 CSV 导入
+字段映射
+重复检测
+自动生成 trades_journal
+自动更新 positions
+自动记录手续费
+自动记录分红/利息/入出金，若 CSV 支持
+```
+
+优点：
+
+```text
+不需要 broker API。
+实现简单。
+适合 <10 用户 private beta。
+大幅降低纯手工记账误差。
+```
+
+---
+
+### Phase B2：IBKR Flex Query / Read-only Sync
+
+如果用户使用 IBKR，优先支持：
+
+```text
+read-only executions
+read-only positions
+read-only balances
+read-only fees
+read-only dividends
+read-only corporate actions, if available
+```
+
+严格限制：
+
+```text
+no trading permission
+no order placement
+no order modification
+no margin control
+```
+
+---
+
+### Phase B3：Other Read-only Broker Integrations
+
+后续再考虑：
+
+```text
+SnapTrade
+Plaid
+other broker read-only APIs
+Japanese broker CSV / read-only export
+```
+
+---
+
+## 101.3 Execution Quality Score
+
+真实成交数据用于计算：
+
+```text
+planned_entry
+actual_entry
+entry_slippage
+planned_exit
+actual_exit
+exit_slippage
+commission
+spread_cost
+manual_delay
+execution_drag_R
+```
+
+输出：
+
+```text
+Execution Score: 0–100
+Execution Drag: -0.17R / trade
+```
+
+如果：
+
+```text
+average execution drag < -0.2R
+```
+
+系统提示：
+
+```text
+Signal edge may exist, but manual execution is destroying edge.
+Reduce time-sensitive setups or use only pre-planned conditional orders.
+```
+
+---
+
+## 101.4 数据库追加
+
+```sql
+CREATE TABLE broker_imports (
+    import_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    broker TEXT NOT NULL,
+    import_type TEXT NOT NULL,      -- csv, flex_query, api
+    status TEXT NOT NULL,
+    file_name TEXT,
+    row_count INTEGER,
+    imported_at TIMESTAMPTZ DEFAULT now(),
+    errors JSONB
+);
+
+CREATE TABLE broker_executions (
+    execution_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    broker TEXT NOT NULL,
+    account_ref TEXT,
+    symbol TEXT NOT NULL,
+    asset_type TEXT,
+    side TEXT,
+    quantity DOUBLE PRECISION,
+    execution_price DOUBLE PRECISION,
+    execution_ts TIMESTAMPTZ,
+    commission DOUBLE PRECISION,
+    fees DOUBLE PRECISION,
+    currency TEXT,
+    source_import_id TEXT,
+    raw_payload JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 102. Dividend & Corporate Actions Accounting
+
+## 102.1 背景
+
+ETF Trend / Rotation、SPY、QQQ、高股息日股、长期 swing 仓位都会产生：
+
+```text
+dividends
+ETF distributions
+stock splits
+reverse splits
+mergers
+spin-offs
+cash in lieu
+corporate action adjustments
+```
+
+如果不处理这些，系统会错误计算：
+
+```text
+P/L
+portfolio snapshots
+cashflow progress
+contribution-adjusted return
+first $100K milestone
+expectancy
+```
+
+---
+
+## 102.2 必须区分的现金流
+
+```text
+Trading P/L
+Dividend income
+Interest income
+Deposits
+Withdrawals
+Fees
+Taxes reserved
+FX conversion
+Corporate action adjustment
+```
+
+---
+
+## 102.3 数据库追加
+
+```sql
+CREATE TABLE cash_transactions (
+    cash_txn_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    account_id TEXT,
+    txn_type TEXT NOT NULL,      -- deposit, withdrawal, dividend, interest, fee, tax_reserve, fx_conversion, adjustment
+    amount DOUBLE PRECISION NOT NULL,
+    currency TEXT NOT NULL,
+    symbol TEXT,
+    related_position_id TEXT,
+    txn_ts TIMESTAMPTZ NOT NULL,
+    source TEXT,
+    raw_payload JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE corporate_actions (
+    corporate_action_id TEXT PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    action_type TEXT NOT NULL,   -- split, reverse_split, dividend, merger, spin_off, cash_in_lieu
+    effective_date DATE NOT NULL,
+    ratio TEXT,
+    cash_amount DOUBLE PRECISION,
+    currency TEXT,
+    source TEXT,
+    raw_payload JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE position_adjustments (
+    adjustment_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    position_id TEXT,
+    symbol TEXT NOT NULL,
+    adjustment_type TEXT NOT NULL,
+    old_quantity DOUBLE PRECISION,
+    new_quantity DOUBLE PRECISION,
+    old_cost_basis DOUBLE PRECISION,
+    new_cost_basis DOUBLE PRECISION,
+    reason TEXT,
+    effective_ts TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 102.4 Portfolio Return 计算要求
+
+系统必须支持：
+
+```text
+Time-weighted return
+Money-weighted return, optional
+Contribution-adjusted return
+Realized trading P/L
+Dividend-adjusted total return
+After-fee / after-tax reserve cashflow
+```
+
+分红不得被误认为：
+
+```text
+trading alpha
+```
+
+而应该单独归类。
+
+---
+
+# 103. Redis Channel Namespace & Public / Private Data Separation
+
+## 103.1 Redis Channel 命名规则
+
+为了防止跨租户推送错误，所有实时频道必须命名空间化：
+
+```text
+tenant:{tenant_id}:alerts
+tenant:{tenant_id}:positions
+tenant:{tenant_id}:candidates
+tenant:{tenant_id}:system
+
+public:market_context
+public:jobs
+public:data_health
+```
+
+禁止：
+
+```text
+alerts
+positions
+candidates
+```
+
+这种无租户前缀的频道。
+
+---
+
+## 103.2 数据分层
+
+### Public Shared Market Data
+
+只存一份：
+
+```text
+SPY bars
+QQQ bars
+ETF daily bars
+public market context
+public symbol master
+public corporate actions
+```
+
+### Tenant Private Data
+
+严格隔离：
+
+```text
+API keys
+positions
+journal
+cashflow targets
+broker imports
+alerts
+notes
+watchlists
+settings
+```
+
+---
+
+# 104. Return Expansion Engine：有纪律的进攻能力
+
+## 104.1 背景
+
+EdgePilot v1.1 防守很强，但真实盈利风险在于：
+
+```text
+1. +1R 保本过早，切断大趋势。
+2. Market Regime 过度 veto，错过强势股。
+3. Earnings Drift 太慢，错过最强 gap-and-go。
+4. 反向 ETF 波动率耗损。
+5. Gate 太多，导致 Signal Starvation。
+```
+
+v1.2 新增 Return Expansion Engine，目标是：
+
+```text
+在不破坏风控的前提下提高收益弹性。
+```
+
+---
+
+## 104.2 Return Expansion 子模块
+
+```text
+Exit Profile Engine
+Regime Position Sizing Gate
+Exceptional RS Micro Probe
+Earnings Gap-and-Go Engine
+Earnings Gap Hold Engine
+Inverse ETF Tactical Guard
+Opportunity Utilization Engine
+B Setup Admission Engine
+Return vs Protection Calibration
+```
+
+---
+
+# 105. Exit Profile Engine：替代统一 +1R 保本规则
+
+## 105.1 问题
+
+统一规则：
+
+```text
++1R move stop to breakeven
+```
+
+可能导致：
+
+```text
+大量 scratch trades
+错过 +5R / +10R 趋势
+Average Win 被压低
+Expectancy 缩水
+```
+
+---
+
+## 105.2 v1.2 新规则
+
+Exit 不再使用统一保本规则，而是按策略使用 Exit Profile。
+
+### ETF / 大票趋势仓
+
+```text
++1R:
+    不自动移动到保本。
+    只标记 Raise Stop Candidate。
+
++1.5R:
+    根据结构低点或 MFE/MAE 统计，考虑提高止损。
+
++2R:
+    允许部分止盈或明显提高止损。
+
++3R:
+    Runner mode。
+```
+
+### Momentum Leader
+
+```text
++1R:
+    不保本。
+    只检查成交量、RS、结构和 market context。
+
++2R:
+    减仓 1/3 或止损移动到最近结构低点。
+
++3R:
+    Runner mode，跟随 higher low / 10MA / 20MA。
+```
+
+### Short-term / Option-related
+
+```text
++1R:
+    可以保护部分利润。
+
+Premium gain 50%–100%:
+    减仓或提高止损。
+
+Underlying structure broken:
+    退出。
+```
+
+---
+
+## 105.3 Exit Optimization Lab
+
+所有 Exit Profile 必须通过：
+
+```text
+MFE / MAE analysis
+Ablation test
+Parameter stability test
+Rejected exit review
+```
+
+不能凭感觉永久写死。
+
+---
+
+# 106. Regime Position Sizing Gate：市场环境不再总是一票否决
+
+## 106.1 问题
+
+Market Regime 指标具有滞后性。  
+如果完全一票否决，系统可能：
+
+```text
+底部反弹后才变绿。
+强股逆势突破被错过。
+大盘已经跌完才进入 Shock。
+```
+
+---
+
+## 106.2 v1.2 规则
+
+Market Regime 默认用于：
+
+```text
+position sizing
+setup grade requirement
+option permission
+add permission
+```
+
+而不是所有时候绝对 veto。
+
+### 映射
+
+```text
+Risk-on:
+    A+ / A / 部分已验证 B setup 允许。
+
+Neutral:
+    A+ / A 允许小仓。
+    B setup Watch only。
+
+Distribution:
+    只允许 A+ pullback / extreme RS micro-size。
+    不允许 options。
+
+Shock:
+    默认 no new trade。
+    但允许 Exceptional RS Micro Probe。
+    risk = normal risk * 0.10 to 0.25。
+
+Data failure:
+    absolute no new trade。
+```
+
+---
+
+## 106.3 Exceptional RS Micro Probe
+
+允许条件：
+
+```text
+market regime = Shock / Correction
+symbol RS new high
+sector relative strength strong
+PA Quality >= 90
+liquidity high
+stop distance small
+no option
+strategy kill switch inactive
+```
+
+仓位：
+
+```text
+risk = 10%–25% of normal risk
+no add
+fast exit
+paper-first until validated
+```
+
+---
+
+# 107. Earnings Gap-and-Go / Gap Hold Engine
+
+## 107.1 问题
+
+传统 Earnings Drift 等 3–10 天可能错过真正最强的龙头。  
+A+ 财报经常：
+
+```text
+盘后大幅 gap up
+第二天不回补
+直接 trend day
+不给深回调
+```
+
+---
+
+## 107.2 新增三类 earnings setup
+
+### A. Earnings Gap-and-Go
+
+条件：
+
+```text
+large earnings surprise
+revenue / EPS / guidance strong
+gap up
+opening range holds
+VWAP holds
+OR high breakout
+sector confirms
+```
+
+限制：
+
+```text
+不追开盘第一分钟
+等待 5/15/30m OR
+gap too large => micro-size
+no short-dated option
+stop must be clear
+```
+
+---
+
+### B. Earnings Gap Hold
+
+条件：
+
+```text
+gap up 后 2–5 天不回补
+收盘保持在 gap zone 上方
+RS 继续强
+量能健康
+无明显派发
+```
+
+---
+
+### C. Earnings Drift Retest
+
+条件：
+
+```text
+财报后突破
+回踩 20MA / gap zone / VWAP
+缩量
+重新转强
+```
+
+---
+
+## 107.3 Validation
+
+```text
+Gap-and-Go 默认 paper-first。
+A+ earnings surprise 需要独立 calibration。
+不同 market regime 分开统计。
+```
+
+---
+
+# 108. Inverse ETF Tactical Guard
+
+## 108.1 问题
+
+反向 ETF / 杠杆 ETF 有 daily reset 和 volatility decay。  
+不能作为普通 swing hold 工具。
+
+---
+
+## 108.2 规则
+
+```text
+inverse ETF = tactical only
+
+max_holding_days:
+    target: 1–3 days
+    absolute: 5 days
+
+profit rule:
+    +1R to +1.5R reduce or exit
+
+risk:
+    no averaging down
+    no options overlay
+    no long swing hold
+    no holding through sharp rebound signal
+```
+
+默认：
+
+```text
+inverse ETF live disabled
+paper-first via Short Lab
+```
+
+---
+
+# 109. Opportunity Utilization Engine
+
+## 109.1 背景
+
+Gate 太多可能导致 Signal Starvation：
+
+```text
+一年 250 个交易日
+大量 No Trade
+资金利用率低
+现金流目标难实现
+```
+
+---
+
+## 109.2 监控指标
+
+```text
+monthly_trade_count
+qualified_signal_count
+triggered_count
+entered_count
+capital_utilization
+average_holding_days
+cash_idle_days
+watch_signal_performance
+B_setup_performance
+missed_opportunity_log
+```
+
+---
+
+## 109.3 诊断
+
+```text
+If qualified trades too few:
+    evaluate Watch / B setup performance
+
+If Watch signals outperform Candidate:
+    scoring model may be too strict
+
+If rejected signals have positive expectancy:
+    guardrail may be overfit
+
+If capital idle too long:
+    consider validated B setup micro-size
+```
+
+---
+
+# 110. B Setup Admission Engine
+
+## 110.1 目标
+
+允许系统在特定条件下接纳次优机会，但必须受控。
+
+---
+
+## 110.2 规则
+
+```text
+A+:
+    normal size
+
+A:
+    normal or 0.75 size
+
+B:
+    only if:
+        market regime = Risk-on or Neutral
+        historical expectancy > 0
+        strategy kill switch inactive
+        liquidity high
+        execution risk acceptable
+    size:
+        0.25–0.5 normal risk
+    restrictions:
+        no options
+        no add
+        fast exit
+
+C:
+    Watch / Paper only
+
+D:
+    Reject
+```
+
+---
+
+# 111. Guardrail Anti-Overfitting System
+
+## 111.1 背景
+
+防护措施本身也会过拟合。
+
+系统可能不断增加：
+
+```text
+regime filter
+gap filter
+VIX filter
+base depth filter
+time stop
+breakeven rule
+PA threshold
+```
+
+最终变成：
+
+```text
+亏损减少，但利润也被过滤掉。
+```
+
+---
+
+## 111.2 核心原则
+
+```text
+Hard rules prevent ruin.
+Soft rules must prove value.
+```
+
+---
+
+## 111.3 Hard Rules
+
+这些规则不能为了提高回测收益删除：
+
+```text
+max loss limit
+max position size
+account drawdown stop
+no naked short
+no unlimited-risk structure
+data quality failure = no new trade
+liquidity too poor = reject
+max loss unclear = reject
+option margin unclear = reject
+no revenge trade
+no target chasing
+```
+
+---
+
+## 111.4 Soft Rules
+
+这些规则必须被验证：
+
+```text
++1R breakeven
+fixed 20MA exit
+fixed 5-day time stop
+market regime veto
+gap pct cutoff
+VIX cutoff
+earnings wait 3–10 days
+A+ only mode
+PA threshold
+AI reviewer downgrade
+```
+
+---
+
+## 111.5 Guardrail Registry
+
+每个防护规则必须登记：
+
+```text
+Guard Name
+Purpose
+Type: hard / soft / experimental
+Applies To
+Parameters
+Expected Benefit
+Possible Cost
+Evidence Level
+Ablation Result
+Out-of-sample Result
+Live Result
+Status: active / monitor / disabled
+```
+
+---
+
+# 112. Rejected Signal Shadow
+
+## 112.1 目标
+
+系统不仅要记录做了什么，还要记录没有做什么。
+
+每个被拒绝信号进入：
+
+```text
+Rejected Signal Log
+```
+
+记录：
+
+```text
+symbol
+setup
+rejected_by_guard
+hypothetical_entry
+hypothetical_stop
+future_MFE
+future_MAE
+hypothetical_final_R
+market_regime
+```
+
+---
+
+## 112.2 用途
+
+如果发现：
+
+```text
+被某个 guard 拒绝的交易长期正期望
+```
+
+说明：
+
+```text
+该 guard 可能过严或过拟合
+```
+
+---
+
+# 113. Guardrail Ablation Test
+
+## 113.1 方法
+
+比较：
+
+```text
+baseline
+baseline + guard A
+baseline + guard B
+baseline + guard A + B
+```
+
+统计：
+
+```text
+trade count
+average R
+median R
+profit factor
+max drawdown
+MFE / MAE
+filtered losers
+missed winners
+```
+
+---
+
+## 113.2 判断标准
+
+```text
+收益下降 40%，回撤只降低 5%:
+    guard 可能过度过滤
+
+收益下降 5%，回撤降低 40%:
+    guard 可能值得保留
+```
+
+---
+
+# 114. Parameter Stability Test
+
+任何参数都不能只在单点有效。
+
+测试范围：
+
+```text
+breakeven trigger:
+    1R / 1.5R / 2R
+
+gap cutoff:
+    2% / 4% / 6% / 8%
+
+time stop:
+    3 / 5 / 8 / 10 days
+
+base depth:
+    15% / 20% / 25% / 30%
+
+trailing:
+    10MA / 20MA / structure low
+```
+
+健康规则：
+
+```text
+一段参数范围内都有效
+```
+
+危险规则：
+
+```text
+只有一个精确参数赚钱
+```
+
+---
+
+# 115. Future Execution Assistance Track：半自动条件单的未来路线
+
+## 115.1 背景
+
+v1.1 当前原则是：
+
+```text
+No auto trading.
+No broker execution.
+Manual confirmation.
+```
+
+这个原则对 MVP 和 SaaS 合规边界是正确的。
+
+但现实中，某些时效性策略存在 Human Slippage：
+
+```text
+Earnings Gap-and-Go
+Opening Range Breakout
+Strat 2U trigger
+fast intraday PA trigger
+```
+
+如果用户在东京，美股开盘是深夜。  
+系统推送 → 用户醒来 → 审核 → 打开券商 → 下单，可能已经错过最佳窗口。
+
+---
+
+## 115.2 v1.2 决策
+
+半自动执行不进入 MVP，不进入当前 SaaS 默认能力。  
+但作为未来路线保留：
+
+```text
+Execution Assistance Track
+```
+
+---
+
+## 115.3 分级
+
+### L0：Manual Only
+
+```text
+系统只提示。
+用户手动下单。
+当前 MVP 默认。
+```
+
+### L1：Read-only Broker Sync
+
+```text
+系统只读成交、持仓、余额。
+不下单。
+用于校准 Execution Quality 和 MFE/MAE。
+优先级提高。
+```
+
+### L2：Order Ticket Template
+
+```text
+系统生成订单参数：
+    symbol
+    entry trigger
+    stop
+    quantity
+    max risk
+    time-in-force
+
+用户复制到券商。
+系统不发单。
+```
+
+### L3：Broker-native Conditional Order Plan
+
+```text
+系统生成 stop-limit / bracket order plan。
+用户在券商端提前手动创建。
+系统仅追踪计划是否触发。
+```
+
+适合：
+
+```text
+日线 Strat breakout
+ETF trend breakout
+非高频策略
+```
+
+### L4：Semi-Automated Conditional Order Placement, Future / Opt-in
+
+```text
+系统通过 API 预先挂出严格条件单。
+必须包含：
+    max risk
+    stop loss
+    position size cap
+    expiry time
+    no market order
+    no naked short
+    no options by default
+
+用户必须在盘前/盘后审批 strategy plan。
+系统不得临盘自由决策。
+```
+
+状态：
+
+```text
+future only
+legal/compliance review required
+tenant opt-in only
+disabled by default
+not part of MVP
+```
+
+---
+
+## 115.4 L4 安全边界
+
+如果未来实现 L4，必须满足：
+
+```text
+1. 只允许用户预审批策略模板。
+2. 只允许 predefined conditional orders。
+3. 不允许 AI 自动决定交易。
+4. 不允许系统临时扩大仓位。
+5. 不允许市价单。
+6. 不允许期权自动执行。
+7. 不允许短线追单。
+8. 每个订单必须有 max loss 和 stop。
+9. 用户可随时一键禁用。
+10. 所有行为必须审计。
+```
+
+---
+
+## 115.5 半自动能力的合规边界
+
+```text
+MVP:
+    no execution
+
+Private beta:
+    no execution, read-only sync only
+
+Future personal mode:
+    possible semi-automated conditional orders for own account
+
+Future SaaS:
+    requires legal/compliance review before any execution feature
+```
+
+---
+
+# 116. v1.2 数据库追加
+
+## 116.1 guardrail_registry
+
+```sql
+CREATE TABLE guardrail_registry (
+    guardrail_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    guard_type TEXT NOT NULL,        -- hard, soft, experimental
+    purpose TEXT,
+    applies_to TEXT[],
+    parameters JSONB,
+    expected_benefit TEXT,
+    possible_cost TEXT,
+    evidence_level TEXT,
+    ablation_result JSONB,
+    oos_result JSONB,
+    live_result JSONB,
+    status TEXT NOT NULL,            -- active, monitor, disabled
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 116.2 rejected_signal_logs
+
+```sql
+CREATE TABLE rejected_signal_logs (
+    rejected_signal_id TEXT PRIMARY KEY,
+    tenant_id TEXT,
+    symbol_id TEXT,
+    setup_type TEXT,
+    rejected_by_guard TEXT,
+    rejection_reason TEXT,
+    hypothetical_entry DOUBLE PRECISION,
+    hypothetical_stop DOUBLE PRECISION,
+    future_mfe_r DOUBLE PRECISION,
+    future_mae_r DOUBLE PRECISION,
+    hypothetical_final_r DOUBLE PRECISION,
+    market_regime TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 116.3 execution_quality_snapshots
+
+```sql
+CREATE TABLE execution_quality_snapshots (
+    execution_quality_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    trade_id TEXT,
+    planned_entry DOUBLE PRECISION,
+    actual_entry DOUBLE PRECISION,
+    entry_slippage_r DOUBLE PRECISION,
+    planned_exit DOUBLE PRECISION,
+    actual_exit DOUBLE PRECISION,
+    exit_slippage_r DOUBLE PRECISION,
+    commission DOUBLE PRECISION,
+    fees DOUBLE PRECISION,
+    execution_drag_r DOUBLE PRECISION,
+    manual_delay_seconds INTEGER,
+    execution_score DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 116.4 execution_assistance_plans
+
+```sql
+CREATE TABLE execution_assistance_plans (
+    execution_plan_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    symbol_id TEXT NOT NULL,
+    strategy_name TEXT,
+    setup_type TEXT,
+    assistance_level TEXT NOT NULL,   -- L0, L1, L2, L3, L4
+    entry_trigger DOUBLE PRECISION,
+    stop_loss DOUBLE PRECISION,
+    quantity DOUBLE PRECISION,
+    max_loss DOUBLE PRECISION,
+    order_type TEXT,
+    time_in_force TEXT,
+    expiry_ts TIMESTAMPTZ,
+    status TEXT,                      -- draft, approved, active, expired, cancelled, triggered
+    user_approved BOOLEAN DEFAULT FALSE,
+    audit_log JSONB,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 117. v1.2 API 追加
+
+```http
+GET  /api/guardrails
+GET  /api/guardrails/{guardrail_id}
+POST /api/guardrails/{guardrail_id}/ablation-test
+GET  /api/rejected-signals
+GET  /api/opportunity-utilization
+GET  /api/execution-quality
+POST /api/broker-imports/csv
+GET  /api/broker-imports
+GET  /api/data-capabilities
+GET  /api/execution-assistance/plans
+POST /api/execution-assistance/plans
+PATCH /api/execution-assistance/plans/{plan_id}
+```
+
+---
+
+# 118. v1.2 前端追加
+
+新增页面：
+
+```text
+Private Beta Admin
+Data Capabilities
+Broker Imports
+Execution Quality
+Guardrail Lab
+Opportunity Utilization
+Return Expansion
+Execution Assistance, future / disabled by default
+```
+
+---
+
+## 118.1 Guardrail Lab
+
+显示：
+
+```text
+Hard rules
+Soft rules
+Experimental rules
+Ablation result
+Rejected signal performance
+Parameter stability
+Current status
+```
+
+---
+
+## 118.2 Opportunity Utilization
+
+显示：
+
+```text
+monthly trade count
+qualified signal count
+entered count
+watch signal performance
+B setup performance
+capital idle days
+missed opportunity log
+```
+
+---
+
+## 118.3 Execution Quality
+
+显示：
+
+```text
+planned vs actual entry
+planned vs actual exit
+execution drag R
+commission / fees
+manual delay
+broker import status
+```
+
+---
+
+## 118.4 Data Capabilities
+
+显示：
+
+```text
+Available features
+Locked features
+Required data source
+Fallback mode
+```
+
+---
+
+# 119. v1.2 实现优先级调整
+
+更新后优先级：
+
+```text
+P0:
+    Risk Engine + Position Ledger + Exit Engine
+
+P0:
+    CSV Execution Import + Dividend / Corporate Actions accounting
+
+P1:
+    Guardrail Registry + Rejected Signal Shadow
+
+P1:
+    Execution Quality Score
+
+P1:
+    Auth MVP + Personal Tenant
+
+P1:
+    Journal / Analytics + Paper Trading
+
+P2:
+    ETF Trend / Rotation Engine
+
+P2:
+    Exit Profile Engine
+
+P3:
+    Basic PA + Strat Trigger
+
+P3:
+    Opportunity Utilization Engine
+
+P4:
+    Tenant-lite BYOK Rate Limit + Data Capability Matrix
+
+P5:
+    Earnings Drift / Revision + Gap-and-Go paper
+
+P6:
+    PA / Strat Calibration
+
+P7:
+    Growth Leader / O’Neil
+
+P8:
+    Read-only Broker Sync, IBKR Flex first
+
+P9:
+    Team / RBAC / Audit
+
+P10:
+    Bearish Context + Paper Short
+
+P11:
+    Japan Expansion
+
+P12:
+    AI Reviewer
+
+P13:
+    Future Execution Assistance L2/L3
+
+P14:
+    Semi-Automated Conditional Order L4, future only
+
+P15:
+    Options Backlog / Research only
+```
+
+---
+
+# 120. v1.2 最终原则
+
+```text
+1. v1.2 is not a return-at-all-costs update.
+2. Hard safety rules remain.
+3. Soft guardrails must prove value.
+4. Exit rules become profile-based and data-calibrated.
+5. Market regime controls size and permission, not always absolute veto.
+6. Earnings Gap-and-Go is allowed only via paper / micro-size validation.
+7. Inverse ETF is tactical only, not swing hold.
+8. B setup admission requires positive evidence and reduced size.
+9. Real execution data is required for real calibration.
+10. Read-only broker sync is elevated in priority.
+11. Semi-automated conditional orders remain future-only and opt-in.
+12. Cashflow targets must never justify risk increase.
+```
+
+Final v1.2 principle:
+
+> EdgePilot must learn not only how to avoid bad trades, but also how not to filter out all good trades.
+
+
+---
+
+# 121. v1.3 版本定位：Academic Edge Integration
+
+v1.2 修正了防御过拟合、Return Expansion、执行现实和 Private Beta 落地问题。  
+v1.3 在此基础上加入一组经过学术界和业界长期讨论的“工程化 edge 组件”。
+
+v1.3 不把学术研究当作“神奇 alpha”，而是当作：
+
+```text
+1. 仓位缩放规则。
+2. 入场模式选择器。
+3. 执行质量过滤器。
+4. 离场纪律支撑。
+5. 反过拟合约束。
+```
+
+核心目标：
+
+```text
+让 EdgePilot 更稳健地进攻，而不是增加更多僵硬防御墙。
+```
+
+---
+
+# 122. Academic Edge Map
+
+v1.3 纳入四类研究视角：
+
+```text
+1. Volatility Scaling / Risk Parity
+2. Short-term Reversal vs Medium-term Momentum
+3. Intraday Seasonality / VWAP Execution
+4. Stop-Loss Value / Disposition Effect
+```
+
+系统内对应模块：
+
+```text
+Volatility Scaling:
+    Risk Engine / Position Sizing
+
+Short-term Reversal vs Medium-term Momentum:
+    ETF Rotation Scanner / PA Entry Engine
+
+Intraday Seasonality / VWAP:
+    PA Engine / Execution Quality / Intraday Entry Filter
+
+Stop-Loss / Disposition Effect:
+    Exit Engine / Manual Override Audit / Stop-Loss Policy
+```
+
+---
+
+# 123. 研究成果进入生产的基本原则
+
+## 123.1 不直接变成硬门槛
+
+学术规则不得无验证地变成全局 Hard Gate。
+
+例如：
+
+```text
+错误:
+    price below VWAP = all longs rejected
+
+正确:
+    intraday long trigger requires VWAP reclaim
+    daily swing treats VWAP as soft confirmation
+```
+
+---
+
+## 123.2 先作为 multiplier / selector
+
+研究成果优先作为：
+
+```text
+position size multiplier
+entry mode selector
+exit profile selector
+risk warning
+setup downgrade
+```
+
+而不是一票否决。
+
+---
+
+## 123.3 必须进入 Guardrail Anti-Overfitting
+
+每个学术规则都必须登记到 Guardrail Registry：
+
+```text
+research source
+hypothesis
+implementation
+expected benefit
+possible cost
+ablation result
+out-of-sample result
+live result
+status
+```
+
+任何规则如果过滤掉过多正期望交易，必须降级或移除。
+
+---
+
+# 124. Volatility Scaled Position Sizing
+
+## 124.1 背景
+
+趋势跟踪和动量策略在高波动环境中容易出现：
+
+```text
+1. 停损频率升高。
+2. 单笔波动变大。
+3. 滑点和 gap risk 增加。
+4. 账户曲线剧烈波动。
+```
+
+波动率缩放的目的不是预测方向，而是：
+
+> 在不确定性更高时减少风险暴露。
+
+---
+
+## 124.2 模块职责
+
+新增：
+
+```text
+Volatility Scaled Position Sizing Engine
+```
+
+职责：
+
+```text
+1. 计算标的近期波动率。
+2. 计算波动率分位数。
+3. 生成仓位乘数。
+4. 与 regime、correlation、cashflow 状态组合。
+5. 写入 position sizing explanation。
+```
+
+---
+
+## 124.3 指标
+
+```text
+ATR(14)
+ATR_pct = ATR(14) / close
+20D realized volatility
+60D realized volatility
+252D ATR percentile
+VIX / VIX percentile for US market
+ETF-specific realized volatility
+```
+
+---
+
+## 124.4 MVP 规则
+
+```text
+If ATR_pct percentile > 80%:
+    volatility_multiplier = 0.50
+
+If ATR_pct percentile between 60% and 80%:
+    volatility_multiplier = 0.75
+
+If ATR_pct percentile between 20% and 60%:
+    volatility_multiplier = 1.00
+
+If ATR_pct percentile < 20%:
+    volatility_multiplier = 1.00
+```
+
+注意：
+
+```text
+低波动不自动加杠杆。
+低波动加仓只有在后续 validation 通过后才允许。
+```
+
+---
+
+## 124.5 与现有 Risk Engine 的关系
+
+最终仓位：
+
+```text
+final_risk =
+    base_trade_risk
+  × volatility_multiplier
+  × regime_multiplier
+  × correlation_multiplier
+  × cashflow_multiplier
+  × strategy_confidence_multiplier
+```
+
+其中：
+
+```text
+volatility_multiplier:
+    用于平滑风险。
+
+regime_multiplier:
+    用于市场状态。
+
+correlation_multiplier:
+    用于风险簇集中。
+
+cashflow_multiplier:
+    用于目标达成后的降风险。
+
+strategy_confidence_multiplier:
+    用于策略证据等级。
+```
+
+---
+
+## 124.6 防过拟合限制
+
+```text
+Volatility scaling can only reduce risk in MVP.
+It cannot increase position size above base risk.
+Volatility threshold must be tested over ranges.
+Ablation test must compare:
+    baseline
+    baseline + vol scaling
+    baseline + regime
+    baseline + vol scaling + regime
+```
+
+---
+
+# 125. ETF Momentum Horizon Model
+
+## 125.1 背景
+
+ETF Rotation 需要区分：
+
+```text
+中期动量:
+    3M / 6M / 12M
+
+短期过热 / 短期反转风险:
+    1W / 1M
+```
+
+EdgePilot 不再将 1M 动量视作核心正向 alpha。
+
+---
+
+## 125.2 新评分
+
+```text
+6M momentum: 30
+3M momentum: 30
+12M momentum: 15
+trend score: 15
+relative strength vs benchmark: 10
+1M overextension penalty: 0 to -20
+```
+
+---
+
+## 125.3 1M Overextension
+
+计算：
+
+```text
+one_month_return_zscore =
+    (1M return - historical average 1M return) / historical std
+```
+
+规则：
+
+```text
+If 1M z-score > 2:
+    overextension_penalty = -10
+    breakout chase disabled
+    pullback required
+
+If 1M z-score > 3:
+    overextension_penalty = -20
+    watch only unless A+ event setup
+
+If 1M z-score < -1 and 3M/6M strong:
+    possible healthy pullback
+    watch for reclaim
+```
+
+---
+
+## 125.4 Entry Mode Selector
+
+ETF scanner 不只输出：
+
+```text
+Leading ETF
+```
+
+还必须输出：
+
+```text
+Entry Mode:
+    breakout_allowed
+    pullback_required
+    retest_required
+    watch_only
+```
+
+示例：
+
+```text
+SMH:
+    6M rank high
+    3M rank high
+    1M z-score = 2.6
+    Entry Mode = Pullback Required
+```
+
+---
+
+## 125.5 防过拟合限制
+
+```text
+1M reversal filter must be evaluated by Rejected Signal Shadow.
+If filtered breakout trades outperform pullback entries, reduce penalty.
+Do not use one exact z-score forever; test 1.5 / 2.0 / 2.5 / 3.0.
+```
+
+---
+
+# 126. Intraday Seasonality & VWAP Execution Framework
+
+## 126.1 背景
+
+美股日内成交量和波动率经常呈现 U 型分布：
+
+```text
+开盘:
+    消化隔夜信息
+    波动高
+    噪音高
+
+盘中:
+    机构 VWAP/TWAP 算法执行
+    波动相对下降
+
+尾盘:
+    资金调仓
+    风险平衡
+    波动重新上升
+```
+
+VWAP 是机构执行常用基准，因此对日内入场和出场判断有价值。
+
+---
+
+## 126.2 v1.3 规则分层
+
+### Intraday Entry Hard / Near-hard Gate
+
+适用于：
+
+```text
+Opening Range Breakout
+Gap-and-Go
+VWAP Reclaim
+Intraday Strat 2U
+日内快速入场
+```
+
+规则：
+
+```text
+Long intraday entry requires:
+    price above VWAP
+    or confirmed VWAP reclaim
+    or VWAP retest and hold
+```
+
+---
+
+### Daily Swing Soft Filter
+
+适用于：
+
+```text
+日线突破
+60m swing
+ETF trend
+O’Neil / Growth Leader
+```
+
+规则：
+
+```text
+VWAP is confirmation, not global veto.
+Daily swing trade cannot be rejected solely because of one intraday VWAP loss.
+```
+
+---
+
+### Exit Warning
+
+如果已有多头仓位出现：
+
+```text
+gap up
+early strength
+loss of VWAP
+multiple failed VWAP reclaim attempts
+heavy volume selling
+```
+
+则触发：
+
+```text
+Exit Level 1 / 2 / 3 warning
+```
+
+而不是无脑 Level 4 exit。
+
+---
+
+## 126.3 No-Trade Opening Window
+
+默认：
+
+```text
+No trade first 15 minutes
+```
+
+v1.3 调整：
+
+```text
+Normal day:
+    no trade first 15 minutes
+
+Gap / earnings / headline day:
+    no trade first 30 minutes
+
+Shock day:
+    no intraday new long
+    except Exceptional RS Micro Probe, paper-first
+```
+
+---
+
+## 126.4 防过拟合限制
+
+```text
+VWAP cannot be a universal hard gate for all timeframes.
+VWAP gate must be measured separately for:
+    ORB
+    Gap-and-Go
+    daily swing
+    exit warning
+```
+
+---
+
+# 127. Strategy-Specific Stop-Loss Policy
+
+## 127.1 背景
+
+人类普遍存在处置效应：
+
+```text
+盈利一点就卖。
+亏损时死扛。
+```
+
+对于趋势/动量策略，纪律化止损通常是系统正期望的一部分。  
+但止损规则必须按策略类型设计，不能一套规则打天下。
+
+---
+
+## 127.2 趋势 / 动量策略
+
+适用：
+
+```text
+ETF Trend / Rotation
+O’Neil / Growth Leader
+Breakout
+VCP
+Trend continuation
+```
+
+规则：
+
+```text
+hard stop must be respected
+manual override requires reason
+ignored stop enters Rule Violation Cost
+```
+
+哲学：
+
+```text
+止损不是割肉。
+止损是趋势策略的数学组成部分。
+```
+
+---
+
+## 127.3 Mean Reversion / Reclaim 策略
+
+适用：
+
+```text
+Failed Breakdown Reclaim
+Undercut & Rally
+Pullback Reclaim
+```
+
+规则：
+
+```text
+stop-loss may be wider
+use thesis invalidation
+use time stop
+avoid overly tight mechanical stops
+```
+
+---
+
+## 127.4 Options / Short-duration Trades
+
+规则：
+
+```text
+underlying stop broken = exit option
+premium loss threshold = exit
+DTE warning = reduce / exit
+IV crush risk = warning / exit
+```
+
+---
+
+## 127.5 Manual Override Audit
+
+用户可以 override，但必须记录：
+
+```text
+override_reason
+system_recommendation
+user_action
+result_R
+cost_of_override
+```
+
+前端显示：
+
+```text
+Ignored Stop Cost this month: -X R
+Manual Override P/L: Y R
+Rule Adherence: Z%
+```
+
+---
+
+# 128. Academic Guardrail Governance
+
+## 128.1 防止研究成果变成新的过拟合规则
+
+每个 academic-derived rule 必须进入：
+
+```text
+Guardrail Registry
+```
+
+并标记：
+
+```text
+academic_rule = true
+```
+
+---
+
+## 128.2 字段追加
+
+```text
+research_hypothesis
+asset_class
+strategy_context
+intended_role:
+    multiplier
+    selector
+    warning
+    hard_gate
+evidence_level
+ablation_status
+rejected_signal_shadow_status
+production_status
+```
+
+---
+
+## 128.3 Production 权限
+
+```text
+Volatility scaling:
+    production candidate
+    risk-reduction only in MVP
+
+1M reversal filter:
+    production candidate after backtest
+
+VWAP hard gate:
+    intraday only
+
+Stop-loss discipline:
+    production for momentum strategies
+
+Kelly / leverage:
+    research only
+```
+
+---
+
+# 129. 数据库追加：Academic Edge
+
+## 129.1 volatility_features
+
+```sql
+CREATE TABLE volatility_features (
+    feature_id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    ts TIMESTAMPTZ NOT NULL,
+    atr_14 DOUBLE PRECISION,
+    atr_pct DOUBLE PRECISION,
+    realized_vol_20d DOUBLE PRECISION,
+    realized_vol_60d DOUBLE PRECISION,
+    atr_percentile_252d DOUBLE PRECISION,
+    vix_level DOUBLE PRECISION,
+    vol_multiplier DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 129.2 momentum_horizon_scores
+
+```sql
+CREATE TABLE momentum_horizon_scores (
+    score_id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
+    ts TIMESTAMPTZ NOT NULL,
+    return_1w DOUBLE PRECISION,
+    return_1m DOUBLE PRECISION,
+    return_3m DOUBLE PRECISION,
+    return_6m DOUBLE PRECISION,
+    return_12m DOUBLE PRECISION,
+    zscore_1m DOUBLE PRECISION,
+    score_3m DOUBLE PRECISION,
+    score_6m DOUBLE PRECISION,
+    score_12m DOUBLE PRECISION,
+    overextension_penalty DOUBLE PRECISION,
+    entry_mode TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 129.3 vwap_intraday_features
+
+```sql
+CREATE TABLE vwap_intraday_features (
+    feature_id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
+    session_date DATE NOT NULL,
+    ts TIMESTAMPTZ NOT NULL,
+    vwap DOUBLE PRECISION,
+    price_above_vwap BOOLEAN,
+    vwap_reclaim BOOLEAN,
+    vwap_loss BOOLEAN,
+    opening_range_high DOUBLE PRECISION,
+    opening_range_low DOUBLE PRECISION,
+    opening_range_mid DOUBLE PRECISION,
+    session_phase TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 129.4 stop_policy_audit
+
+```sql
+CREATE TABLE stop_policy_audit (
+    audit_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    position_id TEXT,
+    strategy_name TEXT,
+    stop_policy_type TEXT,
+    system_stop_price DOUBLE PRECISION,
+    user_action TEXT,
+    override_reason TEXT,
+    result_r DOUBLE PRECISION,
+    cost_of_override DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 130. API 追加：Academic Edge
+
+```http
+GET  /api/academic/volatility-features/{symbol}
+GET  /api/academic/momentum-horizon/{symbol}
+GET  /api/academic/vwap-features/{symbol}
+GET  /api/academic/stop-policy-audit
+POST /api/academic/volatility-scaling/backtest
+POST /api/academic/momentum-horizon/backtest
+POST /api/academic/vwap-filter/backtest
+POST /api/academic/stop-policy/backtest
+```
+
+---
+
+# 131. 前端追加：Academic Edge Lab
+
+新增页面：
+
+```text
+Academic Edge Lab
+```
+
+页面结构：
+
+```text
+Volatility Scaling
+Momentum Horizon
+VWAP Execution
+Stop-Loss Policy
+Ablation Results
+Rejected Signal Shadow
+Production Status
+```
+
+---
+
+## 131.1 Volatility Scaling Panel
+
+显示：
+
+```text
+ATR %
+ATR percentile
+realized volatility
+volatility multiplier
+final position size impact
+```
+
+---
+
+## 131.2 Momentum Horizon Panel
+
+显示：
+
+```text
+1W / 1M / 3M / 6M / 12M returns
+1M z-score
+overextension penalty
+entry mode
+ETF rank
+```
+
+---
+
+## 131.3 VWAP Execution Panel
+
+显示：
+
+```text
+session phase
+current price vs VWAP
+VWAP reclaim/loss
+opening range
+intraday permission
+exit warning level
+```
+
+---
+
+## 131.4 Stop-Loss Policy Panel
+
+显示：
+
+```text
+strategy-specific stop policy
+manual overrides
+ignored stop cost
+rule adherence
+stop efficiency
+```
+
+---
+
+# 132. v1.3 实现优先级
+
+v1.3 追加后的优先级：
+
+```text
+P0:
+    CSV Execution Import + Dividend / Corporate Actions accounting
+
+P0:
+    Risk Engine + Volatility Scaled Position Sizing
+
+P1:
+    ETF Momentum Horizon Model
+
+P1:
+    Exit Profile Engine + Strategy-specific Stop Policy
+
+P1:
+    Guardrail Registry + Rejected Signal Shadow
+
+P2:
+    VWAP Execution Filter, after intraday data stable
+
+P2:
+    Academic Edge Lab frontend
+
+P3:
+    Momentum Horizon / Volatility ablation tests
+
+P3:
+    Stop Policy override audit
+
+P4:
+    Regime Position Sizing Gate
+
+P4:
+    Earnings Gap-and-Go paper
+
+P5:
+    Read-only Broker Sync, IBKR Flex first
+
+P6:
+    Options remain research-only / backlog
+```
+
+---
+
+# 133. v1.3 最终原则
+
+```text
+1. Academic research improves engineering assumptions, not prediction certainty.
+2. Volatility scaling reduces risk first; it does not justify leverage in MVP.
+3. 1M momentum is not a primary alpha input; it is an overextension signal.
+4. VWAP is an intraday execution filter, not a universal swing-trade veto.
+5. Stop-loss rules must be strategy-specific.
+6. Manual override of stops must be audited.
+7. Academic rules are still guardrails and must pass ablation tests.
+8. Hard rules prevent ruin; soft rules must prove value.
+9. These modules should improve capital efficiency, not create over-filtering.
+```
+
+Final v1.3 principle:
+
+> EdgePilot should use academic evidence to size risk better, choose entries more intelligently, and enforce exits more consistently — not to build another wall of overfit filters.
+
+
+---
+
+# 134. v1.4 版本定位：Market Structure & Behavioral Anomaly Integration
+
+v1.3 将一组学术研究转化为工程化风控与入场逻辑，包括波动率缩放、ETF 动量周期、VWAP 执行过滤和策略化止损。  
+v1.4 进一步加入两个最有价值、最适合当前 EdgePilot 主线的模块：
+
+```text
+1. Market Breadth Divergence
+2. Lottery / MAX Filter
+```
+
+v1.4 只将这两个模块列为 production candidate。  
+其他研究方向，包括：
+
+```text
+Credit Spreads / Cross-Asset Contagion
+Pre-FOMC Drift
+Turn-of-the-Month Effect
+Overnight Drift / Night Effect
+Dealer Gamma Exposure / GEX
+```
+
+全部进入 Research Backlog，不直接影响生产决策。
+
+---
+
+# 135. v1.4 核心原则
+
+```text
+1. Anomaly modules are modifiers, not standalone alpha engines.
+2. Market Breadth is a regime modifier.
+3. Lottery/MAX is a setup quality and behavioral risk filter.
+4. Credit, FOMC, TOM, Overnight, and GEX remain research-only until validated.
+5. No anomaly can override hard risk rules.
+6. No anomaly can justify target chasing.
+7. Every anomaly must be ablation-tested and shadow-tracked.
+```
+
+中文原则：
+
+> 学术异象不是神奇买卖信号，而是用于修饰风险、调整仓位、过滤劣质机会、改善入场时间的工程组件。
+
+---
+
+# 136. Academic Anomaly Modifier Framework
+
+## 136.1 三类修饰器
+
+v1.4 将学术异象统一归类为三类修饰器：
+
+### A. Regime Modifier
+
+用于改变市场环境判断和风险乘数。
+
+```text
+Market Breadth Divergence
+Credit Spread / Cross-Asset, research-only
+Dealer GEX, research-only
+```
+
+### B. Setup Quality Modifier
+
+用于修正某个候选的 setup 质量。
+
+```text
+Lottery / MAX Filter
+VWAP
+1M overextension
+Liquidity / execution risk
+```
+
+### C. Timing Modifier
+
+用于微调入场/离场时间，不产生独立交易信号。
+
+```text
+Pre-FOMC Drift, research-only
+Turn-of-the-Month, research-only
+Overnight Drift, research-only
+```
+
+---
+
+## 136.2 Modifier 输出
+
+每个 modifier 必须输出：
+
+```text
+modifier_name
+modifier_type
+score_delta
+risk_multiplier_delta
+decision_adjustment
+evidence_level
+explanation
+production_status
+```
+
+示例：
+
+```json
+{
+  "modifier_name": "market_breadth_divergence",
+  "modifier_type": "regime",
+  "risk_multiplier_delta": -0.5,
+  "decision_adjustment": "risk_on_to_warning",
+  "evidence_level": "production_candidate",
+  "explanation": "SPY new high but breadth failed to confirm."
+}
+```
+
+---
+
+# 137. Market Breadth Engine
+
+## 137.1 为什么优先做
+
+Market Regime 如果只看 SPY / QQQ 价格、均线和 VIX，会有滞后性。  
+宽度指标可以回答：
+
+```text
+指数上涨是广泛上涨，还是少数巨头托举？
+底层股票是否已经走弱？
+市场是否出现看跌背离？
+```
+
+Market Breadth Engine 的目标不是预测顶部，而是：
+
+```text
+更早发现 Risk-on 的质量下降。
+在指数仍然强时主动降低风险。
+避免在少数大盘股托举指数时追高。
+```
+
+---
+
+## 137.2 数据输入
+
+优先级由易到难：
+
+### MVP Proxy
+
+```text
+RSP / SPY ratio
+IWM / SPY ratio
+QQQE / QQQ ratio, if available
+Sector equal-weight vs cap-weight proxies
+New high / new low count, if available from data source
+```
+
+### 正式数据
+
+```text
+S&P 500 % above 20MA
+S&P 500 % above 50MA
+S&P 500 % above 200MA
+Nasdaq 100 % above 50MA
+NYSE / Nasdaq advance-decline
+new highs - new lows
+sector breadth
+```
+
+### 日股扩展
+
+```text
+TOPIX % above 50MA
+Prime market % above 50MA
+Nikkei vs TOPIX divergence
+Japan sector breadth
+advance / decline count
+```
+
+---
+
+## 137.3 Breadth State
+
+```text
+Healthy Breadth
+Soft Weakening
+Breadth Warning
+Bearish Divergence
+Breadth Collapse
+Breadth Thrust, research-only
+```
+
+---
+
+## 137.4 Breadth Divergence 规则
+
+### Healthy Breadth
+
+```text
+Index rising
+% above 50MA >= 60%
+RSP/SPY stable or rising
+new highs confirming
+```
+
+行动：
+
+```text
+risk_multiplier = 1.0
+A/A+ setups allowed
+validated B setup allowed under normal rules
+```
+
+---
+
+### Breadth Warning
+
+```text
+Index near high or making new high
+% above 50MA between 45% and 60%
+RSP/SPY weakening
+sector participation narrowing
+```
+
+行动：
+
+```text
+risk_multiplier *= 0.75
+no new unvalidated B setup
+options disabled by default
+tighten weak holdings
+```
+
+---
+
+### Bearish Divergence
+
+```text
+Index making new highs
+% above 50MA < 45%
+RSP/SPY trending down
+new highs not confirming
+leadership concentrated in few mega-caps
+```
+
+行动：
+
+```text
+risk_multiplier *= 0.50
+new breakout requires A+
+B setup disabled
+extended positions move to Exit Level 1/2 review
+no options
+```
+
+---
+
+### Breadth Collapse
+
+```text
+Index declining
+% above 50MA < 30%
+new lows expanding
+RSP/SPY weak
+IWM/SPY weak
+```
+
+行动：
+
+```text
+ordinary new longs disabled
+only Exceptional RS Micro Probe allowed
+risk_multiplier = 0.0 to 0.25
+cash / reduce / manage positions
+```
+
+---
+
+## 137.5 与 Market Regime 的关系
+
+Market Breadth 不直接替代 Market Regime，而是修饰它。
+
+```text
+Final Market Regime =
+    price_regime
+  + volatility_regime
+  + breadth_regime
+  + headline_risk
+```
+
+示例：
+
+```text
+SPY price regime = Risk-on
+VIX regime = Normal
+Breadth = Bearish Divergence
+
+Final regime:
+    Warning, not full Risk-on
+```
+
+---
+
+## 137.6 Risk Multiplier
+
+```text
+Healthy Breadth:
+    1.0
+
+Soft Weakening:
+    0.85
+
+Breadth Warning:
+    0.75
+
+Bearish Divergence:
+    0.50
+
+Breadth Collapse:
+    0.0–0.25
+```
+
+注意：
+
+```text
+Breadth multiplier can reduce risk.
+It cannot increase risk above base.
+```
+
+---
+
+## 137.7 防过拟合要求
+
+Market Breadth 不能成为新的僵硬卖出信号。
+
+必须通过：
+
+```text
+1. Breadth ablation test
+2. Rejected signal shadow
+3. Regime-specific performance analysis
+4. Parameter stability test
+5. Out-of-sample test
+```
+
+重点测试：
+
+```text
+% above 50MA threshold:
+    30 / 40 / 45 / 50 / 60
+
+RSP/SPY lookback:
+    10 / 20 / 50 days
+
+new highs confirmation:
+    required vs optional
+```
+
+如果 breadth filter 显著减少收益但只小幅降低回撤，必须降权。
+
+---
+
+# 138. Lottery / MAX Filter
+
+## 138.1 为什么需要
+
+散户常追逐“彩票型股票”：
+
+```text
+低价
+低流通盘
+小市值
+单日暴涨
+meme / squeeze / hype
+极端正偏度
+```
+
+这类标的看起来可能有巨大上行，但长期预期收益往往较差。  
+Lottery / MAX Filter 的目标是：
+
+```text
+避免 EdgePilot 把投机性暴涨误判为 O’Neil / Growth Leader。
+避免追入非基本面驱动的散户陷阱。
+保护小账户不被单日暴涨后的回撤吞噬。
+```
+
+---
+
+## 138.2 MAX 指标
+
+定义：
+
+```text
+MAX_20D = max(daily_return over last 20 trading days)
+MAX_1M = max(daily_return over last 1 month)
+```
+
+辅助指标：
+
+```text
+MAX_zscore
+abnormal_volume_zscore
+market_cap
+free_float
+dollar_volume
+news / earnings catalyst flag
+short_interest flag, if available
+meme / social flag, optional
+```
+
+---
+
+## 138.3 过滤逻辑
+
+### Avoid / Reject
+
+如果满足：
+
+```text
+MAX_20D extremely high
+AND no earnings / guidance / major fundamental catalyst
+AND small cap or low liquidity
+AND abnormal volume spike
+AND no healthy base / retest / volume dry-up after spike
+```
+
+则：
+
+```text
+Decision = Avoid
+Reason = Lottery-like spike
+```
+
+---
+
+### Downgrade
+
+如果满足：
+
+```text
+MAX_20D high
+BUT liquidity is good
+BUT catalyst unclear
+```
+
+则：
+
+```text
+Candidate → Watch
+Watch → Research
+No options
+No B setup
+```
+
+---
+
+### Exception: Fundamental Catalyst
+
+如果满足：
+
+```text
+A+ earnings surprise
+guidance raise
+index inclusion
+major contract
+sector-wide confirmation
+high liquidity
+gap hold
+VWAP hold
+```
+
+则不自动 Avoid。
+
+该标的进入：
+
+```text
+Earnings Gap-and-Go
+Earnings Gap Hold
+Growth Leader Review
+```
+
+---
+
+## 138.4 目标标的
+
+优先用于：
+
+```text
+small-cap stocks
+low-float stocks
+meme-like stocks
+high retail attention stocks
+non-earnings gap stocks
+high one-day return names
+```
+
+不应用于简单过滤：
+
+```text
+high-quality earnings gap
+mega-cap leader
+sector-wide strong move
+ETF
+index ETF
+```
+
+---
+
+## 138.5 与 PA 的关系
+
+Lottery Filter 不直接否定所有强势 PA。  
+它修饰 PA Context：
+
+```text
+PA Quality high
+but Lottery Risk high
+=> Watch / Avoid unless fundamental catalyst confirmed
+```
+
+示例：
+
+```text
+breakout detected
+MAX_20D = +32%
+no earnings catalyst
+low float
+volume spike
+
+Decision:
+    Avoid
+```
+
+---
+
+## 138.6 与 Do Not Trade List 的关系
+
+如果某标的反复出现 lottery-like spikes 并导致假信号：
+
+```text
+add to Do Not Trade List
+duration: 30–90 days
+reason: lottery spike / low-quality momentum
+```
+
+---
+
+## 138.7 防过拟合要求
+
+MAX threshold 不得固定单点。
+
+测试：
+
+```text
+MAX threshold:
+    10% / 15% / 20% / 30%
+
+Lookback:
+    10D / 20D / 30D
+
+Market cap filter:
+    small cap only vs all stocks
+
+Catalyst exception:
+    enabled vs disabled
+```
+
+必须追踪：
+
+```text
+Filtered winners
+Filtered losers
+Post-spike average R
+Post-spike drawdown
+```
+
+---
+
+# 139. Research Backlog：暂不进入 Production 的研究方向
+
+以下研究方向有价值，但 v1.4 不进入生产决策。
+
+---
+
+## 139.1 Credit Spreads & Cross-Asset Contagion
+
+### 研究假设
+
+高收益债与国债的相对表现可以作为风险偏好的领先指标。
+
+MVP proxy：
+
+```text
+HYG / IEF ratio
+JNK / TLT ratio
+LQD / IEF ratio
+```
+
+状态：
+
+```text
+Research-only
+```
+
+原因：
+
+```text
+1. 信号可能较慢。
+2. 与 equity breadth 可能高度相关。
+3. 容易增加过度防御。
+4. 需要独立验证是否比 breadth 提供额外信息。
+```
+
+未来可能用途：
+
+```text
+Cross-Asset Divergence Warning
+```
+
+但不得与 breadth 同时重复惩罚，避免 double counting。
+
+---
+
+## 139.2 Pre-FOMC Drift
+
+状态：
+
+```text
+Research-only timing modifier
+```
+
+研究用途：
+
+```text
+测试 FOMC 前 24h 是否改善 SPY/QQQ 多头 exit timing。
+```
+
+生产限制：
+
+```text
+不能取消 hard stop
+不能取消 structure invalidation
+不能为了 FOMC drift 新开无 setup 仓位
+```
+
+---
+
+## 139.3 Turn-of-the-Month Effect
+
+状态：
+
+```text
+Research-only timing tilt
+```
+
+未来用途：
+
+```text
+Entry timing for ETF pullback
+B setup micro-size window
+cash contribution deployment timing
+```
+
+限制：
+
+```text
+TOM cannot create trades.
+TOM can only slightly adjust entry preference.
+```
+
+---
+
+## 139.4 Overnight Drift / Night Effect
+
+状态：
+
+```text
+Research-only exit timing study
+```
+
+未来研究问题：
+
+```text
+Should profitable ETF trend positions delay profit-taking to close / next open?
+Is overnight premium positive after gap risk and slippage?
+Does it differ by ETF / regime / earnings?
+```
+
+限制：
+
+```text
+No hard stop suspension.
+No overnight hold solely because of anomaly.
+```
+
+---
+
+## 139.5 Dealer Gamma Exposure / GEX
+
+状态：
+
+```text
+Research-only microstructure regime modifier
+```
+
+原因：
+
+```text
+1. GEX 数据获取复杂。
+2. vendor-specific estimates differ.
+3. 可能难以验证。
+4. 容易过拟合。
+```
+
+未来用途：
+
+```text
+positive gamma:
+    mean reversion bias
+
+negative gamma:
+    trend / volatility expansion bias
+```
+
+但不得进入 production，除非：
+
+```text
+data source reliable
+backtest positive
+ablation confirms incremental value over VIX/breadth
+```
+
+---
+
+# 140. v1.4 数据库追加
+
+## 140.1 market_breadth_snapshots
+
+```sql
+CREATE TABLE market_breadth_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    market TEXT NOT NULL,                  -- US, JP
+    index_symbol TEXT NOT NULL,             -- SPY, QQQ, TOPIX proxy
+    snapshot_date DATE NOT NULL,
+    pct_above_20ma DOUBLE PRECISION,
+    pct_above_50ma DOUBLE PRECISION,
+    pct_above_200ma DOUBLE PRECISION,
+    advance_decline_value DOUBLE PRECISION,
+    new_highs INTEGER,
+    new_lows INTEGER,
+    rsp_spy_ratio DOUBLE PRECISION,
+    iwm_spy_ratio DOUBLE PRECISION,
+    sector_breadth JSONB,
+    breadth_state TEXT,
+    risk_multiplier DOUBLE PRECISION,
+    source TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 140.2 breadth_divergence_events
+
+```sql
+CREATE TABLE breadth_divergence_events (
+    event_id TEXT PRIMARY KEY,
+    market TEXT NOT NULL,
+    index_symbol TEXT NOT NULL,
+    event_date DATE NOT NULL,
+    divergence_type TEXT NOT NULL,          -- warning, bearish_divergence, collapse
+    index_condition TEXT,
+    breadth_condition TEXT,
+    risk_multiplier DOUBLE PRECISION,
+    recommended_action TEXT,
+    evidence JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 140.3 lottery_max_features
+
+```sql
+CREATE TABLE lottery_max_features (
+    feature_id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
+    market TEXT NOT NULL,
+    snapshot_date DATE NOT NULL,
+    max_return_10d DOUBLE PRECISION,
+    max_return_20d DOUBLE PRECISION,
+    max_return_30d DOUBLE PRECISION,
+    max_return_zscore DOUBLE PRECISION,
+    abnormal_volume_zscore DOUBLE PRECISION,
+    market_cap DOUBLE PRECISION,
+    dollar_volume DOUBLE PRECISION,
+    catalyst_flag TEXT,                    -- earnings, guidance, index_inclusion, unknown, none
+    lottery_risk_score DOUBLE PRECISION,
+    recommended_action TEXT,               -- allow, watch, avoid
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 140.4 anomaly_modifier_events
+
+```sql
+CREATE TABLE anomaly_modifier_events (
+    modifier_event_id TEXT PRIMARY KEY,
+    tenant_id TEXT,
+    symbol_id TEXT,
+    modifier_name TEXT NOT NULL,
+    modifier_type TEXT NOT NULL,            -- regime, setup_quality, timing
+    score_delta DOUBLE PRECISION,
+    risk_multiplier_delta DOUBLE PRECISION,
+    decision_adjustment TEXT,
+    explanation TEXT,
+    evidence JSONB,
+    production_status TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 141. v1.4 API 追加
+
+```http
+GET  /api/market-structure/breadth?market=US&date=
+GET  /api/market-structure/breadth/latest?market=US
+GET  /api/market-structure/breadth-divergence/events
+POST /api/market-structure/breadth/backtest
+
+GET  /api/anomalies/lottery-max/{symbol}
+GET  /api/anomalies/lottery-max
+POST /api/anomalies/lottery-max/backtest
+
+GET  /api/anomalies/modifiers?symbol=&date=
+GET  /api/anomalies/research-backlog
+```
+
+---
+
+# 142. v1.4 前端追加：Market Structure Lab
+
+新增页面：
+
+```text
+Market Structure Lab
+```
+
+页面结构：
+
+```text
+Market Breadth Dashboard
+Breadth Divergence Events
+Lottery / MAX Filter
+Anomaly Modifier Timeline
+Research Backlog
+Ablation Results
+Rejected Signal Impact
+```
+
+---
+
+## 142.1 Market Breadth Dashboard
+
+显示：
+
+```text
+% above 20MA
+% above 50MA
+% above 200MA
+RSP/SPY
+IWM/SPY
+new highs / new lows
+breadth state
+risk multiplier
+regime adjustment
+```
+
+---
+
+## 142.2 Breadth Divergence Panel
+
+显示：
+
+```text
+Index condition
+Breadth condition
+Divergence type
+Recommended action
+Affected strategies
+Risk multiplier change
+```
+
+---
+
+## 142.3 Lottery / MAX Panel
+
+显示：
+
+```text
+MAX_20D
+MAX z-score
+abnormal volume
+catalyst flag
+market cap
+liquidity
+lottery risk score
+recommended action
+```
+
+---
+
+## 142.4 Research Backlog Panel
+
+显示：
+
+```text
+Credit Spreads / Cross-Asset
+Pre-FOMC Drift
+Turn-of-the-Month
+Overnight Drift
+Dealer GEX
+```
+
+每个研究方向显示：
+
+```text
+status
+reason not production
+data needed
+test plan
+```
+
+---
+
+# 143. v1.4 实现优先级
+
+```text
+P0:
+    Market Breadth Engine MVP Proxy
+    RSP/SPY, IWM/SPY, New High/Low if available
+
+P0:
+    Breadth Risk Multiplier integration
+
+P1:
+    Lottery / MAX Filter for equities
+
+P1:
+    Catalyst exception logic, earnings/guidance/index inclusion
+
+P1:
+    Market Structure Lab frontend
+
+P2:
+    Breadth / Lottery ablation tests
+
+P2:
+    Rejected Signal Shadow integration
+
+P3:
+    US full breadth data source
+
+P4:
+    Japan breadth extension
+
+P5:
+    Credit Spread / Cross-Asset research
+
+P6:
+    FOMC / TOM / Overnight / GEX research
+```
+
+---
+
+# 144. v1.4 生产权限
+
+## 144.1 Production Candidate
+
+```text
+Market Breadth Divergence
+Lottery / MAX Filter
+```
+
+但必须先通过：
+
+```text
+Backtest
+Shadow
+Ablation
+Rejected Signal Shadow
+Parameter Stability
+```
+
+---
+
+## 144.2 Research-only
+
+```text
+Credit Spreads / Cross-Asset
+Pre-FOMC Drift
+Turn-of-the-Month
+Overnight Drift
+Dealer GEX
+```
+
+---
+
+# 145. v1.4 最终原则
+
+```text
+1. Breadth reveals market participation; price alone is not enough.
+2. Lottery spikes are behavioral traps unless supported by real catalysts.
+3. Breadth reduces risk; it does not create short signals by itself.
+4. Lottery/MAX filters setup quality; they do not reject A+ earnings gaps automatically.
+5. Academic anomalies are modifiers, not trading systems.
+6. Research backlog cannot influence production until validated.
+7. No double-counting of risk penalties.
+8. Every anomaly must be tested against rejected-signal performance.
+9. Soft filters must prove they preserve edge.
+```
+
+Final v1.4 principle:
+
+> EdgePilot should trade strength that is broadly supported and fundamentally credible — not index mirages or lottery-like spikes.
+
+
+---
+
+# 146. v1.5 版本定位：Data-Aware Quant Proxy Framework
+
+v1.4 已经将 Market Breadth Divergence 与 Lottery / MAX Filter 纳入生产候选，并把 Credit Spreads、Pre-FOMC、TOM、Overnight Drift、Dealer GEX 等放入 Research Backlog。  
+v1.5 进一步解决一个更现实的问题：
+
+> 当前只有 Massive/Polygon，哪些研究能真正落地？哪些只能做 proxy？哪些必须等未来付费数据？
+
+v1.5 的核心目标：
+
+```text
+1. 不因为缺少昂贵另类数据而停止开发。
+2. 用 Massive/Polygon + 免费数据源做低成本机构雷达。
+3. 每个研究模块必须声明数据需求、数据可用性、fallback proxy 和生产权限。
+4. 高数据要求模块必须锁定为 research-only 或 paid-later。
+5. 避免为了“看起来更高级”而购买不适合当前账户规模的数据。
+```
+
+---
+
+# 147. Data-Availability-First 原则
+
+EdgePilot v1.5 采用：
+
+> Data-Availability-First Quant Design
+
+即：
+
+```text
+先看手里有什么稳定数据。
+再决定哪些研究可以生产。
+不能为了某个理论强行引入昂贵或不稳定数据。
+```
+
+核心规则：
+
+```text
+1. Production module must have reliable, affordable, refreshable data.
+2. Research module may use proxy data.
+3. Paid data dependency must be explicit.
+4. Missing data must degrade gracefully.
+5. No module may silently substitute low-quality data without warning.
+```
+
+中文原则：
+
+> 数据可得性决定模块权限；没有数据，就不能假装有 edge。
+
+---
+
+# 148. Data Source Capability Matrix v2
+
+## 148.1 目的
+
+为每个 tenant / user / deployment 明确：
+
+```text
+当前数据源能支持什么模块？
+哪些模块可以 production？
+哪些只能 research？
+哪些必须 locked？
+```
+
+---
+
+## 148.2 Capability 分类
+
+```text
+price_daily:
+    日线 OHLCV / VWAP
+
+price_intraday:
+    1m / 5m / 15m / 60m aggregates
+
+options_chain:
+    option chain
+
+options_greeks:
+    IV / delta / gamma / theta / vega
+
+corporate_actions:
+    dividends / splits
+
+short_interest:
+    short interest
+
+financials:
+    financial statements
+
+earnings_surprise:
+    EPS estimate vs actual
+
+insider_trading:
+    Form 4 / insider buying
+
+macro:
+    FRED / rates / credit spreads
+
+japan_eod:
+    J-Quants 日股日线
+
+japan_intraday:
+    J-Quants minute/tick
+```
+
+---
+
+## 148.3 数据能力状态
+
+```text
+available:
+    可生产使用
+
+partial:
+    可研究或 degraded mode
+
+missing:
+    模块锁定
+
+paid_later:
+    等付费数据
+
+manual_config:
+    手动配置，例如 FOMC dates
+```
+
+---
+
+## 148.4 示例
+
+```json
+{
+  "tenant_id": "private_beta_user_001",
+  "providers": {
+    "massive_polygon": {
+      "price_daily": "available",
+      "price_intraday": "available_if_subscribed",
+      "options_chain": "partial",
+      "options_greeks": "partial",
+      "corporate_actions": "available_if_plan_supports",
+      "short_interest": "available_if_plan_supports",
+      "financials": "partial"
+    },
+    "fred": {
+      "macro": "available"
+    },
+    "sec_edgar": {
+      "insider_trading": "research_only"
+    },
+    "fmp": {
+      "earnings_surprise": "paid_later",
+      "insider_trading": "paid_later"
+    },
+    "jquants": {
+      "japan_eod": "paid_later",
+      "japan_intraday": "paid_later"
+    }
+  }
+}
+```
+
+---
+
+# 149. Quant Proxy Registry
+
+## 149.1 目的
+
+每个研究方向都必须登记：
+
+```text
+真实指标是什么？
+当前 proxy 是什么？
+proxy 数据源是什么？
+是否可生产？
+proxy 风险是什么？
+```
+
+---
+
+## 149.2 Registry 字段
+
+```text
+proxy_id
+module_name
+true_signal_name
+proxy_signal_name
+required_data
+current_data_source
+data_cost_level
+production_status
+fallback_behavior
+known_limitations
+validation_status
+```
+
+---
+
+## 149.3 示例
+
+```json
+{
+  "module_name": "Market Breadth",
+  "true_signal_name": "% S&P 500 stocks above 50MA",
+  "proxy_signal_name": "RSP/SPY + IWM/SPY",
+  "required_data": ["RSP daily bars", "SPY daily bars", "IWM daily bars"],
+  "current_data_source": "Massive/Polygon",
+  "data_cost_level": "zero_extra_cost",
+  "production_status": "production_candidate",
+  "known_limitations": [
+    "proxy does not measure actual constituent breadth",
+    "ETF structure and sector weights may distort signal"
+  ]
+}
+```
+
+---
+
+# 150. Massive/Polygon Production Proxy Set
+
+v1.5 将以下模块列为 Massive/Polygon 可直接支持的生产候选。
+
+---
+
+## 150.1 Breadth Proxy：RSP/SPY + IWM/SPY
+
+```text
+RSP/SPY:
+    equal-weight S&P 500 vs cap-weight S&P 500
+
+IWM/SPY:
+    small-cap risk appetite vs large-cap index
+```
+
+用途：
+
+```text
+Market Breadth Engine
+Breadth Divergence Warning
+Regime Risk Multiplier
+```
+
+规则：
+
+```text
+If SPY makes new high
+and RSP/SPY fails to confirm
+and IWM/SPY weakens:
+    Breadth Warning / Bearish Divergence
+```
+
+---
+
+## 150.2 Credit Proxy：HYG/IEF
+
+```text
+HYG:
+    high-yield corporate bond ETF
+
+IEF:
+    7–10 year Treasury ETF
+```
+
+用途：
+
+```text
+Credit Risk Appetite Proxy
+Cross-Asset Divergence, production candidate after validation
+```
+
+规则：
+
+```text
+If SPY strong
+but HYG/IEF weakens for 3–5 sessions:
+    Credit Divergence Warning
+
+If Breadth Warning + Credit Weakening:
+    risk_multiplier reduction strengthened
+```
+
+注意：
+
+```text
+Credit proxy must not double-count risk with breadth.
+Ablation must prove incremental value.
+```
+
+---
+
+## 150.3 Tail-Risk Proxy：SPY / VIXY or VIX
+
+```text
+SPY up + VIXY up:
+    hidden tail-risk warning
+
+QQQ up + VIXY up:
+    technology-led rally with defensive hedging
+```
+
+用途：
+
+```text
+Hidden Tail-Risk Warning
+Options disabled
+B setup disabled
+risk_multiplier reduction
+```
+
+状态：
+
+```text
+production_candidate as soft modifier
+true option skew remains research-only
+```
+
+---
+
+## 150.4 Lottery / MAX Filter
+
+数据：
+
+```text
+OHLCV
+MAX_20D
+abnormal volume
+liquidity
+market cap, if available
+catalyst flag, if available
+```
+
+用途：
+
+```text
+Avoid low-quality retail lottery spikes
+Downgrade non-fundamental extreme moves
+Do Not Trade List
+```
+
+---
+
+## 150.5 Calendar Tags
+
+无需额外数据：
+
+```text
+day_of_week
+turn_of_month_window
+fomc_date_manual_config
+overnight_return
+intraday_return
+```
+
+用途：
+
+```text
+Timing modifier
+Research-only until validated
+```
+
+---
+
+## 150.6 Smart Money Flow / Last Hour Confirmation
+
+需要 intraday aggregates：
+
+```text
+first_hour_volume_pct
+last_hour_volume_pct
+last_hour_return
+close_location_pct
+vwap_relation
+```
+
+用途：
+
+```text
+Breakout quality confirmation
+Gap-and-Go quality
+Exit warning
+PA Quality modifier
+```
+
+状态：
+
+```text
+paper / shadow first
+production after validation
+```
+
+---
+
+# 151. Free / Low-Cost Data Sources
+
+## 151.1 FRED
+
+用途：
+
+```text
+High Yield OAS
+Treasury yields
+macro rate context
+credit spread confirmation
+```
+
+优先序列：
+
+```text
+BAMLH0A0HYM2:
+    ICE BofA US High Yield OAS
+
+DGS10:
+    10-year Treasury yield
+
+DGS2:
+    2-year Treasury yield
+
+VIXCLS:
+    VIX close, optional
+```
+
+使用原则：
+
+```text
+FRED data is free and slow-moving.
+Use it for macro confirmation, not intraday signal.
+```
+
+---
+
+## 151.2 FINRA
+
+用途：
+
+```text
+official short interest
+short interest research
+short risk guard, slow-moving
+```
+
+原则：
+
+```text
+Short interest is delayed.
+It cannot predict real-time squeeze.
+Use as risk filter only.
+```
+
+---
+
+## 151.3 SEC EDGAR
+
+用途：
+
+```text
+Form 4 insider transactions
+company facts
+filings research
+```
+
+状态：
+
+```text
+research sandbox
+not production in MVP
+```
+
+原因：
+
+```text
+raw filings are noisy
+Form 4 parsing is time-consuming
+cluster insider buying requires careful classification
+```
+
+---
+
+# 152. Paid-Later Data Sources
+
+## 152.1 FMP / Financial Modeling Prep
+
+Potential use:
+
+```text
+earnings surprise
+earnings calendar
+financial ratios
+insider trading
+short interest
+```
+
+When to consider:
+
+```text
+after Earnings Gap-and-Go enters Paper / Micro-live
+after ETF/PA core is stable
+after EdgePilot generates enough value to justify subscription
+```
+
+---
+
+## 152.2 Finnhub
+
+Potential use:
+
+```text
+earnings calendar
+company news
+insider transactions
+fundamentals
+```
+
+Rule:
+
+```text
+Do not subscribe to both FMP and Finnhub initially.
+Test free tiers, then choose one if needed.
+```
+
+---
+
+## 152.3 J-Quants
+
+Use for Japan expansion:
+
+```text
+Japan stock EOD
+financials
+listed info
+TOPIX / indices
+minute/tick add-on if needed
+```
+
+When to add:
+
+```text
+after US ETF / US large-cap workflow is stable
+when Japan scanning becomes priority
+```
+
+---
+
+## 152.4 Expensive / Not Recommended Now
+
+```text
+Bloomberg
+FactSet
+Refinitiv
+SpotGamma
+SqueezeMetrics
+OptionMetrics
+ORATS
+ORTEX / S3, unless short module becomes core
+professional news sentiment feeds
+```
+
+Status:
+
+```text
+not suitable for current account size or private beta stage
+```
+
+---
+
+# 153. Research Backlog by Data Requirement
+
+## 153.1 Research-only until better data
+
+```text
+Dealer GEX:
+    requires reliable options positioning model
+    vendor-specific estimates differ
+
+True options skew:
+    requires robust option chain processing and delta buckets
+
+Borrow fee / utilization:
+    requires securities lending data
+
+Insider buying:
+    requires clean Form 4 or paid API
+
+Buyback execution:
+    requires announcements and actual repurchase tracking
+
+EPS surprise / guidance:
+    requires reliable consensus and actual data
+```
+
+---
+
+## 153.2 Can start as proxy now
+
+```text
+Credit spread:
+    HYG/IEF + FRED HY OAS
+
+Tail risk:
+    VIXY / VIX vs SPY
+
+Correlation / dispersion:
+    RSP/SPY, IWM/SPY, sector ETF dispersion
+
+Calendar:
+    timestamps
+
+Smart money flow:
+    intraday bars
+```
+
+---
+
+# 154. Data Cost Discipline
+
+## 154.1 原则
+
+```text
+No data subscription before module validation need.
+No expensive data before core system proves edge.
+No data source without clear use case.
+No paid data without ROI review.
+```
+
+---
+
+## 154.2 Data Subscription Gate
+
+购买新数据前必须满足：
+
+```text
+1. Module has positive research/paper result using proxy.
+2. Missing data is the main bottleneck.
+3. Expected improvement justifies cost.
+4. Cost is small relative to account / product revenue.
+5. Data license permits intended use.
+6. Integration effort is acceptable.
+```
+
+---
+
+## 154.3 Monthly Data Budget
+
+MVP:
+
+```text
+Massive/Polygon:
+    already owned
+
+FRED:
+    free
+
+FINRA / SEC:
+    free
+
+FMP/Finnhub:
+    disabled
+
+J-Quants:
+    disabled unless Japan phase starts
+```
+
+Potential later:
+
+```text
+FMP:
+    low-cost enhancement
+
+J-Quants Standard:
+    Japan EOD phase
+
+J-Quants Minute/Tick:
+    Japan intraday phase
+```
+
+---
+
+# 155. Database Additions：Data-Aware Proxy
+
+## 155.1 data_source_capability_matrix
+
+```sql
+CREATE TABLE data_source_capability_matrix (
+    capability_id TEXT PRIMARY KEY,
+    tenant_id TEXT,
+    provider TEXT NOT NULL,
+    capability_name TEXT NOT NULL,
+    capability_status TEXT NOT NULL,       -- available, partial, missing, paid_later, manual_config
+    plan_tier TEXT,
+    checked_at TIMESTAMPTZ,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 155.2 quant_proxy_registry
+
+```sql
+CREATE TABLE quant_proxy_registry (
+    proxy_id TEXT PRIMARY KEY,
+    module_name TEXT NOT NULL,
+    true_signal_name TEXT,
+    proxy_signal_name TEXT NOT NULL,
+    required_data JSONB,
+    current_data_source TEXT,
+    data_cost_level TEXT,                  -- zero_extra_cost, free_external, paid_later, expensive
+    production_status TEXT,                -- production_candidate, research_only, locked
+    fallback_behavior TEXT,
+    known_limitations JSONB,
+    validation_status TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 155.3 proxy_market_context_snapshots
+
+```sql
+CREATE TABLE proxy_market_context_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    snapshot_date DATE NOT NULL,
+    rsp_spy_ratio DOUBLE PRECISION,
+    iwm_spy_ratio DOUBLE PRECISION,
+    hyg_ief_ratio DOUBLE PRECISION,
+    vixy_return DOUBLE PRECISION,
+    spy_return DOUBLE PRECISION,
+    hidden_tail_risk_flag BOOLEAN,
+    credit_divergence_flag BOOLEAN,
+    breadth_proxy_state TEXT,
+    risk_multiplier DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 155.4 calendar_anomaly_tags
+
+```sql
+CREATE TABLE calendar_anomaly_tags (
+    tag_id TEXT PRIMARY KEY,
+    market TEXT NOT NULL,
+    trading_date DATE NOT NULL,
+    day_of_week TEXT,
+    is_monday BOOLEAN,
+    is_turn_of_month BOOLEAN,
+    is_month_end_window BOOLEAN,
+    is_month_start_window BOOLEAN,
+    is_fomc_window BOOLEAN,
+    overnight_return DOUBLE PRECISION,
+    intraday_return DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 155.5 smart_money_flow_features
+
+```sql
+CREATE TABLE smart_money_flow_features (
+    feature_id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL,
+    session_date DATE NOT NULL,
+    first_hour_volume_pct DOUBLE PRECISION,
+    last_hour_volume_pct DOUBLE PRECISION,
+    first_hour_return DOUBLE PRECISION,
+    last_hour_return DOUBLE PRECISION,
+    close_location_pct DOUBLE PRECISION,
+    vwap_relation TEXT,
+    institutional_confirmation_score DOUBLE PRECISION,
+    retail_chase_risk_score DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 155.6 data_subscription_decisions
+
+```sql
+CREATE TABLE data_subscription_decisions (
+    decision_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    use_case TEXT NOT NULL,
+    estimated_monthly_cost DOUBLE PRECISION,
+    expected_benefit TEXT,
+    decision_status TEXT,                  -- rejected, deferred, approved, active
+    reason TEXT,
+    review_date DATE,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 156. API Additions：Data-Aware Proxy
+
+```http
+GET  /api/data/capabilities
+GET  /api/data/capabilities/{provider}
+POST /api/data/capabilities/check
+
+GET  /api/proxies/registry
+GET  /api/proxies/market-context/latest
+GET  /api/proxies/credit
+GET  /api/proxies/tail-risk
+GET  /api/proxies/calendar-tags
+GET  /api/proxies/smart-money/{symbol}
+
+POST /api/proxies/backtest/breadth
+POST /api/proxies/backtest/credit
+POST /api/proxies/backtest/tail-risk
+POST /api/proxies/backtest/calendar
+POST /api/proxies/backtest/smart-money
+
+GET  /api/data/subscription-decisions
+POST /api/data/subscription-decisions
+```
+
+---
+
+# 157. Frontend：Data Source & Proxy Lab
+
+新增页面：
+
+```text
+Data Source Lab
+```
+
+页面结构：
+
+```text
+Provider Capability Matrix
+Quant Proxy Registry
+Zero-Cost Proxy Dashboard
+Paid-Later Backlog
+Data Subscription Decisions
+Proxy Validation Status
+```
+
+---
+
+## 157.1 Capability Matrix Panel
+
+显示：
+
+```text
+provider
+capability
+status
+plan tier
+locked modules
+fallback proxy
+```
+
+---
+
+## 157.2 Proxy Dashboard
+
+显示：
+
+```text
+RSP/SPY
+IWM/SPY
+HYG/IEF
+SPY vs VIXY
+MAX_20D distribution
+Calendar tags
+Smart Money Flow
+```
+
+---
+
+## 157.3 Paid-Later Backlog
+
+显示：
+
+```text
+FMP:
+    earnings surprise
+    insider trading
+    financial ratios
+
+J-Quants:
+    Japan EOD
+    Japan intraday
+
+GEX / Skew vendors:
+    research only
+```
+
+---
+
+# 158. v1.5 实现优先级
+
+```text
+P0:
+    Data Source Capability Matrix v2
+
+P0:
+    Quant Proxy Registry
+
+P0:
+    RSP/SPY and IWM/SPY breadth proxy
+
+P0:
+    HYG/IEF credit proxy
+
+P0:
+    MAX_20D lottery filter, using existing OHLCV
+
+P1:
+    FRED connector for HY OAS / Treasury yields
+
+P1:
+    Tail-risk proxy: SPY up + VIX/VIXY up
+
+P1:
+    Calendar tags: TOM / Monday / overnight return / FOMC manual config
+
+P2:
+    Smart Money Flow features, if intraday bars stable
+
+P2:
+    FINRA / Massive short interest research
+
+P3:
+    SEC EDGAR sandbox
+
+P4:
+    FMP / Finnhub evaluation, not subscription by default
+
+P5:
+    J-Quants Standard, only when Japan phase starts
+
+P6:
+    GEX / true skew / expensive option data, research-only
+```
+
+---
+
+# 159. v1.5 Final Principle
+
+```text
+1. Do not buy data before the strategy needs it.
+2. Use Massive/Polygon proxies first.
+3. Use free macro sources before paid alternative data.
+4. Every proxy must declare its limitations.
+5. Research-only modules cannot affect live decisions.
+6. Missing data should lock or degrade features, not crash the system.
+7. Paid data must pass ROI review.
+8. The first production edge should come from price, volume, breadth proxy, volatility scaling, and disciplined exits — not expensive data.
+```
+
+Final v1.5 principle:
+
+> EdgePilot should be data-aware: build with the data we have, proxy what we can, lock what we cannot support, and only buy new data after the system proves it can convert better information into better decisions.
+
+
+---
+
+# 160. v1.5.1 版本定位：Pragmatic Rollout & Proxy Robustness
+
+v1.5 明确了低成本 proxy 的完整路线，但也引入了新的工程风险：
+
+```text
+1. Proxy 伪相关。
+2. 数据管道脆弱。
+3. 状态机组合爆炸。
+4. 独立开发者实现压力过大。
+5. Analytics / Research 模块过早进入 Production Decision。
+```
+
+v1.5.1 的目标不是继续增加研究模块，而是：
+
+> 把 v1.5 切成可落地、可测试、不会压垮独立开发者的分阶段上线计划。
+
+核心原则：
+
+```text
+1. First build the engine and brakes.
+2. Proxy first appears in analytics, not trading decisions.
+3. Single proxy cannot veto.
+4. Missing proxy data cannot crash the scanner.
+5. Decision logic must be policy-driven, not if-else spaghetti.
+6. MAX_20D first, RSP/SPY second, HYG/IEF later.
+```
+
+---
+
+# 161. v1.5-MVP Cutline
+
+v1.5.1 明确：v1.5 的所有模块不允许一次性实现。
+
+## 161.1 Production v1.5-MVP
+
+第一阶段只实现：
+
+```text
+1. ETF / large-cap scanner
+2. Basic PA / Strat trigger
+3. Position Ledger
+4. Exit Engine
+5. CSV execution import
+6. Backtest
+7. Shadow Mode
+8. Paper Trading
+9. MAX_20D lottery warning
+10. Basic analytics dashboard
+```
+
+目的：
+
+```text
+先证明发动机和刹车能正常工作。
+先验证基础 PA + Exit 是否能产生正期望。
+```
+
+---
+
+## 161.2 Analytics-only in v1.5-MVP
+
+以下 proxy 先只画图和记录，不参与交易决策：
+
+```text
+RSP/SPY
+IWM/SPY
+HYG/IEF
+VIXY/SPY
+TOM
+Monday effect
+overnight drift
+FOMC manual calendar
+Smart Money Flow, if intraday data exists
+```
+
+它们可以显示在 dashboard，但不能改变：
+
+```text
+candidate decision
+risk multiplier
+exit alert
+position sizing
+```
+
+---
+
+## 161.3 Research-only
+
+```text
+true options skew
+Dealer GEX
+insider buying
+buyback execution
+borrow fee
+real-time short data
+EPS surprise / guidance, until paid data added
+```
+
+---
+
+# 162. Proxy Lifecycle
+
+每个 proxy 必须按阶段晋级，不能直接进入生产。
+
+```text
+Stage P0: Idea
+Stage P1: Data Available
+Stage P2: Analytics-only
+Stage P3: Shadow Modifier
+Stage P4: Paper Modifier
+Stage P5: Risk Modifier
+Stage P6: Production Decision Contributor
+```
+
+## 162.1 阶段定义
+
+### P0 Idea
+
+```text
+只有研究假设。
+不写入实时系统。
+```
+
+### P1 Data Available
+
+```text
+数据能稳定获取。
+有 data quality check。
+```
+
+### P2 Analytics-only
+
+```text
+只显示图表和历史曲线。
+不影响交易决策。
+```
+
+### P3 Shadow Modifier
+
+```text
+系统记录“如果它影响决策，会发生什么”。
+但真实 decision 不受影响。
+```
+
+### P4 Paper Modifier
+
+```text
+只影响 paper trades。
+```
+
+### P5 Risk Modifier
+
+```text
+可轻微影响 risk multiplier。
+不能 veto。
+```
+
+### P6 Production Decision Contributor
+
+```text
+经过足够验证后，允许参与正式决策。
+但仍不得覆盖 hard risk rules。
+```
+
+---
+
+# 163. Proxy Data Quality State
+
+## 163.1 数据状态
+
+每个 proxy 每天必须有状态：
+
+```text
+available
+stale
+missing
+invalid
+fallback_used
+disabled
+```
+
+---
+
+## 163.2 规则
+
+```text
+If proxy data missing:
+    do not assume risk-off
+    do not assume risk-on
+    exclude proxy from scoring
+    mark dashboard as degraded
+```
+
+```text
+If one non-critical proxy missing:
+    scanner continues
+    proxy disabled for that day
+```
+
+```text
+If core price data missing:
+    scanner stops
+```
+
+```text
+If multiple market-context proxies missing:
+    Market Context = Degraded
+    no new B setup
+    A/A+ setup can remain Watch/Paper
+```
+
+---
+
+## 163.3 禁止 NaN 决策
+
+系统必须确保：
+
+```text
+risk_multiplier cannot be NaN
+decision cannot be undefined
+missing proxy cannot create false warning
+missing proxy cannot create false risk-on
+```
+
+默认 fallback：
+
+```text
+risk_multiplier = previous_valid_or_1.0
+proxy_status = missing
+proxy_weight = 0
+```
+
+---
+
+# 164. Single Proxy Cannot Veto Rule
+
+## 164.1 原则
+
+任何单一 proxy 不得独立 veto 一笔交易，除非它属于 hard safety rule。
+
+例如：
+
+```text
+RSP/SPY weak:
+    cannot directly reject A+ setup
+
+HYG/IEF weak:
+    cannot directly force exit
+
+VIXY up:
+    cannot alone disable all longs
+
+TOM:
+    cannot create trade
+
+Monday:
+    cannot alone reject all Monday trades
+```
+
+---
+
+## 164.2 允许动作
+
+单一 proxy 可以：
+
+```text
+add warning
+reduce confidence score slightly
+disable B setup, only if already validated
+change entry mode to Pullback Required
+send to Watch instead of Candidate, if combined with other weakness
+```
+
+---
+
+# 165. Multi-Proxy Confirmation Rule
+
+## 165.1 目的
+
+降低 proxy 伪相关风险。
+
+## 165.2 Warning Score
+
+每个 market proxy 输出一个 warning point：
+
+```text
+RSP/SPY weak:
+    +1
+
+IWM/SPY weak:
+    +1
+
+HYG/IEF weak:
+    +1
+
+SPY up + VIXY up:
+    +1
+
+new highs not confirming:
+    +1, if available
+```
+
+---
+
+## 165.3 映射
+
+```text
+0 warnings:
+    Market proxy state = Healthy
+    proxy risk multiplier = 1.0
+
+1 warning:
+    Dashboard warning only
+    no production effect
+
+2 warnings:
+    disable unvalidated B setup
+    no options
+
+3 warnings:
+    risk_multiplier *= 0.75
+    new breakout requires A/A+
+
+4+ warnings:
+    risk_multiplier *= 0.50
+    new long only A+
+    extended positions enter Exit Review
+```
+
+---
+
+## 165.4 不重复惩罚
+
+如果两个 proxy 表达同一风险：
+
+```text
+RSP/SPY weak
+IWM/SPY weak
+sector breadth weak
+```
+
+系统必须避免 double-counting。
+
+实现：
+
+```text
+risk_cluster = market_participation
+cluster_max_penalty = predefined cap
+```
+
+---
+
+# 166. Decision Policy Matrix
+
+## 166.1 问题
+
+如果所有模块都直接改最终结果，系统会变成复杂 if-else：
+
+```text
+Shock Mode
++ FOMC window
++ Credit normal
++ Breadth weak
++ A+ Earnings Gap-and-Go
++ Cashflow target not reached
+```
+
+这种情况下，如果没有明确优先级，系统会变成不可维护的 spaghetti code。
+
+---
+
+## 166.2 解决方案
+
+所有模块只输出标准化 modifier。
+
+```json
+{
+  "module": "breadth_proxy",
+  "modifier_type": "risk",
+  "severity": "warning",
+  "risk_multiplier_delta": -0.25,
+  "permission_delta": "disable_B_setup",
+  "confidence": 0.65,
+  "reason": "RSP/SPY weak and IWM/SPY weak"
+}
+```
+
+最终由：
+
+```text
+Decision Policy Engine
+```
+
+统一合成。
+
+---
+
+## 166.3 优先级顺序
+
+```text
+1. Hard Safety Rules
+2. Data Quality
+3. Validation / Live Eligibility
+4. Account Risk / Drawdown
+5. Strategy Kill Switch
+6. Liquidity / Execution Risk
+7. Market Regime
+8. Breadth / Credit / Proxy Modifiers
+9. PA / Strat Quality
+10. Calendar / Timing Modifiers
+11. Cashflow Target Modifier
+12. AI Reviewer, explanation only
+```
+
+---
+
+## 166.4 可 veto 的层
+
+只有以下层可以 veto：
+
+```text
+Hard Safety Rules
+Data Quality, core failure only
+Validation / Live Eligibility
+Account Risk / Drawdown
+Strategy Kill Switch
+Liquidity / Execution hard failure
+```
+
+以下层默认不能 veto：
+
+```text
+Breadth proxy
+Credit proxy
+Calendar tags
+FOMC window
+TOM
+Overnight drift
+AI review
+```
+
+---
+
+# 167. Market Context Preflight
+
+## 167.1 目的
+
+在 Scanner 运行前，先生成一个稳定的 market context snapshot。
+
+## 167.2 Preflight 步骤
+
+```text
+1. Load SPY / QQQ / RSP / IWM / HYG / IEF / VIXY bars.
+2. Validate dates and timestamps.
+3. Check missing bars.
+4. Check stale data.
+5. Calculate ratios.
+6. Calculate proxy states.
+7. Write proxy_market_context_snapshot.
+8. Publish market context event.
+```
+
+---
+
+## 167.3 失败处理
+
+```text
+If SPY or QQQ missing:
+    core market context failed
+    scanner can only run research mode
+
+If RSP missing:
+    breadth proxy disabled for the day
+
+If HYG or IEF missing:
+    credit proxy disabled for the day
+
+If VIXY missing:
+    tail-risk proxy disabled for the day
+
+If ratios NaN:
+    corresponding proxy invalid
+```
+
+---
+
+# 168. State Combination Test Matrix
+
+## 168.1 目的
+
+防止状态机爆炸导致逻辑错误。
+
+每个状态组合必须有测试。
+
+---
+
+## 168.2 核心状态维度
+
+```text
+Market Regime:
+    Risk-on / Neutral / Distribution / Shock
+
+Data Quality:
+    Healthy / Degraded / Failed
+
+Validation:
+    Live allowed / Paper only / Research only
+
+PA Grade:
+    A+ / A / B / C / D
+
+Breadth Proxy:
+    Healthy / Warning / Divergence / Missing
+
+Credit Proxy:
+    Healthy / Weak / Missing
+
+Cashflow:
+    Normal / Target Reached / Drawdown
+
+Strategy Kill Switch:
+    Active / Paused
+
+Liquidity:
+    Good / Poor
+```
+
+---
+
+## 168.3 测试要求
+
+必须测试：
+
+```text
+1. Hard safety veto always wins.
+2. Missing non-core proxy does not crash decision.
+3. Single proxy warning cannot reject A+ setup.
+4. Shock Mode + Exceptional RS Micro Probe works only at micro-size.
+5. B setup disabled when 2+ proxy warnings.
+6. Cashflow target reached reduces risk but does not upgrade setup.
+7. AI Reviewer cannot override decision.
+8. Data failed blocks production trade.
+```
+
+---
+
+# 169. MAX_20D First Implementation Plan
+
+## 169.1 为什么先做 MAX_20D
+
+```text
+1. 只需要单只股票 OHLCV。
+2. 无外部 proxy dependency。
+3. 不会造成 pipeline fragility。
+4. 不会引发 market-context 状态机爆炸。
+5. 可以快速 backtest 和 shadow。
+```
+
+---
+
+## 169.2 v1.5.1 默认状态
+
+```text
+MAX_20D:
+    production status = Analytics / Warning first
+```
+
+初期不直接 Reject。
+
+输出：
+
+```text
+Lottery Risk:
+    Low / Medium / High
+
+Suggested:
+    Allow / Watch / Avoid candidate, but decision unchanged until validated
+```
+
+---
+
+## 169.3 晋级条件
+
+从 Warning 变成生产过滤器需要：
+
+```text
+1. Backtest shows filtered candidates underperform.
+2. Rejected Signal Shadow confirms positive effect.
+3. Catalyst exception does not block A+ earnings gap.
+4. Parameter stability passed.
+5. No excessive filtered winners.
+```
+
+---
+
+# 170. RSP/SPY Analytics-only Plan
+
+## 170.1 初始状态
+
+```text
+RSP/SPY:
+    Analytics-only
+```
+
+用途：
+
+```text
+Dashboard curve
+Historical overlay
+Breadth proxy observation
+No effect on risk multiplier yet
+```
+
+---
+
+## 170.2 观察内容
+
+```text
+1. Does RSP/SPY weaken before drawdowns?
+2. Does it falsely warn during mega-cap-led bull runs?
+3. How does it behave during healthy tech leadership?
+4. Does it add information beyond SPY/QQQ/VIX?
+5. Does it improve strategy after ablation?
+```
+
+---
+
+## 170.3 晋级条件
+
+进入 Shadow Modifier：
+
+```text
+2–3 years historical test
+1–2 months live analytics observation
+no severe false-positive pattern
+ablation improves drawdown without killing returns
+```
+
+进入 Risk Modifier：
+
+```text
+Shadow performance positive
+Rejected Signal Shadow not harmed
+multi-proxy confirmation rule implemented
+```
+
+---
+
+# 171. HYG/IEF Deferred Plan
+
+## 171.1 初始状态
+
+```text
+HYG/IEF:
+    Analytics-only / Deferred
+```
+
+理由：
+
+```text
+1. Credit proxy may overlap with breadth.
+2. It may be slower than equity signals.
+3. It may cause over-defensive behavior.
+4. Need incremental value test.
+```
+
+---
+
+## 171.2 晋级条件
+
+```text
+HYG/IEF must prove incremental value over:
+    SPY/QQQ price regime
+    VIX/VIXY
+    RSP/SPY
+    IWM/SPY
+
+If not incremental:
+    keep dashboard-only
+```
+
+---
+
+# 172. Pipeline Resilience Requirements
+
+## 172.1 Error handling
+
+```text
+All market context fetches must have:
+    timeout
+    retry
+    fallback
+    status logging
+    no NaN propagation
+```
+
+---
+
+## 172.2 Freshness checks
+
+```text
+Each proxy input must validate:
+    latest bar date
+    market calendar alignment
+    adjusted/unadjusted consistency
+    split/dividend adjustment mode
+```
+
+---
+
+## 172.3 Snapshot immutability
+
+Market context snapshots are immutable once created.
+
+```text
+If correction needed:
+    create corrected snapshot
+    do not silently mutate old decisions
+```
+
+---
+
+# 173. v1.5.1 Database Additions
+
+## 173.1 proxy_lifecycle_status
+
+```sql
+CREATE TABLE proxy_lifecycle_status (
+    proxy_id TEXT PRIMARY KEY,
+    module_name TEXT NOT NULL,
+    lifecycle_stage TEXT NOT NULL,       -- idea, data_available, analytics, shadow, paper, risk_modifier, production
+    promotion_requirements JSONB,
+    current_evidence JSONB,
+    blocking_reasons JSONB,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 173.2 proxy_data_quality_events
+
+```sql
+CREATE TABLE proxy_data_quality_events (
+    event_id TEXT PRIMARY KEY,
+    proxy_name TEXT NOT NULL,
+    provider TEXT,
+    status TEXT NOT NULL,                -- available, stale, missing, invalid, fallback_used, disabled
+    affected_date DATE,
+    message TEXT,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 173.3 decision_policy_events
+
+```sql
+CREATE TABLE decision_policy_events (
+    event_id TEXT PRIMARY KEY,
+    tenant_id TEXT,
+    entity_type TEXT,                    -- candidate, position, alert
+    entity_id TEXT,
+    policy_version TEXT,
+    input_modifiers JSONB,
+    final_decision TEXT,
+    final_risk_multiplier DOUBLE PRECISION,
+    veto_source TEXT,
+    explanation TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+## 173.4 state_combination_test_cases
+
+```sql
+CREATE TABLE state_combination_test_cases (
+    test_case_id TEXT PRIMARY KEY,
+    test_name TEXT NOT NULL,
+    input_state JSONB NOT NULL,
+    expected_decision TEXT,
+    expected_risk_multiplier DOUBLE PRECISION,
+    expected_veto_source TEXT,
+    status TEXT,                         -- pending, passed, failed
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+---
+
+# 174. v1.5.1 API Additions
+
+```http
+GET  /api/proxies/lifecycle
+PATCH /api/proxies/lifecycle/{proxy_id}
+
+GET  /api/proxies/data-quality
+GET  /api/proxies/data-quality/latest
+
+GET  /api/decision-policy/events
+POST /api/decision-policy/evaluate
+
+GET  /api/testing/state-combinations
+POST /api/testing/state-combinations/run
+
+GET  /api/proxies/max20d/status
+GET  /api/proxies/rsp-spy/analytics
+GET  /api/proxies/hyg-ief/analytics
+```
+
+---
+
+# 175. v1.5.1 Frontend Additions
+
+新增页面：
+
+```text
+Proxy Rollout Lab
+```
+
+包含：
+
+```text
+Proxy Lifecycle Board
+Proxy Data Quality
+Decision Policy Trace
+State Combination Test Matrix
+MAX_20D First Plan
+RSP/SPY Analytics
+HYG/IEF Deferred
+```
+
+---
+
+## 175.1 Decision Policy Trace
+
+每个 candidate 显示：
+
+```text
+input modifiers
+which modules affected decision
+which modules only warned
+which rule vetoed
+final risk multiplier
+explanation
+```
+
+作用：
+
+```text
+防止系统黑箱化。
+降低状态机爆炸调试难度。
+```
+
+---
+
+# 176. v1.5.1 Implementation Priority
+
+```text
+P0:
+    Basic ETF / large-cap scanner
+    Basic PA / Strat trigger
+    Position Ledger
+    Exit Engine
+
+P0:
+    CSV import
+    Backtest
+    Shadow Mode
+    Paper Trading
+
+P1:
+    MAX_20D analytics/warning
+
+P1:
+    Proxy Data Quality State
+
+P1:
+    Decision Policy Engine skeleton
+
+P2:
+    RSP/SPY analytics-only dashboard
+
+P2:
+    State Combination Test Matrix
+
+P3:
+    IWM/SPY analytics-only
+
+P4:
+    HYG/IEF analytics-only
+
+P5:
+    VIXY tail-risk analytics-only
+
+P6:
+    Smart Money Flow, if intraday stable
+
+P7:
+    Any proxy risk multiplier integration
+```
+
+---
+
+# 177. v1.5.1 Final Principle
+
+```text
+1. v1.5 tells us what can be built.
+2. v1.5.1 tells us what must not be built yet.
+3. Proxy data is useful, but fragile.
+4. Analytics-only comes before risk modification.
+5. Single proxy cannot veto.
+6. Missing proxy data must not crash the system.
+7. Decision logic must be policy-driven.
+8. State combinations must be tested.
+9. MAX_20D comes first.
+10. RSP/SPY is observed before trusted.
+11. HYG/IEF is deferred until incremental value is proven.
+```
+
+Final v1.5.1 principle:
+
+> EdgePilot should become robust before it becomes sophisticated.
