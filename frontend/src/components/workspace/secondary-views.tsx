@@ -153,6 +153,12 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
       ]);
     }
   });
+  const polygonCapability = dataCapabilities.data?.find(
+    (capability) => capability.capability_key === "market_data.us_etf_daily"
+  );
+  const polygonUsesEnv = polygonCapability?.source === "env";
+  const polygonCredentialCount =
+    dataCredentials.data?.filter((credential) => credential.provider === "polygon").length ?? 0;
 
   return (
     <section className="grid gap-4 lg:grid-cols-2">
@@ -453,6 +459,15 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
             />
           </div>
           <div className="grid gap-2 rounded-md border border-line bg-panel p-3">
+            {polygonUsesEnv ? (
+              <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
+                {t(
+                  polygonCredentialCount > 0
+                    ? "envKeyOverridesSavedCredential"
+                    : "envKeyPriorityHelp"
+                )}
+              </div>
+            ) : null}
             <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
               <label className="grid gap-1 text-xs font-semibold text-slate-600">
                 {t("credentialLabel")}
