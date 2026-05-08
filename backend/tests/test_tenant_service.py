@@ -283,3 +283,104 @@ def test_transient_polygon_check_failure_keeps_credential_resolvable(monkeypatch
         assert stored.last_verified_at is not None
         assert capability.status == "stale"
         assert DataSourceService.resolve_polygon_market_data(session, principal.tenant_id) is not None
+
+        refreshed_capability = [
+            row
+            for row in TenantService.list_data_capabilities(session, principal)
+            if row.capability_key == "market_data.us_etf_daily"
+        ][0]
+        assert refreshed_capability.status == "stale"
+
+
+def test_auth_polygon_check_failure_keeps_invalid_status_visible(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "polygon_api_key", "")
+
+    from backend.app.services import data_source_service
+
+    def _raise_auth_error(self, ticker, from_date, to_date):
+        raise RuntimeError("Polygon HTTP error: 403 forbidden")
+
+    monkeypatch.setattr(
+        data_source_service.PolygonClient,
+        "list_daily_bars",
+        _raise_auth_error,
+    )
+
+    with _session() as session:
+        principal = AuthService.upsert_principal(
+            session=session,
+            user_id="user_1",
+            external_subject="auth0|user_1",
+            tenant_id="tenant_1",
+            account_id="acct_1",
+            role="owner",
+            email="user@example.com",
+            display_name="User",
+            email_verified=True,
+        )
+        credential = TenantService.create_api_key(
+            session=session,
+            principal=principal,
+            request=TenantApiKeyCreate(
+                provider="polygon",
+                label="Polygon",
+                encrypted_payload="ciphertext",
+            ),
+        )
+
+        response = TenantService.check_api_key(session, principal, credential.credential_id)
+        stored = session.get(TenantApiKey, credential.credential_id)
+        refreshed_capability = [
+            row
+            for row in TenantService.list_data_capabilities(session, principal)
+            if row.capability_key == "market_data.us_etf_daily"
+        ][0]
+
+        assert response.status == "invalid"
+        assert stored.status == "invalid"
+        assert refreshed_capability.status == "invalid"
+
+
+def test_env_polygon_key_can_recover_from_tenant_credential_runtime_failure(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "polygon_api_key", "")
+
+    with _session() as session:
+        principal = AuthService.upsert_principal(
+            session=session,
+            user_id="user_1",
+            external_subject="auth0|user_1",
+            tenant_id="tenant_1",
+            account_id="acct_1",
+            role="owner",
+            email="user@example.com",
+            display_name="User",
+            email_verified=True,
+        )
+        TenantService.create_api_key(
+            session=session,
+            principal=principal,
+            request=TenantApiKeyCreate(
+                provider="polygon",
+                label="Polygon",
+                encrypted_payload="ciphertext",
+            ),
+        )
+        capability = session.query(TenantDataCapability).filter_by(
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+        ).one()
+        capability.status = "stale"
+        capability.source = "tenant_credential"
+        capability.reason = "Polygon HTTP error: 500"
+        session.commit()
+
+        monkeypatch.setattr(settings, "polygon_api_key", "env_key")
+        refreshed_capability = [
+            row
+            for row in TenantService.list_data_capabilities(session, principal)
+            if row.capability_key == "market_data.us_etf_daily"
+        ][0]
+
+        assert refreshed_capability.status == "available"
+        assert refreshed_capability.source == "env"
+        assert refreshed_capability.reason is None

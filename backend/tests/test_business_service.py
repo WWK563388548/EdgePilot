@@ -749,6 +749,52 @@ def test_account_refresh_blocks_before_deleting_when_data_source_missing(
     ]
 
 
+def test_account_refresh_blocks_when_runtime_capability_is_stale(session, monkeypatch) -> None:
+    from backend.app.core.config import settings
+
+    principal = _principal("user_a", "acct_a")
+    monkeypatch.setattr(settings, "polygon_api_key", "")
+    session.add(db.Tenant(tenant_id=principal.tenant_id, name="Tenant A"))
+    session.add(
+        db.TenantApiKey(
+            credential_id="cred_polygon",
+            tenant_id=principal.tenant_id,
+            provider="polygon",
+            label="Polygon",
+            status="configured",
+            encrypted_payload="secret",
+        )
+    )
+    session.add(
+        db.TenantDataCapability(
+            capability_id="cap_polygon",
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+            provider="polygon",
+            market="US",
+            asset_type="etf",
+            timeframe="1d",
+            status="stale",
+            source="tenant_credential",
+            reason="Polygon HTTP error: 500",
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ValueError, match="Data source unavailable"):
+        BusinessService.refresh_account_oneil_core_universe(
+            session,
+            principal,
+            AccountETFUniverseRefreshRequest(symbols=["iwm"]),
+        )
+
+    capability = session.query(db.TenantDataCapability).filter_by(
+        tenant_id=principal.tenant_id,
+        capability_key="market_data.us_etf_daily",
+    ).one()
+    assert capability.status == "stale"
+
+
 def test_run_automation_job_records_successful_steps(session, monkeypatch) -> None:
     principal = _principal("user_a", "acct_a")
 

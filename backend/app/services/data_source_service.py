@@ -56,8 +56,21 @@ class DataSourceService:
         session: Session,
         principal: AuthPrincipal,
     ) -> tuple[PolygonClient, DataSourceResolution]:
+        AuthService.ensure_tenant_foundation(session=session, tenant_id=principal.tenant_id)
+        session.flush()
         resolution = DataSourceService.resolve_polygon_market_data(session, principal.tenant_id)
-        capability = DataSourceService.sync_polygon_capability(session, principal.tenant_id)
+        capability = session.scalar(
+            select(db.TenantDataCapability).where(
+                db.TenantDataCapability.tenant_id == principal.tenant_id,
+                db.TenantDataCapability.capability_key == POLYGON_US_ETF_DAILY_CAPABILITY,
+            )
+        )
+        if capability is None:
+            raise DataSourceUnavailable(
+                POLYGON_US_ETF_DAILY_CAPABILITY,
+                "missing",
+                "Polygon market data capability is not registered",
+            )
         if resolution is None or capability.status != "available":
             raise DataSourceUnavailable(
                 POLYGON_US_ETF_DAILY_CAPABILITY,
