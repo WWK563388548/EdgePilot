@@ -13,6 +13,10 @@ from backend.app.schemas.business import (
     CandidatePlanPreview,
     CandidateUpdate,
     DashboardSummary,
+    ExecutionCSVImportRequest,
+    ExecutionFill,
+    ExecutionImport,
+    ExecutionImportResult,
     ExitAlert,
     ExitAlertCreate,
     ExitAlertEvaluationRequest,
@@ -45,6 +49,7 @@ from backend.app.schemas.outcome import (
 )
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
+from backend.app.services.execution_import_service import ExecutionImportService
 
 router = APIRouter(prefix="/api", tags=["business"])
 
@@ -141,6 +146,87 @@ def count_job_runs(
             session=session,
             principal=principal,
             status=status_filter,
+        )
+    )
+
+
+@router.post(
+    "/execution/imports/csv",
+    response_model=ExecutionImportResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def import_execution_csv(
+    request: ExecutionCSVImportRequest,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> ExecutionImportResult:
+    return ExecutionImportService.import_csv(session=session, principal=principal, request=request)
+
+
+@router.get("/execution/imports", response_model=list[ExecutionImport])
+def list_execution_imports(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[ExecutionImport]:
+    return ExecutionImportService.list_imports(
+        session=session,
+        principal=principal,
+        status=status_filter,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/execution/imports/count", response_model=CountResponse)
+def count_execution_imports(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    status_filter: str | None = Query(default=None, alias="status"),
+) -> CountResponse:
+    return CountResponse(
+        total=ExecutionImportService.count_imports(
+            session=session,
+            principal=principal,
+            status=status_filter,
+        )
+    )
+
+
+@router.get("/execution/fills", response_model=list[ExecutionFill])
+def list_execution_fills(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    symbol_id: str | None = None,
+    position_id: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[ExecutionFill]:
+    return ExecutionImportService.list_fills(
+        session=session,
+        principal=principal,
+        symbol_id=symbol_id,
+        position_id=position_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/execution/fills/count", response_model=CountResponse)
+def count_execution_fills(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    symbol_id: str | None = None,
+    position_id: str | None = None,
+) -> CountResponse:
+    return CountResponse(
+        total=ExecutionImportService.count_fills(
+            session=session,
+            principal=principal,
+            symbol_id=symbol_id,
+            position_id=position_id,
         )
     )
 

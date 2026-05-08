@@ -8,6 +8,8 @@ from backend.app.api.routes.business import (
     get_account_risk_settings,
     get_notification_preferences,
     count_candidates,
+    count_execution_fills,
+    count_execution_imports,
     count_exit_alerts,
     count_journal_trades,
     count_job_runs,
@@ -18,6 +20,7 @@ from backend.app.api.routes.business import (
     create_exit_alert,
     close_position,
     evaluate_exit_alerts,
+    import_execution_csv,
     create_journal_trade,
     create_position,
     get_dashboard_summary,
@@ -30,6 +33,8 @@ from backend.app.api.routes.business import (
     list_job_runs,
     list_scanner_outcomes,
     list_candidates,
+    list_execution_fills,
+    list_execution_imports,
     list_exit_alerts,
     list_journal_trades,
     list_notifications,
@@ -64,6 +69,10 @@ from backend.app.schemas.business import (
     CandidateUpdate,
     DashboardSummary,
     DataFreshnessSummary,
+    ExecutionCSVImportRequest,
+    ExecutionFill,
+    ExecutionImport,
+    ExecutionImportResult,
     ExitAlert,
     ExitAlertCreate,
     ExitAlertEvaluationRequest,
@@ -179,6 +188,35 @@ def _trade() -> JournalTrade:
         entry_ts=datetime(2026, 4, 20, tzinfo=UTC),
         exit_ts=datetime(2026, 4, 26, tzinfo=UTC),
         net_pnl=120.0,
+    )
+
+
+def _execution_import() -> ExecutionImport:
+    return ExecutionImport(
+        import_id="exec_import_1",
+        account_id="acct_local",
+        broker="edgepilot_generic_csv",
+        status="completed",
+        rows_total=1,
+        rows_imported=1,
+        created_at=datetime(2026, 4, 26, tzinfo=UTC),
+    )
+
+
+def _execution_fill() -> ExecutionFill:
+    return ExecutionFill(
+        fill_id="exec_fill_1",
+        import_id="exec_import_1",
+        account_id="acct_local",
+        position_id="pos_1",
+        idempotency_key="exec_key_1",
+        broker="edgepilot_generic_csv",
+        symbol_id="SPY",
+        asset_type="etf",
+        side="buy",
+        quantity=1,
+        price=421,
+        executed_at=datetime(2026, 4, 26, tzinfo=UTC),
     )
 
 
@@ -473,6 +511,55 @@ def test_automation_job_routes(monkeypatch) -> None:
     assert run.status == "succeeded"
     assert list_job_runs(session=None, principal=_principal(), status_filter="succeeded")[0].run_id == "job_1"
     assert count_job_runs(session=None, principal=_principal(), status_filter="succeeded").total == 1
+
+
+def test_execution_import_routes(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    captured = {}
+
+    def _fake_import(session, principal, request):
+        captured["account_id"] = principal.account_id
+        captured["csv_text"] = request.csv_text
+        return ExecutionImportResult(import_record=_execution_import(), fills=[_execution_fill()])
+
+    monkeypatch.setattr(business_route.ExecutionImportService, "import_csv", _fake_import)
+    monkeypatch.setattr(
+        business_route.ExecutionImportService,
+        "list_imports",
+        lambda session, principal, status, limit, offset: [_execution_import()],
+    )
+    monkeypatch.setattr(
+        business_route.ExecutionImportService,
+        "count_imports",
+        lambda session, principal, status: 1,
+    )
+    monkeypatch.setattr(
+        business_route.ExecutionImportService,
+        "list_fills",
+        lambda session, principal, symbol_id, position_id, limit, offset: [_execution_fill()],
+    )
+    monkeypatch.setattr(
+        business_route.ExecutionImportService,
+        "count_fills",
+        lambda session, principal, symbol_id, position_id: 1,
+    )
+
+    result = import_execution_csv(
+        session=None,
+        principal=_principal(),
+        request=ExecutionCSVImportRequest(csv_text="symbol,side,quantity,price,executed_at"),
+    )
+
+    assert captured == {
+        "account_id": "acct_local",
+        "csv_text": "symbol,side,quantity,price,executed_at",
+    }
+    assert result.import_record.import_id == "exec_import_1"
+    assert list_execution_imports(session=None, principal=_principal())[0].import_id == "exec_import_1"
+    assert count_execution_imports(session=None, principal=_principal()).total == 1
+    assert list_execution_fills(session=None, principal=_principal())[0].fill_id == "exec_fill_1"
+    assert count_execution_fills(session=None, principal=_principal()).total == 1
 
 
 def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:

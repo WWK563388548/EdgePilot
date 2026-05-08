@@ -266,6 +266,17 @@ Scope:
 - Allow unmatched fills to create review-needed position records.
 - Add idempotency keys so repeated CSV uploads do not duplicate fills.
 
+Current branch foundation slice:
+
+- Add execution import and execution fill ORM models, migration, schemas, and read APIs.
+- Add generic CSV import request support without broker API sync.
+- Normalize CSV rows into canonical execution fills.
+- Match fills to account-scoped positions when a position ID or active symbol position exists.
+- Create `review_needed` positions for unmatched fills.
+- Apply basic long-position reconciliation for buy, partial sell, and close flows.
+- Preserve idempotency so repeated imports skip existing fills.
+- Mark `execution_import.csv` as available for tenant capability checks.
+
 Out of scope:
 
 - Direct broker API sync.
