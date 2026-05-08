@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { Field } from "@/components/workspace/atoms/field";
 import { StatusPill } from "@/components/workspace/atoms/status-pill";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
@@ -57,6 +57,10 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
     inAppEnabled: true,
     minSeverity: "info",
     smsEnabled: false
+  });
+  const [credentialForm, setCredentialForm] = useState({
+    apiKey: "",
+    label: "Polygon"
   });
   useEffect(() => {
     if (!riskSettings.data) {
@@ -116,6 +120,45 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
       await queryClient.invalidateQueries({ queryKey: ["notification-preferences"] });
     }
   });
+  const createDataCredential = useMutation({
+    mutationFn: () =>
+      api.createDataCredential({
+        provider: "polygon",
+        label: credentialForm.label || "Polygon",
+        encrypted_payload: credentialForm.apiKey || undefined
+      }),
+    onSuccess: async () => {
+      setCredentialForm((value) => ({ ...value, apiKey: "" }));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["data-credentials"] }),
+        queryClient.invalidateQueries({ queryKey: ["data-capabilities"] })
+      ]);
+    }
+  });
+  const checkDataCapability = useMutation({
+    mutationFn: (capabilityKey: string) => api.checkDataCapability(capabilityKey),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["data-capabilities"] }),
+        queryClient.invalidateQueries({ queryKey: ["data-credentials"] })
+      ]);
+    }
+  });
+  const checkDataCredential = useMutation({
+    mutationFn: (credentialId: string) => api.checkDataCredential(credentialId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["data-capabilities"] }),
+        queryClient.invalidateQueries({ queryKey: ["data-credentials"] })
+      ]);
+    }
+  });
+  const polygonCapability = dataCapabilities.data?.find(
+    (capability) => capability.capability_key === "market_data.us_etf_daily"
+  );
+  const polygonUsesEnv = polygonCapability?.source === "env";
+  const polygonCredentialCount =
+    dataCredentials.data?.filter((credential) => credential.provider === "polygon").length ?? 0;
 
   return (
     <section className="grid gap-4 lg:grid-cols-2">
@@ -317,14 +360,40 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
                     .filter(Boolean)
                     .join(" · ") || "-"}
                 </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                  <span>
+                    {t("dataSourceSource")}: {capability.source ?? "-"}
+                  </span>
+                  <span>
+                    {t("dataSourceLastChecked")}: {formatDateTime(capability.last_checked_at, locale)}
+                  </span>
+                </div>
                 {capability.reason ? (
                   <div className="mt-2 text-xs leading-5 text-slate-600">{capability.reason}</div>
                 ) : null}
               </div>
-              <StatusPill
-                label={labelCapabilityStatus(capability.status, locale)}
-                tone={capabilityTone(capability.status)}
-              />
+              <div className="flex items-center gap-2 sm:justify-end">
+                <StatusPill
+                  label={labelCapabilityStatus(capability.status, locale)}
+                  tone={capabilityTone(capability.status)}
+                />
+                {capability.capability_key === "market_data.us_etf_daily" ? (
+                  <button
+                    className="focus-ring inline-flex h-8 items-center gap-2 rounded-md border border-line bg-white px-2 text-xs font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={checkDataCapability.isPending}
+                    onClick={() => checkDataCapability.mutate(capability.capability_key)}
+                    type="button"
+                  >
+                    {checkDataCapability.isPending &&
+                    checkDataCapability.variables === capability.capability_key ? (
+                      <Loader2 className="animate-spin" size={14} />
+                    ) : (
+                      <PlugZap size={14} />
+                    )}
+                    {t("checkConnection")}
+                  </button>
+                ) : null}
+              </div>
             </div>
           ))}
           {dataCapabilities.isLoading ? (
@@ -332,6 +401,17 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
           ) : null}
           {!dataCapabilities.isLoading && !dataCapabilities.data?.length ? (
             <div className="text-sm font-medium text-slate-600">{t("noDataCapabilities")}</div>
+          ) : null}
+          {checkDataCapability.isError ? (
+            <div className="text-xs font-medium text-rose-700">
+              {t("capabilityCheckFailed")}: {errorText(checkDataCapability.error)}
+            </div>
+          ) : null}
+          {checkDataCapability.data ? (
+            <div className="text-xs font-medium text-teal-700">
+              {t("checkResult")}: {labelCapabilityStatus(checkDataCapability.data.status, locale)}
+              {checkDataCapability.data.message ? ` · ${checkDataCapability.data.message}` : ""}
+            </div>
           ) : null}
         </div>
       </div>
@@ -377,6 +457,115 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
               label={dataCredentials.data?.length ? t("configured") : t("notConfigured")}
               tone={dataCredentials.data?.length ? "good" : "neutral"}
             />
+          </div>
+          <div className="grid gap-2 rounded-md border border-line bg-panel p-3">
+            {polygonUsesEnv ? (
+              <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
+                {t(
+                  polygonCredentialCount > 0
+                    ? "envKeyOverridesSavedCredential"
+                    : "envKeyPriorityHelp"
+                )}
+              </div>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <label className="grid gap-1 text-xs font-semibold text-slate-600">
+                {t("credentialLabel")}
+                <input
+                  className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
+                  onChange={(event) =>
+                    setCredentialForm((value) => ({ ...value, label: event.target.value }))
+                  }
+                  value={credentialForm.label}
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold text-slate-600">
+                {t("polygonApiKey")}
+                <input
+                  className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
+                  onChange={(event) =>
+                    setCredentialForm((value) => ({ ...value, apiKey: event.target.value }))
+                  }
+                  placeholder="••••••••"
+                  type="password"
+                  value={credentialForm.apiKey}
+                />
+              </label>
+              <button
+                className="focus-ring mt-auto inline-flex h-9 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!credentialForm.apiKey || createDataCredential.isPending}
+                onClick={() => createDataCredential.mutate()}
+                type="button"
+              >
+                {createDataCredential.isPending ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <Save size={16} />
+                )}
+                {t("saveCredential")}
+              </button>
+            </div>
+            {createDataCredential.isError ? (
+              <div className="text-xs font-medium text-rose-700">
+                {t("credentialSaveFailed")}: {errorText(createDataCredential.error)}
+              </div>
+            ) : null}
+            {createDataCredential.isSuccess ? (
+              <div className="text-xs font-medium text-teal-700">{t("credentialSaved")}</div>
+            ) : null}
+            <div className="grid gap-2">
+              {(dataCredentials.data ?? []).map((credential) => (
+                <div
+                  className="flex flex-col gap-2 rounded-md border border-line bg-white p-2 sm:flex-row sm:items-center sm:justify-between"
+                  key={credential.credential_id}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-ink">
+                      {credential.label ?? credential.provider}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {credential.provider} · {credential.key_fingerprint ?? "-"} ·{" "}
+                      {t("dataSourceLastChecked")}:{" "}
+                      {formatDateTime(credential.last_verified_at, locale)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusPill
+                      label={credential.status ?? t("unknown")}
+                      tone={credential.status === "configured" ? "good" : "neutral"}
+                    />
+                    <button
+                      className="focus-ring inline-flex h-8 items-center gap-2 rounded-md border border-line bg-white px-2 text-xs font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={checkDataCredential.isPending}
+                      onClick={() => checkDataCredential.mutate(credential.credential_id)}
+                      type="button"
+                    >
+                      {checkDataCredential.isPending &&
+                      checkDataCredential.variables === credential.credential_id ? (
+                        <Loader2 className="animate-spin" size={14} />
+                      ) : (
+                        <PlugZap size={14} />
+                      )}
+                      {t("testCredential")}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {!dataCredentials.isLoading && !dataCredentials.data?.length ? (
+                <div className="text-xs font-medium text-slate-600">{t("noCredentials")}</div>
+              ) : null}
+              {checkDataCredential.isError ? (
+                <div className="text-xs font-medium text-rose-700">
+                  {t("credentialCheckFailed")}: {errorText(checkDataCredential.error)}
+                </div>
+              ) : null}
+              {checkDataCredential.data ? (
+                <div className="text-xs font-medium text-teal-700">
+                  {t("checkResult")}: {labelCapabilityStatus(checkDataCredential.data.status, locale)}
+                  {checkDataCredential.data.message ? ` · ${checkDataCredential.data.message}` : ""}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -450,4 +639,21 @@ function labelCapabilityStatus(status: string, locale: Locale) {
     stale: { zh: "过期", en: "Stale", ja: "古い" }
   };
   return labels[status]?.[locale] ?? status;
+}
+
+function formatDateTime(value: string | null | undefined, locale: Locale) {
+  if (!value) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function errorText(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.detail ?? error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
 }

@@ -696,6 +696,14 @@ export type TenantApiKey = {
   updated_at: string | null;
 };
 
+export type TenantApiKeyCreate = {
+  provider: string;
+  label?: string | null;
+  encrypted_payload?: string | null;
+  key_fingerprint?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+};
+
 export type TenantDataCapability = {
   capability_id: string;
   tenant_id: string;
@@ -711,6 +719,16 @@ export type TenantDataCapability = {
   metadata_json: Record<string, unknown> | null;
   created_at: string | null;
   updated_at: string | null;
+};
+
+export type DataSourceCheckResponse = {
+  provider: string;
+  capability_key: string;
+  status: string;
+  source: string | null;
+  message: string | null;
+  checked_at: string;
+  credential_id: string | null;
 };
 
 export type VerificationEmailResponse = {
@@ -835,7 +853,17 @@ export const api = {
   currentTenant: () => getJson<Tenant>("/api/tenants/current"),
   tenantMembers: () => getJson<TenantMember[]>("/api/tenants/current/members"),
   dataCredentials: () => getJson<TenantApiKey[]>("/api/data-credentials"),
+  createDataCredential: (request: TenantApiKeyCreate) =>
+    postJson<TenantApiKey>("/api/data-credentials", request),
+  checkDataCredential: (credentialId: string) =>
+    postJson<DataSourceCheckResponse>(
+      `/api/data-credentials/${encodeURIComponent(credentialId)}/check`
+    ),
   dataCapabilities: () => getJson<TenantDataCapability[]>("/api/data-capabilities"),
+  checkDataCapability: (capabilityKey: string) =>
+    postJson<DataSourceCheckResponse>(
+      `/api/data-capabilities/${encodeURIComponent(capabilityKey)}/check`
+    ),
   dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
   riskSettings: () => getJson<AccountRiskSettings>("/api/settings/risk"),
   updateRiskSettings: (request: AccountRiskSettingsUpdate) =>

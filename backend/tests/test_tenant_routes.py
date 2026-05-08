@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 
 from backend.app.api.routes.tenant import (
+    check_data_capability,
+    check_data_credential,
     create_data_credential,
     get_current_tenant,
     list_current_tenant_members,
@@ -11,6 +13,7 @@ from backend.app.api.routes.tenant import (
 )
 from backend.app.core.auth import AuthPrincipal
 from backend.app.schemas.tenant import (
+    DataSourceCheckResponse,
     LegalAcknowledgement,
     Tenant,
     TenantApiKey,
@@ -101,6 +104,29 @@ def test_tenant_routes_delegate_to_service(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         tenant_route.TenantService,
+        "check_data_capability",
+        lambda session, principal, capability_key: DataSourceCheckResponse(
+            provider="polygon",
+            capability_key=capability_key,
+            status="available",
+            source="env",
+            checked_at=now,
+        ),
+    )
+    monkeypatch.setattr(
+        tenant_route.TenantService,
+        "check_api_key",
+        lambda session, principal, credential_id: DataSourceCheckResponse(
+            provider="polygon",
+            capability_key="market_data.us_etf_daily",
+            status="available",
+            source="tenant_credential",
+            checked_at=now,
+            credential_id=credential_id,
+        ),
+    )
+    monkeypatch.setattr(
+        tenant_route.TenantService,
         "list_job_states",
         lambda session, principal: [
             TenantJobState(
@@ -118,6 +144,14 @@ def test_tenant_routes_delegate_to_service(monkeypatch) -> None:
     assert list_legal_acknowledgements(session=None, principal=principal)[0].document_key
     assert list_data_credentials(session=None, principal=principal)[0].provider == "polygon"
     assert list_data_capabilities(session=None, principal=principal)[0].status == "available"
+    assert (
+        check_data_capability(
+            "market_data.us_etf_daily",
+            session=None,
+            principal=principal,
+        ).status
+        == "available"
+    )
     assert list_tenant_job_states(session=None, principal=principal)[0].job_type
 
     created = create_data_credential(
@@ -126,3 +160,4 @@ def test_tenant_routes_delegate_to_service(monkeypatch) -> None:
         principal=principal,
     )
     assert created.has_encrypted_payload is True
+    assert check_data_credential("cred_1", session=None, principal=principal).source == "tenant_credential"

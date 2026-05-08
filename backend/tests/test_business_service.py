@@ -25,10 +25,15 @@ from backend.app.schemas.business import (
     PositionReduce,
     PositionStopUpdate,
 )
-from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
+from backend.app.schemas.ingestion import (
+    AccountETFUniverseRefreshRequest,
+    ETFUniverseSeedResponse,
+    ETFUniverseSeedSymbolResult,
+)
 from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest, ScannerOutcomeRecalculateResponse
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
+from backend.app.services.data_source_service import DataSourceResolution
 
 
 def _principal(user_id: str, account_id: str) -> AuthPrincipal:
@@ -672,7 +677,19 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
             candidates_written=1,
         )
 
-    monkeypatch.setattr(business_service.ETFSeedService, "_client", lambda: object())
+    monkeypatch.setattr(
+        business_service.DataSourceService,
+        "polygon_client_for_tenant",
+        lambda db_session, request_principal: (
+            object(),
+            DataSourceResolution(
+                provider="polygon",
+                capability_key="market_data.us_etf_daily",
+                source="env",
+                api_key="secret",
+            ),
+        ),
+    )
     monkeypatch.setattr(
         business_service.ETFSeedService,
         "seed_us_etf_universe_for_session",
@@ -696,7 +713,86 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
     ]
     assert len(refresh_notifications) == 1
     assert refresh_notifications[0].metadata_json["source"] == "market_refresh_scan"
+    assert refresh_notifications[0].metadata_json["data_source"]["provider"] == "polygon"
     assert refresh_notifications[0].metadata_json["candidates_written"] == 1
+
+
+def test_account_refresh_blocks_before_deleting_when_data_source_missing(
+    session,
+    monkeypatch,
+) -> None:
+    from backend.app.core.config import settings
+
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_old",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+        ),
+    )
+    monkeypatch.setattr(settings, "polygon_api_key", "")
+
+    with pytest.raises(ValueError, match="Data source unavailable"):
+        BusinessService.refresh_account_oneil_core_universe(
+            session,
+            principal,
+            AccountETFUniverseRefreshRequest(symbols=["iwm"]),
+        )
+
+    assert [row.candidate_id for row in BusinessService.list_candidates(session, principal)] == [
+        "cand_old"
+    ]
+
+
+def test_account_refresh_blocks_when_runtime_capability_is_stale(session, monkeypatch) -> None:
+    from backend.app.core.config import settings
+
+    principal = _principal("user_a", "acct_a")
+    monkeypatch.setattr(settings, "polygon_api_key", "")
+    session.add(db.Tenant(tenant_id=principal.tenant_id, name="Tenant A"))
+    session.add(
+        db.TenantApiKey(
+            credential_id="cred_polygon",
+            tenant_id=principal.tenant_id,
+            provider="polygon",
+            label="Polygon",
+            status="configured",
+            encrypted_payload="secret",
+        )
+    )
+    session.add(
+        db.TenantDataCapability(
+            capability_id="cap_polygon",
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+            provider="polygon",
+            market="US",
+            asset_type="etf",
+            timeframe="1d",
+            status="stale",
+            source="tenant_credential",
+            reason="Polygon HTTP error: 500",
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ValueError, match="Data source unavailable"):
+        BusinessService.refresh_account_oneil_core_universe(
+            session,
+            principal,
+            AccountETFUniverseRefreshRequest(symbols=["iwm"]),
+        )
+
+    capability = session.query(db.TenantDataCapability).filter_by(
+        tenant_id=principal.tenant_id,
+        capability_key="market_data.us_etf_daily",
+    ).one()
+    assert capability.status == "stale"
 
 
 def test_run_automation_job_records_successful_steps(session, monkeypatch) -> None:
@@ -760,6 +856,56 @@ def test_run_automation_job_records_successful_steps(session, monkeypatch) -> No
     assert BusinessService.list_job_runs(session, principal)[0].run_id == run.run_id
 
 
+def test_run_automation_job_preserves_refresh_failure_capability_status(
+    session,
+    monkeypatch,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_refresh(db_session, request_principal, request):
+        return ETFUniverseSeedResponse(
+            account_id=request_principal.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=["SPY"],
+            bars_written=0,
+            facts_written=0,
+            setups_written=0,
+            candidates_written=0,
+            symbol_results=[
+                ETFUniverseSeedSymbolResult(
+                    symbol="SPY",
+                    status="failed",
+                    error_message="Polygon HTTP error: 500",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(BusinessService, "refresh_account_oneil_core_universe", _fake_refresh)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(
+            symbols=["spy"],
+            recalculate_outcomes=False,
+            evaluate_alerts=False,
+        ),
+    )
+    summary = run.metadata_json["steps"][0]["summary"]
+    capability = session.query(db.TenantDataCapability).filter_by(
+        tenant_id=principal.tenant_id,
+        capability_key="market_data.us_etf_daily",
+    ).one()
+
+    assert run.status == "succeeded"
+    assert summary["symbols_failed"] == 1
+    assert summary["data_source"]["status"] == "stale"
+    assert summary["error_summary"] == "SPY: Polygon HTTP error: 500"
+    assert capability.status == "stale"
+
+
 def test_run_automation_job_persists_failure(session, monkeypatch) -> None:
     principal = _principal("user_a", "acct_a")
 
@@ -777,6 +923,7 @@ def test_run_automation_job_persists_failure(session, monkeypatch) -> None:
     assert run.status == "failed"
     assert run.error_message == "polygon unavailable"
     assert run.records_written == 0
+    assert run.metadata_json["steps"][0]["status"] == "failed"
     assert BusinessService.count_job_runs(session, principal, status="failed") == 1
 
 

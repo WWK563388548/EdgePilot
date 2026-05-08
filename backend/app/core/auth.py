@@ -365,7 +365,8 @@ class AuthService:
             }
 
         configured_credential = session.scalar(
-            select(TenantApiKey.credential_id).where(
+            select(TenantApiKey)
+            .where(
                 TenantApiKey.tenant_id == tenant_id,
                 TenantApiKey.provider == "polygon",
                 TenantApiKey.encrypted_payload.is_not(None),
@@ -374,6 +375,7 @@ class AuthService:
                     TenantApiKey.status.in_(("configured", "available")),
                 ),
             )
+            .order_by(TenantApiKey.updated_at.desc())
         )
         if configured_credential:
             return {
@@ -385,6 +387,28 @@ class AuthService:
                 "status": "available",
                 "source": "tenant_credential",
                 "reason": None,
+            }
+
+        invalid_credential = session.scalar(
+            select(TenantApiKey)
+            .where(
+                TenantApiKey.tenant_id == tenant_id,
+                TenantApiKey.provider == "polygon",
+                TenantApiKey.encrypted_payload.is_not(None),
+                TenantApiKey.status == "invalid",
+            )
+            .order_by(TenantApiKey.updated_at.desc())
+        )
+        if invalid_credential:
+            return {
+                "capability_key": "market_data.us_etf_daily",
+                "provider": "polygon",
+                "market": "US",
+                "asset_type": "etf",
+                "timeframe": "1d",
+                "status": "invalid",
+                "source": "tenant_credential",
+                "reason": "Saved Polygon credential is invalid; re-check or replace it",
             }
 
         return {
@@ -404,19 +428,26 @@ class AuthService:
         values: dict[str, str | None],
     ) -> None:
         changed = False
+        runtime_unhealthy = capability.status in {"stale", "invalid", "fallback_used"}
+        incoming_available = values["status"] == "available"
+        same_source = capability.source == values["source"]
         for field in (
             "provider",
             "market",
             "asset_type",
             "timeframe",
-            "status",
             "source",
-            "reason",
         ):
             value = values[field]
             if getattr(capability, field) != value:
                 setattr(capability, field, value)
                 changed = True
+        if not (runtime_unhealthy and incoming_available and same_source):
+            for field in ("status", "reason"):
+                value = values[field]
+                if getattr(capability, field) != value:
+                    setattr(capability, field, value)
+                    changed = True
         if changed:
             capability.updated_at = datetime.now(UTC)
 
