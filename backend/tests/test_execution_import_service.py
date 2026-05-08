@@ -298,6 +298,111 @@ def test_import_csv_deduplicates_reordered_rows_without_execution_ids(session) -
     assert ExecutionImportService.count_fills(session, principal) == 2
 
 
+def test_import_csv_deduplicates_equivalent_timestamps_without_execution_ids(session) -> None:
+    principal = _principal()
+    utc_csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price",
+            "2026-05-08T14:30:00Z,SPY,buy,1,425.50",
+        ]
+    )
+    offset_csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price",
+            "2026-05-08T10:30:00-04:00,SPY,buy,1,425.50",
+        ]
+    )
+
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=utc_csv_text),
+    )
+    duplicate = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=offset_csv_text),
+    )
+
+    assert result.import_record.rows_imported == 1
+    assert duplicate.import_record.rows_imported == 0
+    assert duplicate.import_record.rows_skipped == 1
+    assert ExecutionImportService.count_fills(session, principal) == 1
+
+
+def test_import_csv_strips_utf8_bom_from_headers(session) -> None:
+    principal = _principal()
+    csv_text = "\n".join(
+        [
+            "\ufeffexecuted_at,symbol,side,quantity,price,execution_id",
+            "2026-05-08T14:30:00+00:00,SPY,buy,1,425.50,exec_bom",
+        ]
+    )
+
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=csv_text),
+    )
+
+    assert result.import_record.status == "completed"
+    assert result.import_record.rows_imported == 1
+    assert result.errors == []
+    assert ExecutionImportService.count_fills(session, principal) == 1
+
+
+def test_import_csv_marks_ambiguous_symbol_only_match_for_review(session) -> None:
+    principal = _principal()
+    for index, quantity in enumerate((3, 5), start=1):
+        session.add(
+            db.Position(
+                position_id=f"pos_spy_{index}",
+                account_id=principal.account_id,
+                symbol_id="SPY",
+                asset_type="etf",
+                strategy_name="oneil_core_us_etf",
+                entry_price=420 + index,
+                quantity=quantity,
+                initial_stop=400,
+                current_stop=400,
+                status="open",
+            )
+        )
+    session.commit()
+    csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price,execution_id",
+            "2026-05-08T14:30:00+00:00,SPY,buy,2,425.50,exec_ambiguous",
+        ]
+    )
+
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=csv_text),
+    )
+    original_positions = session.scalars(
+        select(db.Position).where(db.Position.position_id.in_(("pos_spy_1", "pos_spy_2")))
+    ).all()
+    review_position = session.scalar(
+        select(db.Position).where(
+            db.Position.account_id == principal.account_id,
+            db.Position.symbol_id == "SPY",
+            db.Position.status == "review_needed",
+        )
+    )
+
+    assert result.import_record.rows_imported == 1
+    assert result.errors == []
+    assert {position.position_id: position.quantity for position in original_positions} == {
+        "pos_spy_1": 3,
+        "pos_spy_2": 5,
+    }
+    assert review_position is not None
+    assert review_position.quantity == 2
+    assert result.fills[0].position_id == review_position.position_id
+
+
 def test_import_csv_represents_partial_sell_and_close_flows(session) -> None:
     principal = _principal()
     session.add(

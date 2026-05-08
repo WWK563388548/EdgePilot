@@ -236,13 +236,26 @@ class ExecutionImportService:
 
     @staticmethod
     def _read_csv_rows(csv_text: str) -> list[tuple[int, dict[str, str]]]:
-        reader = csv.DictReader(io.StringIO(csv_text.strip()))
+        reader = csv.DictReader(io.StringIO(csv_text.lstrip("\ufeff").strip()))
         if not reader.fieldnames:
             return []
+        fieldnames = [ExecutionImportService._normalize_csv_header(key) for key in reader.fieldnames]
+        reader.fieldnames = fieldnames
         return [
-            (index, {key.strip(): value for key, value in row.items() if key})
+            (
+                index,
+                {
+                    ExecutionImportService._normalize_csv_header(key): value
+                    for key, value in row.items()
+                    if key and ExecutionImportService._normalize_csv_header(key)
+                },
+            )
             for index, row in enumerate(reader, start=2)
         ]
+
+    @staticmethod
+    def _normalize_csv_header(key: str) -> str:
+        return key.replace("\ufeff", "").strip()
 
     @staticmethod
     def _normalize_row(
@@ -416,7 +429,7 @@ class ExecutionImportService:
                     db.Position.account_id == principal.account_id,
                 )
             )
-        return session.scalar(
+        matches = session.scalars(
             select(db.Position)
             .where(
                 db.Position.account_id == principal.account_id,
@@ -424,8 +437,11 @@ class ExecutionImportService:
                 db.Position.status.in_(("planned", "open", "reduce")),
             )
             .order_by(db.Position.updated_at.desc())
-            .limit(1)
-        )
+            .limit(2)
+        ).all()
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     @staticmethod
     def _create_review_needed_position(
@@ -564,7 +580,7 @@ class ExecutionImportService:
             raise ValueError(f"Invalid executed_at value: {value}") from exc
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=UTC)
-        return parsed
+        return parsed.astimezone(UTC)
 
     @staticmethod
     def _idempotency_key(
