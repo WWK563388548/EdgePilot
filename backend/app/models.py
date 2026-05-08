@@ -35,10 +35,38 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    tenant_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    slug: Mapped[str | None] = mapped_column(Text, unique=True)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"))
+    status: Mapped[str | None] = mapped_column(Text, server_default=text("'active'"))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class TenantMembership(Base):
+    __tablename__ = "tenant_memberships"
+
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"), primary_key=True)
+    role: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class Account(Base):
     __tablename__ = "accounts"
 
     account_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.tenant_id"), index=True)
     name: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
@@ -79,12 +107,113 @@ class AuditLog(Base):
 
     audit_id: Mapped[str] = mapped_column(Text, primary_key=True)
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.tenant_id"), index=True)
     actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"))
     action: Mapped[str] = mapped_column(Text)
     entity_type: Mapped[str] = mapped_column(Text)
     entity_id: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class LegalAcknowledgement(Base):
+    __tablename__ = "legal_acknowledgements"
+    __table_args__ = (
+        Index(
+            "idx_legal_ack_tenant_user_doc",
+            "tenant_id",
+            "user_id",
+            "document_key",
+            "document_version",
+        ),
+    )
+
+    acknowledgement_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.user_id"))
+    document_key: Mapped[str] = mapped_column(Text)
+    document_version: Mapped[str] = mapped_column(Text)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    ip_address: Mapped[str | None] = mapped_column(Text)
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+
+
+class TenantApiKey(Base):
+    __tablename__ = "tenant_api_keys"
+    __table_args__ = (
+        Index("idx_tenant_api_keys_tenant_provider", "tenant_id", "provider"),
+    )
+
+    credential_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id"))
+    provider: Mapped[str] = mapped_column(Text)
+    label: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(Text, server_default=text("'configured'"))
+    encrypted_payload: Mapped[str | None] = mapped_column(Text)
+    key_fingerprint: Mapped[str | None] = mapped_column(Text)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class TenantDataCapability(Base):
+    __tablename__ = "tenant_data_capabilities"
+    __table_args__ = (
+        Index(
+            "idx_tenant_data_capabilities_unique",
+            "tenant_id",
+            "capability_key",
+            unique=True,
+        ),
+        Index("idx_tenant_data_capabilities_status", "tenant_id", "status"),
+    )
+
+    capability_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id"))
+    capability_key: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)
+    market: Mapped[str | None] = mapped_column(Text)
+    asset_type: Mapped[str | None] = mapped_column(Text)
+    timeframe: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class TenantJobState(Base):
+    __tablename__ = "tenant_job_states"
+    __table_args__ = (
+        PrimaryKeyConstraint("tenant_id", "job_type"),
+        Index("idx_tenant_job_states_status", "tenant_id", "status"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id"))
+    job_type: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool | None] = mapped_column(Boolean, server_default=text("true"))
+    status: Mapped[str | None] = mapped_column(Text, server_default=text("'idle'"))
+    rate_limit_per_minute: Mapped[int | None] = mapped_column(Integer)
+    next_allowed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_run_id: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
 

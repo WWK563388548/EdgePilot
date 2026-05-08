@@ -35,6 +35,7 @@ def _principal(user_id: str, account_id: str) -> AuthPrincipal:
     return AuthPrincipal(
         user_id=user_id,
         account_id=account_id,
+        tenant_id=f"tenant_{account_id}",
         role="owner",
         external_subject=user_id,
         email_verified=True,

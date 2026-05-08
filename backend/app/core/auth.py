@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from time import monotonic
 from typing import Any
@@ -8,11 +9,20 @@ from uuid import uuid4
 import httpx
 import jwt
 from jwt import PyJWKClient
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
-from backend.app.models import Account, AccountMembership, User
+from backend.app.models import (
+    Account,
+    AccountMembership,
+    Tenant,
+    TenantApiKey,
+    TenantDataCapability,
+    TenantJobState,
+    TenantMembership,
+    User,
+)
 
 ROLE_ORDER = {
     "viewer": 0,
@@ -26,6 +36,7 @@ ROLE_ORDER = {
 class AuthPrincipal:
     user_id: str
     account_id: str
+    tenant_id: str
     role: str
     external_subject: str
     email: str | None = None
@@ -135,6 +146,7 @@ class AuthService:
             raise ValueError("Token is missing sub claim")
 
         account_id = claims.get(settings.auth_account_claim) or _stable_id("acct", subject)
+        tenant_id = claims.get(settings.auth_tenant_claim)
         role = claims.get(settings.auth_role_claim) or settings.auth_default_role
         if role not in ROLE_ORDER:
             role = "viewer"
@@ -163,6 +175,7 @@ class AuthService:
             session=session,
             user_id=user_id,
             external_subject=subject,
+            tenant_id=tenant_id,
             account_id=account_id,
             role=role,
             email=email,
@@ -175,16 +188,40 @@ class AuthService:
         session: Session,
         user_id: str,
         external_subject: str,
+        tenant_id: str | None,
         account_id: str,
         role: str,
         email: str | None,
         display_name: str | None,
         email_verified: bool,
     ) -> AuthPrincipal:
+        if role not in ROLE_ORDER:
+            role = "viewer"
+
+        tenant = None
         account = session.get(Account, account_id)
+        if account is not None and account.tenant_id:
+            tenant_id = account.tenant_id
+        tenant_id = tenant_id or _stable_id("tenant", account_id)
+
+        tenant = session.get(Tenant, tenant_id)
+        if tenant is None:
+            tenant = Tenant(
+                tenant_id=tenant_id,
+                name=display_name or email or "EdgePilot Workspace",
+                status="active",
+            )
+            session.add(tenant)
+
         if account is None:
-            account = Account(account_id=account_id, name=display_name or email or "EdgePilot Account")
+            account = Account(
+                account_id=account_id,
+                tenant_id=tenant_id,
+                name=display_name or email or "EdgePilot Account",
+            )
             session.add(account)
+        elif not account.tenant_id:
+            account.tenant_id = tenant_id
 
         user = session.scalar(select(User).where(User.external_subject == external_subject))
         if user is None:
@@ -200,6 +237,19 @@ class AuthService:
             user.display_name = display_name or user.display_name
 
         session.flush()
+        if tenant.owner_user_id is None:
+            tenant.owner_user_id = user.user_id
+
+        tenant_membership = session.get(TenantMembership, (tenant_id, user.user_id))
+        if tenant_membership is None:
+            tenant_membership = TenantMembership(
+                tenant_id=tenant_id,
+                user_id=user.user_id,
+                role=role,
+            )
+            session.add(tenant_membership)
+        elif tenant_membership.role != role:
+            tenant_membership.role = role
 
         membership = session.get(AccountMembership, (account_id, user.user_id))
         if membership is None:
@@ -209,11 +259,16 @@ class AuthService:
                 role=role,
             )
             session.add(membership)
+        elif membership.role != role:
+            membership.role = role
+
+        AuthService.ensure_tenant_foundation(session=session, tenant_id=tenant_id)
 
         session.commit()
         return AuthPrincipal(
             user_id=user.user_id,
             account_id=account_id,
+            tenant_id=tenant_id,
             role=membership.role,
             external_subject=external_subject,
             email=user.email,
@@ -224,6 +279,146 @@ class AuthService:
     @staticmethod
     def audit_id() -> str:
         return f"audit_{uuid4().hex}"
+
+    @staticmethod
+    def ensure_tenant_foundation(session: Session, tenant_id: str) -> None:
+        default_capabilities = [
+            AuthService._polygon_market_data_capability(session=session, tenant_id=tenant_id),
+            {
+                "capability_key": "execution_import.csv",
+                "provider": "manual_csv",
+                "market": "multi",
+                "asset_type": "multi",
+                "timeframe": None,
+                "status": "disabled",
+                "source": "planned",
+                "reason": "CSV execution import is planned for the next implementation phase",
+            },
+            {
+                "capability_key": "notifications.in_app",
+                "provider": "edgepilot",
+                "market": None,
+                "asset_type": None,
+                "timeframe": None,
+                "status": "available",
+                "source": "app",
+                "reason": None,
+            },
+            {
+                "capability_key": "broker_sync.read_only",
+                "provider": "byok",
+                "market": "multi",
+                "asset_type": "multi",
+                "timeframe": None,
+                "status": "disabled",
+                "source": "planned",
+                "reason": "Read-only broker sync is deferred until CSV import is validated",
+            },
+        ]
+        for item in default_capabilities:
+            existing_capability = session.scalar(
+                select(TenantDataCapability).where(
+                    TenantDataCapability.tenant_id == tenant_id,
+                    TenantDataCapability.capability_key == item["capability_key"],
+                )
+            )
+            if existing_capability is not None:
+                if item["capability_key"] == "market_data.us_etf_daily":
+                    AuthService._sync_capability_fields(existing_capability, item)
+                continue
+            capability_id = _stable_id("cap", f"{tenant_id}:{item['capability_key']}")
+            session.add(
+                TenantDataCapability(
+                    capability_id=capability_id,
+                    tenant_id=tenant_id,
+                    **item,
+                )
+            )
+
+        if session.get(TenantJobState, (tenant_id, "market_refresh_scan")) is None:
+            session.add(
+                TenantJobState(
+                    tenant_id=tenant_id,
+                    job_type="market_refresh_scan",
+                    enabled=True,
+                    status="idle",
+                    rate_limit_per_minute=2,
+                    metadata_json={
+                        "scope": "tenant",
+                        "notes": "Foundation shell for per-tenant automation throttling",
+                    },
+                )
+            )
+
+    @staticmethod
+    def _polygon_market_data_capability(session: Session, tenant_id: str) -> dict[str, str | None]:
+        if settings.polygon_api_key:
+            return {
+                "capability_key": "market_data.us_etf_daily",
+                "provider": "polygon",
+                "market": "US",
+                "asset_type": "etf",
+                "timeframe": "1d",
+                "status": "available",
+                "source": "env",
+                "reason": None,
+            }
+
+        configured_credential = session.scalar(
+            select(TenantApiKey.credential_id).where(
+                TenantApiKey.tenant_id == tenant_id,
+                TenantApiKey.provider == "polygon",
+                TenantApiKey.encrypted_payload.is_not(None),
+                or_(
+                    TenantApiKey.status.is_(None),
+                    TenantApiKey.status.in_(("configured", "available")),
+                ),
+            )
+        )
+        if configured_credential:
+            return {
+                "capability_key": "market_data.us_etf_daily",
+                "provider": "polygon",
+                "market": "US",
+                "asset_type": "etf",
+                "timeframe": "1d",
+                "status": "available",
+                "source": "tenant_credential",
+                "reason": None,
+            }
+
+        return {
+            "capability_key": "market_data.us_etf_daily",
+            "provider": "polygon",
+            "market": "US",
+            "asset_type": "etf",
+            "timeframe": "1d",
+            "status": "missing",
+            "source": "env_or_tenant_credential",
+            "reason": "POLYGON_API_KEY or tenant Polygon credential is not configured",
+        }
+
+    @staticmethod
+    def _sync_capability_fields(
+        capability: TenantDataCapability,
+        values: dict[str, str | None],
+    ) -> None:
+        changed = False
+        for field in (
+            "provider",
+            "market",
+            "asset_type",
+            "timeframe",
+            "status",
+            "source",
+            "reason",
+        ):
+            value = values[field]
+            if getattr(capability, field) != value:
+                setattr(capability, field, value)
+                changed = True
+        if changed:
+            capability.updated_at = datetime.now(UTC)
 
     @staticmethod
     def fetch_user_profile(external_subject: str) -> dict[str, Any]:

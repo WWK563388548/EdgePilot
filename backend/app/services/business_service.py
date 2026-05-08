@@ -165,6 +165,7 @@ class BusinessService:
             db.AuditLog(
                 audit_id=AuthService.audit_id(),
                 account_id=principal.account_id,
+                tenant_id=principal.tenant_id,
                 actor_user_id=principal.user_id,
                 action=action,
                 entity_type=entity_type,

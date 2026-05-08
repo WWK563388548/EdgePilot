@@ -13,6 +13,7 @@ def get_me(principal: CurrentPrincipal) -> AuthMeResponse:
     return AuthMeResponse(
         user_id=principal.user_id,
         account_id=principal.account_id,
+        tenant_id=principal.tenant_id,
         role=principal.role,
         email=principal.email,
         display_name=principal.display_name,
