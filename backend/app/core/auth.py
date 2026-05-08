@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from time import monotonic
 from typing import Any
@@ -8,7 +9,7 @@ from uuid import uuid4
 import httpx
 import jwt
 from jwt import PyJWKClient
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
@@ -16,6 +17,7 @@ from backend.app.models import (
     Account,
     AccountMembership,
     Tenant,
+    TenantApiKey,
     TenantDataCapability,
     TenantJobState,
     TenantMembership,
@@ -281,16 +283,7 @@ class AuthService:
     @staticmethod
     def ensure_tenant_foundation(session: Session, tenant_id: str) -> None:
         default_capabilities = [
-            {
-                "capability_key": "market_data.us_etf_daily",
-                "provider": "polygon",
-                "market": "US",
-                "asset_type": "etf",
-                "timeframe": "1d",
-                "status": "available" if settings.polygon_api_key else "missing",
-                "source": "env",
-                "reason": None if settings.polygon_api_key else "POLYGON_API_KEY is not configured",
-            },
+            AuthService._polygon_market_data_capability(session=session, tenant_id=tenant_id),
             {
                 "capability_key": "execution_import.csv",
                 "provider": "manual_csv",
@@ -330,6 +323,8 @@ class AuthService:
                 )
             )
             if existing_capability is not None:
+                if item["capability_key"] == "market_data.us_etf_daily":
+                    AuthService._sync_capability_fields(existing_capability, item)
                 continue
             capability_id = _stable_id("cap", f"{tenant_id}:{item['capability_key']}")
             session.add(
@@ -354,6 +349,76 @@ class AuthService:
                     },
                 )
             )
+
+    @staticmethod
+    def _polygon_market_data_capability(session: Session, tenant_id: str) -> dict[str, str | None]:
+        if settings.polygon_api_key:
+            return {
+                "capability_key": "market_data.us_etf_daily",
+                "provider": "polygon",
+                "market": "US",
+                "asset_type": "etf",
+                "timeframe": "1d",
+                "status": "available",
+                "source": "env",
+                "reason": None,
+            }
+
+        configured_credential = session.scalar(
+            select(TenantApiKey.credential_id).where(
+                TenantApiKey.tenant_id == tenant_id,
+                TenantApiKey.provider == "polygon",
+                TenantApiKey.encrypted_payload.is_not(None),
+                or_(
+                    TenantApiKey.status.is_(None),
+                    TenantApiKey.status.in_(("configured", "available")),
+                ),
+            )
+        )
+        if configured_credential:
+            return {
+                "capability_key": "market_data.us_etf_daily",
+                "provider": "polygon",
+                "market": "US",
+                "asset_type": "etf",
+                "timeframe": "1d",
+                "status": "available",
+                "source": "tenant_credential",
+                "reason": None,
+            }
+
+        return {
+            "capability_key": "market_data.us_etf_daily",
+            "provider": "polygon",
+            "market": "US",
+            "asset_type": "etf",
+            "timeframe": "1d",
+            "status": "missing",
+            "source": "env_or_tenant_credential",
+            "reason": "POLYGON_API_KEY or tenant Polygon credential is not configured",
+        }
+
+    @staticmethod
+    def _sync_capability_fields(
+        capability: TenantDataCapability,
+        values: dict[str, str | None],
+    ) -> None:
+        changed = False
+        for field in (
+            "provider",
+            "market",
+            "asset_type",
+            "timeframe",
+            "status",
+            "source",
+            "reason",
+        ):
+            value = values[field]
+            if getattr(capability, field) != value:
+                setattr(capability, field, value)
+                changed = True
+        if changed:
+            capability.updated_at = datetime.now(UTC)
 
     @staticmethod
     def fetch_user_profile(external_subject: str) -> dict[str, Any]:

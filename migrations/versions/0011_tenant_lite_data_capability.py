@@ -9,6 +9,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from backend.app.core.config import settings
+
 revision: str = "0011_tenant_lite_data_capability"
 down_revision: str | None = "0010_job_runs"
 branch_labels: str | Sequence[str] | None = None
@@ -253,6 +255,7 @@ def downgrade() -> None:
 
 
 def _seed_default_capabilities() -> None:
+    polygon_configured = bool(settings.polygon_api_key)
     default_capabilities = [
         (
             "market_data.us_etf_daily",
@@ -260,9 +263,11 @@ def _seed_default_capabilities() -> None:
             "US",
             "etf",
             "1d",
-            "available",
-            "existing_env_or_manual",
-            None,
+            "available" if polygon_configured else "missing",
+            "env" if polygon_configured else "env_or_tenant_credential",
+            None
+            if polygon_configured
+            else "POLYGON_API_KEY or tenant Polygon credential is not configured",
         ),
         (
             "execution_import.csv",

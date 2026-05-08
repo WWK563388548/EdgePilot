@@ -113,6 +113,8 @@ class TenantService:
             metadata_json=request.metadata_json,
         )
         session.add(credential)
+        session.flush([credential])
+        AuthService.ensure_tenant_foundation(session=session, tenant_id=principal.tenant_id)
         session.commit()
         session.refresh(credential)
         return TenantService._api_key_response(credential)
