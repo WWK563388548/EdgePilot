@@ -94,6 +94,40 @@ def test_import_csv_is_idempotent_and_matches_planned_position(session) -> None:
     assert position.entry_price == 425.5
 
 
+def test_import_csv_deduplicates_reordered_rows_without_execution_ids(session) -> None:
+    principal = _principal()
+    csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price",
+            "2026-05-08T14:30:00+00:00,SPY,buy,1,425.50",
+            "2026-05-08T14:31:00+00:00,SPY,buy,2,426.50",
+        ]
+    )
+    reordered_csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price",
+            "2026-05-08T14:31:00+00:00,SPY,buy,2,426.50",
+            "2026-05-08T14:30:00+00:00,SPY,buy,1,425.50",
+        ]
+    )
+
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=csv_text),
+    )
+    duplicate = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=reordered_csv_text),
+    )
+
+    assert result.import_record.rows_imported == 2
+    assert duplicate.import_record.rows_imported == 0
+    assert duplicate.import_record.rows_skipped == 2
+    assert ExecutionImportService.count_fills(session, principal) == 2
+
+
 def test_import_csv_represents_partial_sell_and_close_flows(session) -> None:
     principal = _principal()
     session.add(

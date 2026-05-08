@@ -295,7 +295,6 @@ class ExecutionImportService:
         idempotency_key = ExecutionImportService._idempotency_key(
             account_id=principal.account_id,
             broker=broker,
-            row_number=row_number,
             symbol_id=symbol_id,
             side=side,
             quantity=quantity,
@@ -535,7 +534,6 @@ class ExecutionImportService:
         *,
         account_id: str,
         broker: str,
-        row_number: int,
         symbol_id: str,
         side: str,
         quantity: float,
@@ -550,12 +548,11 @@ class ExecutionImportService:
             or broker_execution_id
             or "|".join(
                 (
-                    str(row_number),
                     broker_order_id or "",
                     symbol_id,
                     side,
-                    str(quantity),
-                    str(price),
+                    f"{quantity:.8f}",
+                    f"{price:.8f}",
                     executed_at.isoformat(),
                 )
             )
