@@ -320,15 +320,22 @@ class AuthService:
             },
         ]
         for item in default_capabilities:
-            capability_id = _stable_id("cap", f"{tenant_id}:{item['capability_key']}")
-            if session.get(TenantDataCapability, capability_id) is None:
-                session.add(
-                    TenantDataCapability(
-                        capability_id=capability_id,
-                        tenant_id=tenant_id,
-                        **item,
-                    )
+            existing_capability = session.scalar(
+                select(TenantDataCapability).where(
+                    TenantDataCapability.tenant_id == tenant_id,
+                    TenantDataCapability.capability_key == item["capability_key"],
                 )
+            )
+            if existing_capability is not None:
+                continue
+            capability_id = _stable_id("cap", f"{tenant_id}:{item['capability_key']}")
+            session.add(
+                TenantDataCapability(
+                    capability_id=capability_id,
+                    tenant_id=tenant_id,
+                    **item,
+                )
+            )
 
         if session.get(TenantJobState, (tenant_id, "market_refresh_scan")) is None:
             session.add(

@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.core.database import Base
-from backend.app.models import LegalAcknowledgement, TenantApiKey
+from backend.app.models import LegalAcknowledgement, TenantDataCapability, TenantApiKey
 from backend.app.schemas.tenant import LegalAcknowledgementCreate, TenantApiKeyCreate
 from backend.app.services.tenant_service import TenantService
 
@@ -60,6 +60,52 @@ def test_principal_upsert_creates_tenant_foundation() -> None:
             "notifications.in_app",
         }
         assert job_states[0].job_type == "market_refresh_scan"
+
+
+def test_tenant_foundation_is_idempotent_by_capability_key() -> None:
+    with _session() as session:
+        principal = AuthService.upsert_principal(
+            session=session,
+            user_id="user_1",
+            external_subject="auth0|user_1",
+            tenant_id="tenant_1",
+            account_id="acct_1",
+            role="owner",
+            email="user@example.com",
+            display_name="User",
+            email_verified=True,
+        )
+        session.query(TenantDataCapability).filter_by(
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+        ).delete()
+        session.add(
+            TenantDataCapability(
+                capability_id="cap_migration_seeded",
+                tenant_id=principal.tenant_id,
+                capability_key="market_data.us_etf_daily",
+                provider="polygon",
+                market="US",
+                asset_type="etf",
+                timeframe="1d",
+                status="available",
+                source="migration",
+            )
+        )
+        session.commit()
+
+        AuthService.ensure_tenant_foundation(session=session, tenant_id=principal.tenant_id)
+        session.commit()
+
+        assert (
+            session.query(TenantDataCapability)
+            .filter_by(
+                tenant_id=principal.tenant_id,
+                capability_key="market_data.us_etf_daily",
+            )
+            .count()
+            == 1
+        )
 
 
 def test_legal_acknowledgement_and_api_key_are_tenant_scoped() -> None:
