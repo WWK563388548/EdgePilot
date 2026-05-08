@@ -7,6 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -93,12 +94,21 @@ class ExecutionImportService:
                     skipped += 1
                     seen_keys.add(normalized.idempotency_key)
                     continue
-                fill = ExecutionImportService._create_fill(
-                    session=session,
-                    principal=principal,
-                    import_record=import_record,
-                    normalized=normalized,
-                )
+                try:
+                    with session.begin_nested():
+                        fill = ExecutionImportService._create_fill(
+                            session=session,
+                            principal=principal,
+                            import_record=import_record,
+                            normalized=normalized,
+                        )
+                        session.flush()
+                except IntegrityError as exc:
+                    if ExecutionImportService._is_duplicate_fill_conflict(exc):
+                        skipped += 1
+                        seen_keys.add(normalized.idempotency_key)
+                        continue
+                    raise
                 fills.append(fill)
                 seen_keys.add(normalized.idempotency_key)
             except ValueError as exc:
@@ -346,6 +356,11 @@ class ExecutionImportService:
         position = ExecutionImportService._resolve_position(session, principal, normalized)
         if position is None and normalized.position_id:
             raise ValueError(f"Position not found: {normalized.position_id}")
+        if position is not None and (position.symbol_id or "").upper() != normalized.symbol_id:
+            raise ValueError(
+                "Position symbol mismatch: "
+                f"{position.position_id} is {position.symbol_id}, row symbol is {normalized.symbol_id}"
+            )
         if position is None:
             position = ExecutionImportService._create_review_needed_position(
                 session,
@@ -474,6 +489,28 @@ class ExecutionImportService:
                 )
             )
             is not None
+        )
+
+    @staticmethod
+    def _is_duplicate_fill_conflict(exc: IntegrityError) -> bool:
+        orig = getattr(exc, "orig", None)
+        diag = getattr(orig, "diag", None)
+        constraint_name = getattr(diag, "constraint_name", None)
+        if constraint_name in {
+            "execution_fills_pkey",
+            "idx_execution_fills_idempotency",
+            "positions_pkey",
+        }:
+            return True
+        message = str(orig or exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "execution_fills.fill_id",
+                "execution_fills.idempotency_key",
+                "idx_execution_fills_idempotency",
+                "positions.position_id",
+            )
         )
 
     @staticmethod

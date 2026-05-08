@@ -94,6 +94,58 @@ def test_import_csv_is_idempotent_and_matches_planned_position(session) -> None:
     assert position.entry_price == 425.5
 
 
+def test_import_csv_treats_unique_conflict_as_skipped(session, monkeypatch) -> None:
+    principal = _principal()
+    session.add(
+        db.Position(
+            position_id="pos_spy",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=421,
+            quantity=3,
+            initial_stop=400,
+            current_stop=400,
+            status="planned",
+        )
+    )
+    session.commit()
+    csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price,fees,position_id,execution_id",
+            "2026-05-08T14:30:00+00:00,SPY,buy,10,425.50,1.25,pos_spy,exec_1",
+        ]
+    )
+
+    ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=csv_text, source_filename="fills.csv"),
+    )
+    monkeypatch.setattr(
+        ExecutionImportService,
+        "_fill_exists",
+        staticmethod(lambda _session, _idempotency_key: False),
+    )
+    duplicate = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=csv_text, source_filename="fills.csv"),
+    )
+    position = session.get(db.Position, "pos_spy")
+    assert position is not None
+    session.refresh(position)
+
+    assert duplicate.import_record.status == "completed"
+    assert duplicate.import_record.rows_imported == 0
+    assert duplicate.import_record.rows_skipped == 1
+    assert duplicate.fills == []
+    assert ExecutionImportService.count_fills(session, principal) == 1
+    assert position.quantity == 10
+    assert position.entry_price == 425.5
+
+
 def test_import_csv_deduplicates_reordered_rows_without_execution_ids(session) -> None:
     principal = _principal()
     csv_text = "\n".join(
@@ -233,3 +285,43 @@ def test_import_csv_does_not_link_cross_account_positions(session) -> None:
     assert result.import_record.rows_failed == 1
     assert ExecutionImportService.count_fills(session, principal_a) == 0
     assert ExecutionImportService.count_fills(session, principal_b) == 0
+
+
+def test_import_csv_rejects_position_symbol_mismatch(session) -> None:
+    principal = _principal()
+    session.add(
+        db.Position(
+            position_id="pos_spy",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=421,
+            quantity=3,
+            initial_stop=400,
+            current_stop=400,
+            status="planned",
+        )
+    )
+    session.commit()
+    csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price,position_id,execution_id",
+            "2026-05-08T14:30:00+00:00,QQQ,buy,10,425.50,pos_spy,exec_wrong_symbol",
+        ]
+    )
+
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(csv_text=csv_text),
+    )
+    position = session.get(db.Position, "pos_spy")
+
+    assert result.import_record.status == "failed"
+    assert result.import_record.rows_failed == 1
+    assert "Position symbol mismatch" in result.errors[0].message
+    assert ExecutionImportService.count_fills(session, principal) == 0
+    assert position is not None
+    assert position.status == "planned"
+    assert position.quantity == 3
