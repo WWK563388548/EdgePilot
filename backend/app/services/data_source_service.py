@@ -213,16 +213,17 @@ class DataSourceService:
                 raise RuntimeError("Polygon returned no SPY bars during connection check")
         except Exception as exc:
             message = str(exc)
+            auth_error = _looks_like_auth_error(message)
             DataSourceService._mark_credential_check(
                 session,
                 resolution.credential_id,
-                status="invalid",
+                status="invalid" if auth_error else None,
                 checked_at=checked_at,
             )
             capability = DataSourceService.sync_polygon_capability(
                 session,
                 principal.tenant_id,
-                status="invalid",
+                status="invalid" if auth_error else "stale",
                 source=resolution.source,
                 reason=message,
                 checked_at=checked_at,
@@ -320,7 +321,7 @@ class DataSourceService:
         session: Session,
         credential_id: str | None,
         *,
-        status: str,
+        status: str | None,
         checked_at: datetime,
     ) -> None:
         if credential_id is None:
@@ -328,7 +329,8 @@ class DataSourceService:
         credential = session.get(db.TenantApiKey, credential_id)
         if credential is None:
             return
-        credential.status = status
+        if status is not None:
+            credential.status = status
         credential.last_verified_at = checked_at
         credential.updated_at = checked_at
 

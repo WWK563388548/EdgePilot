@@ -600,10 +600,6 @@ class BusinessService:
                     + refresh_response.setups_written
                     + refresh_response.candidates_written
                 )
-                capability = DataSourceService.sync_polygon_capability(
-                    session,
-                    principal.tenant_id,
-                )
                 symbols_succeeded = sum(
                     1 for row in refresh_response.symbol_results if row.status == "success"
                 )
@@ -612,6 +608,13 @@ class BusinessService:
                     f"{row.symbol}: {row.error_message}"
                     for row in refresh_response.symbol_results
                     if row.status != "success" and row.error_message
+                )
+                capability = DataSourceService.record_polygon_refresh_result(
+                    session,
+                    principal.tenant_id,
+                    success_count=symbols_succeeded,
+                    failure_count=symbols_failed,
+                    error_summary=error_summary or None,
                 )
                 steps.append(
                     {

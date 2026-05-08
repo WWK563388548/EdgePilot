@@ -25,7 +25,11 @@ from backend.app.schemas.business import (
     PositionReduce,
     PositionStopUpdate,
 )
-from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest, ETFUniverseSeedResponse
+from backend.app.schemas.ingestion import (
+    AccountETFUniverseRefreshRequest,
+    ETFUniverseSeedResponse,
+    ETFUniverseSeedSymbolResult,
+)
 from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest, ScannerOutcomeRecalculateResponse
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
@@ -804,6 +808,56 @@ def test_run_automation_job_records_successful_steps(session, monkeypatch) -> No
     ]
     assert BusinessService.count_job_runs(session, principal, status="succeeded") == 1
     assert BusinessService.list_job_runs(session, principal)[0].run_id == run.run_id
+
+
+def test_run_automation_job_preserves_refresh_failure_capability_status(
+    session,
+    monkeypatch,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_refresh(db_session, request_principal, request):
+        return ETFUniverseSeedResponse(
+            account_id=request_principal.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=["SPY"],
+            bars_written=0,
+            facts_written=0,
+            setups_written=0,
+            candidates_written=0,
+            symbol_results=[
+                ETFUniverseSeedSymbolResult(
+                    symbol="SPY",
+                    status="failed",
+                    error_message="Polygon HTTP error: 500",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(BusinessService, "refresh_account_oneil_core_universe", _fake_refresh)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(
+            symbols=["spy"],
+            recalculate_outcomes=False,
+            evaluate_alerts=False,
+        ),
+    )
+    summary = run.metadata_json["steps"][0]["summary"]
+    capability = session.query(db.TenantDataCapability).filter_by(
+        tenant_id=principal.tenant_id,
+        capability_key="market_data.us_etf_daily",
+    ).one()
+
+    assert run.status == "succeeded"
+    assert summary["symbols_failed"] == 1
+    assert summary["data_source"]["status"] == "stale"
+    assert summary["error_summary"] == "SPY: Polygon HTTP error: 500"
+    assert capability.status == "stale"
 
 
 def test_run_automation_job_persists_failure(session, monkeypatch) -> None:

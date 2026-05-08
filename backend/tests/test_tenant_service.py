@@ -6,6 +6,7 @@ from backend.app.core.config import settings
 from backend.app.core.database import Base
 from backend.app.models import LegalAcknowledgement, TenantDataCapability, TenantApiKey
 from backend.app.schemas.tenant import LegalAcknowledgementCreate, TenantApiKeyCreate
+from backend.app.services.data_source_service import DataSourceService
 from backend.app.services.tenant_service import TenantService
 
 
@@ -232,3 +233,53 @@ def test_data_capability_check_updates_last_checked(monkeypatch) -> None:
         assert response.status == "available"
         assert response.source == "env"
         assert capability.last_checked_at is not None
+
+
+def test_transient_polygon_check_failure_keeps_credential_resolvable(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "polygon_api_key", "")
+
+    from backend.app.services import data_source_service
+
+    def _raise_transient(self, ticker, from_date, to_date):
+        raise RuntimeError("Polygon HTTP error: 500")
+
+    monkeypatch.setattr(
+        data_source_service.PolygonClient,
+        "list_daily_bars",
+        _raise_transient,
+    )
+
+    with _session() as session:
+        principal = AuthService.upsert_principal(
+            session=session,
+            user_id="user_1",
+            external_subject="auth0|user_1",
+            tenant_id="tenant_1",
+            account_id="acct_1",
+            role="owner",
+            email="user@example.com",
+            display_name="User",
+            email_verified=True,
+        )
+        credential = TenantService.create_api_key(
+            session=session,
+            principal=principal,
+            request=TenantApiKeyCreate(
+                provider="polygon",
+                label="Polygon",
+                encrypted_payload="ciphertext",
+            ),
+        )
+
+        response = TenantService.check_api_key(session, principal, credential.credential_id)
+        stored = session.get(TenantApiKey, credential.credential_id)
+        capability = session.query(TenantDataCapability).filter_by(
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+        ).one()
+
+        assert response.status == "stale"
+        assert stored.status == "configured"
+        assert stored.last_verified_at is not None
+        assert capability.status == "stale"
+        assert DataSourceService.resolve_polygon_market_data(session, principal.tenant_id) is not None
