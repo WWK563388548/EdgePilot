@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from backend.app.api.dependencies import AdminPrincipal, DbSession, VerifiedPrincipal
 from backend.app.schemas.tenant import (
+    DataSourceCheckResponse,
     LegalAcknowledgement,
     LegalAcknowledgementCreate,
     Tenant,
@@ -81,12 +82,44 @@ def create_data_credential(
     return TenantService.create_api_key(session=session, principal=principal, request=request)
 
 
+@router.post("/data-credentials/{credential_id}/check", response_model=DataSourceCheckResponse)
+def check_data_credential(
+    credential_id: str,
+    session: DbSession,
+    principal: AdminPrincipal,
+) -> DataSourceCheckResponse:
+    try:
+        return TenantService.check_api_key(
+            session=session,
+            principal=principal,
+            credential_id=credential_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.get("/data-capabilities", response_model=list[TenantDataCapability])
 def list_data_capabilities(
     session: DbSession,
     principal: VerifiedPrincipal,
 ) -> list[TenantDataCapability]:
     return TenantService.list_data_capabilities(session=session, principal=principal)
+
+
+@router.post("/data-capabilities/{capability_key}/check", response_model=DataSourceCheckResponse)
+def check_data_capability(
+    capability_key: str,
+    session: DbSession,
+    principal: AdminPrincipal,
+) -> DataSourceCheckResponse:
+    try:
+        return TenantService.check_data_capability(
+            session=session,
+            principal=principal,
+            capability_key=capability_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/tenants/current/job-states", response_model=list[TenantJobState])

@@ -6,12 +6,14 @@ from sqlalchemy.orm import Session
 from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.schemas.tenant import (
+    DataSourceCheckResponse,
     LegalAcknowledgement,
     LegalAcknowledgementCreate,
     TenantApiKey,
     TenantApiKeyCreate,
     TenantMember,
 )
+from backend.app.services.data_source_service import DataSourceService
 
 
 class TenantService:
@@ -102,6 +104,9 @@ class TenantService:
         request: TenantApiKeyCreate,
     ) -> TenantApiKey:
         TenantService.current_tenant(session, principal)
+        key_fingerprint = request.key_fingerprint or DataSourceService.fingerprint_secret(
+            request.encrypted_payload
+        )
         credential = db.TenantApiKey(
             credential_id=f"cred_{uuid4().hex}",
             tenant_id=principal.tenant_id,
@@ -109,7 +114,7 @@ class TenantService:
             label=request.label,
             status="configured" if request.encrypted_payload else "missing",
             encrypted_payload=request.encrypted_payload,
-            key_fingerprint=request.key_fingerprint,
+            key_fingerprint=key_fingerprint,
             metadata_json=request.metadata_json,
         )
         session.add(credential)
@@ -131,6 +136,34 @@ class TenantService:
             .order_by(db.TenantDataCapability.capability_key)
         )
         return list(session.scalars(statement))
+
+    @staticmethod
+    def check_data_capability(
+        session: Session,
+        principal: AuthPrincipal,
+        capability_key: str,
+    ) -> DataSourceCheckResponse:
+        if capability_key != "market_data.us_etf_daily":
+            raise ValueError(f"Unsupported data capability: {capability_key}")
+        TenantService.current_tenant(session, principal)
+        result = DataSourceService.check_polygon_connection(session, principal)
+        session.commit()
+        return DataSourceCheckResponse(**result.__dict__)
+
+    @staticmethod
+    def check_api_key(
+        session: Session,
+        principal: AuthPrincipal,
+        credential_id: str,
+    ) -> DataSourceCheckResponse:
+        TenantService.current_tenant(session, principal)
+        result = DataSourceService.check_polygon_connection(
+            session,
+            principal,
+            credential_id=credential_id,
+        )
+        session.commit()
+        return DataSourceCheckResponse(**result.__dict__)
 
     @staticmethod
     def list_job_states(session: Session, principal: AuthPrincipal) -> list[db.TenantJobState]:

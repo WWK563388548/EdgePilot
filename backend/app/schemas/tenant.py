@@ -89,6 +89,16 @@ class TenantDataCapability(BaseModel):
     updated_at: datetime | None = None
 
 
+class DataSourceCheckResponse(BaseModel):
+    provider: str
+    capability_key: str
+    status: CapabilityStatus | str
+    source: str | None = None
+    message: str | None = None
+    checked_at: datetime
+    credential_id: str | None = None
+
+
 class TenantJobState(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

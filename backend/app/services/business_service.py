@@ -70,6 +70,7 @@ from backend.app.schemas.outcome import (
     ScannerOutcomeSummary,
 )
 from backend.app.schemas.scanner import ScannerDecision
+from backend.app.services.data_source_service import DataSourceService
 from backend.app.services.etf_seed_service import ETFSeedService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.scanner_service import ETFScannerService
@@ -489,10 +490,11 @@ class BusinessService:
         principal: AuthPrincipal,
         request: AccountETFUniverseRefreshRequest,
     ) -> ETFUniverseSeedResponse:
+        client, data_source = DataSourceService.polygon_client_for_tenant(session, principal)
         BusinessService._delete_account_oneil_candidates_and_outcomes(session, principal)
         response = ETFSeedService.seed_us_etf_universe_for_session(
             session=session,
-            client=ETFSeedService._client(),
+            client=client,
             request=ETFUniverseSeedRequest(
                 symbols=request.symbols,
                 from_date=request.from_date,
@@ -505,6 +507,19 @@ class BusinessService:
                 min_score=request.min_score,
                 max_candidates=request.max_candidates,
             ),
+        )
+        success_count = sum(1 for row in response.symbol_results if row.status == "success")
+        failure_messages = [
+            f"{row.symbol}: {row.error_message}"
+            for row in response.symbol_results
+            if row.status != "success" and row.error_message
+        ]
+        DataSourceService.record_polygon_refresh_result(
+            session,
+            principal.tenant_id,
+            success_count=success_count,
+            failure_count=len(response.symbol_results) - success_count,
+            error_summary="; ".join(failure_messages[:3]) or None,
         )
         BusinessService._create_notification_event(
             session,
@@ -528,6 +543,11 @@ class BusinessService:
                 if response.latest_bar_date
                 else None,
                 "source": "market_refresh_scan",
+                "data_source": data_source.metadata(),
+                "symbols_requested": response.symbols_requested,
+                "symbols_succeeded": success_count,
+                "symbols_failed": len(response.symbol_results) - success_count,
+                "error_summary": "; ".join(failure_messages[:3]) or None,
             },
         )
         BusinessService._audit(
@@ -580,6 +600,19 @@ class BusinessService:
                     + refresh_response.setups_written
                     + refresh_response.candidates_written
                 )
+                capability = DataSourceService.sync_polygon_capability(
+                    session,
+                    principal.tenant_id,
+                )
+                symbols_succeeded = sum(
+                    1 for row in refresh_response.symbol_results if row.status == "success"
+                )
+                symbols_failed = len(refresh_response.symbol_results) - symbols_succeeded
+                error_summary = "; ".join(
+                    f"{row.symbol}: {row.error_message}"
+                    for row in refresh_response.symbol_results
+                    if row.status != "success" and row.error_message
+                )
                 steps.append(
                     {
                         "name": "market_refresh_scan",
@@ -596,6 +629,16 @@ class BusinessService:
                             "latest_bar_date": refresh_response.latest_bar_date.isoformat()
                             if refresh_response.latest_bar_date
                             else None,
+                            "data_source": {
+                                "provider": "polygon",
+                                "capability_key": capability.capability_key,
+                                "status": capability.status,
+                                "source": capability.source,
+                            },
+                            "symbols_requested": refresh_response.symbols_requested,
+                            "symbols_succeeded": symbols_succeeded,
+                            "symbols_failed": symbols_failed,
+                            "error_summary": error_summary or None,
                         },
                     }
                 )
@@ -689,6 +732,19 @@ class BusinessService:
             )
         except Exception as exc:
             session.rollback()
+            if not steps or steps[-1].get("status") != "failed":
+                steps.append(
+                    {
+                        "name": "market_refresh_scan"
+                        if request.refresh_market_data
+                        else "oneil_core_scan",
+                        "status": "failed",
+                        "summary": {
+                            "error": str(exc),
+                            "symbols_requested": request.symbols or [],
+                        },
+                    }
+                )
             return BusinessService._complete_job_run(
                 session=session,
                 principal=principal,

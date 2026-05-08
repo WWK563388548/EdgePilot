@@ -18,7 +18,7 @@ import {
 import { ScanActionsHelp } from "@/components/workspace/molecules/scan-actions-help";
 import { CandidateList } from "@/components/workspace/organisms/candidate-list";
 import type { Candidate } from "@/lib/api";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
@@ -107,6 +107,7 @@ export function CandidatesView({
   });
   const scanPending = quickScan.isPending || marketRefreshScan.isPending;
   const scanError = quickScan.isError || marketRefreshScan.isError;
+  const scanErrorDetail = quickScan.error ?? marketRefreshScan.error;
   const topScore = useMemo(
     () => data.reduce<number | null>((best, row) => Math.max(best ?? 0, row.score_total ?? 0), null),
     [data]
@@ -186,7 +187,10 @@ export function CandidatesView({
               }`}
             >
               {scanError ? (
-                <p className="text-sm">{t("scanFailed")}</p>
+                <p className="text-sm">
+                  {t("scanFailed")}
+                  {scanErrorDetail ? `: ${errorText(scanErrorDetail)}` : ""}
+                </p>
               ) : scanResult ? (
                 <ScanResultPanel locale={locale} result={scanResult} />
               ) : null}
@@ -228,4 +232,11 @@ export function CandidatesView({
       ) : null}
     </section>
   );
+}
+
+function errorText(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.detail ?? error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
 }

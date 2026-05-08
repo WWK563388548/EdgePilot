@@ -151,6 +151,7 @@ def test_legal_acknowledgement_and_api_key_are_tenant_scoped() -> None:
         assert acknowledgement.tenant_id == "tenant_1"
         assert session.query(LegalAcknowledgement).count() == 1
         assert credential.has_encrypted_payload is True
+        assert credential.key_fingerprint
         assert session.query(TenantApiKey).filter_by(tenant_id="tenant_1").count() == 1
 
 
@@ -192,3 +193,42 @@ def test_polygon_credential_marks_market_data_capability_available(monkeypatch) 
         ).one()
         assert capability.status == "available"
         assert capability.source == "tenant_credential"
+
+
+def test_data_capability_check_updates_last_checked(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "polygon_api_key", "env_key")
+
+    from backend.app.services import data_source_service
+
+    monkeypatch.setattr(
+        data_source_service.PolygonClient,
+        "list_daily_bars",
+        lambda self, ticker, from_date, to_date: [{"t": 1, "c": 1}],
+    )
+
+    with _session() as session:
+        principal = AuthService.upsert_principal(
+            session=session,
+            user_id="user_1",
+            external_subject="auth0|user_1",
+            tenant_id="tenant_1",
+            account_id="acct_1",
+            role="owner",
+            email="user@example.com",
+            display_name="User",
+            email_verified=True,
+        )
+
+        response = TenantService.check_data_capability(
+            session,
+            principal,
+            "market_data.us_etf_daily",
+        )
+        capability = session.query(TenantDataCapability).filter_by(
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+        ).one()
+
+        assert response.status == "available"
+        assert response.source == "env"
+        assert capability.last_checked_at is not None
