@@ -42,3 +42,32 @@ def test_principal_from_claims_fetches_missing_email_verification(monkeypatch) -
         assert session.get(TenantMembership, (principal.tenant_id, principal.user_id)) is not None
         assert session.get(AccountMembership, (principal.account_id, principal.user_id)) is not None
         assert session.query(TenantDataCapability).filter_by(tenant_id=principal.tenant_id).count() >= 1
+
+
+def test_principal_from_claims_applies_role_downgrades(monkeypatch) -> None:
+    monkeypatch.setattr(AuthService, "fetch_user_profile", lambda external_subject: {})
+
+    with _session() as session:
+        owner = AuthService.principal_from_claims(
+            session,
+            {
+                "sub": "auth0|user_1",
+                "https://edgepilot/account_id": "acct_1",
+                "https://edgepilot/tenant_id": "tenant_1",
+                "https://edgepilot/role": "owner",
+            },
+        )
+        viewer = AuthService.principal_from_claims(
+            session,
+            {
+                "sub": "auth0|user_1",
+                "https://edgepilot/account_id": "acct_1",
+                "https://edgepilot/tenant_id": "tenant_1",
+                "https://edgepilot/role": "viewer",
+            },
+        )
+
+        assert owner.role == "owner"
+        assert viewer.role == "viewer"
+        assert session.get(AccountMembership, ("acct_1", viewer.user_id)).role == "viewer"
+        assert session.get(TenantMembership, ("tenant_1", viewer.user_id)).role == "viewer"

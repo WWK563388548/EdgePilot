@@ -193,6 +193,9 @@ class AuthService:
         display_name: str | None,
         email_verified: bool,
     ) -> AuthPrincipal:
+        if role not in ROLE_ORDER:
+            role = "viewer"
+
         tenant = None
         account = session.get(Account, account_id)
         if account is not None and account.tenant_id:
@@ -243,7 +246,7 @@ class AuthService:
                 role=role,
             )
             session.add(tenant_membership)
-        elif role_allows(role, tenant_membership.role):
+        elif tenant_membership.role != role:
             tenant_membership.role = role
 
         membership = session.get(AccountMembership, (account_id, user.user_id))
@@ -254,7 +257,7 @@ class AuthService:
                 role=role,
             )
             session.add(membership)
-        elif role_allows(role, membership.role):
+        elif membership.role != role:
             membership.role = role
 
         AuthService.ensure_tenant_foundation(session=session, tenant_id=tenant_id)
