@@ -4,6 +4,8 @@ This is the repo-maintained v1.5.1 PRD/TDD. It is the implementation-facing vers
 
 Full source archive: `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_5_1_Pragmatic_Rollout_Proxy_Robustness.md`.
 
+Release implementation plan: `docs/release_implementation_plan.md`.
+
 ## 1. Product Definition
 
 EdgePilot is a manual trading operations cockpit for small-account trading, multi-asset expansion, and private-beta multi-user use.
@@ -338,6 +340,8 @@ Required tests:
 - Data failed blocks production trade.
 
 ## 13. Implementation Sequence
+
+Expanded release roadmap: `docs/release_implementation_plan.md`.
 
 ### PR A: v1.5.1 Docs Alignment
 

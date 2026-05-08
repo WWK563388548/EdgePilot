@@ -4,6 +4,8 @@ This is the current authoritative product strategy for EdgePilot.
 
 Full source archive: `docs/reference/EdgePilot_PRD_TDD_Implementation_Plan_v1_5_1_Pragmatic_Rollout_Proxy_Robustness.md`.
 
+Release implementation plan: `docs/release_implementation_plan.md`.
+
 The v1.5.1 update supersedes the v1.1 maintained docs. It does not ask the project to become more complex immediately. Its main message is the opposite: EdgePilot should become robust before it becomes sophisticated.
 
 ## 1. Product Positioning
@@ -302,6 +304,8 @@ Default non-veto layers:
 - AI review.
 
 ## 12. Near-Term PR Sequence
+
+Expanded release roadmap: `docs/release_implementation_plan.md`.
 
 ### PR A: v1.5.1 Documentation Alignment
 
