@@ -275,6 +275,8 @@ Current branch foundation slice:
 - Create `review_needed` positions for unmatched fills.
 - Apply basic long-position reconciliation for buy, partial sell, and close flows.
 - Preserve idempotency so repeated imports skip existing fills.
+- Cover duplicate upload races with an opt-in Postgres concurrency test via
+  `EDGEPILOT_DISPOSABLE_TEST_DATABASE_URL`.
 - Mark `execution_import.csv` as available for tenant capability checks.
 
 Out of scope:

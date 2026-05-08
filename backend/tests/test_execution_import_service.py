@@ -1,3 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
+import os
+from threading import Barrier
+
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
@@ -45,6 +49,67 @@ def session():
             )
         db_session.commit()
         yield db_session
+
+
+@pytest.fixture
+def disposable_postgres_session_factory():
+    database_url = os.environ.get("EDGEPILOT_DISPOSABLE_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("Set EDGEPILOT_DISPOSABLE_TEST_DATABASE_URL to run Postgres concurrency tests.")
+    if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+        pytest.skip("Execution import concurrency coverage requires a disposable Postgres database.")
+
+    sqlalchemy_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    engine = create_engine(sqlalchemy_url, pool_pre_ping=True)
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    try:
+        with session_factory() as db_session:
+            principal = _principal()
+            tenant_id = principal.tenant_id
+            db_session.add(db.User(user_id=principal.user_id, external_subject=principal.user_id))
+            db_session.add(db.Tenant(tenant_id=tenant_id, name=tenant_id))
+            db_session.add(
+                db.TenantMembership(
+                    tenant_id=tenant_id,
+                    user_id=principal.user_id,
+                    role="owner",
+                )
+            )
+            db_session.add(
+                db.Account(
+                    account_id=principal.account_id,
+                    tenant_id=tenant_id,
+                    name=principal.account_id,
+                )
+            )
+            db_session.add(
+                db.AccountMembership(
+                    account_id=principal.account_id,
+                    user_id=principal.user_id,
+                    role="owner",
+                )
+            )
+            db_session.add(
+                db.Position(
+                    position_id="pos_spy",
+                    account_id=principal.account_id,
+                    symbol_id="SPY",
+                    asset_type="etf",
+                    strategy_name="oneil_core_us_etf",
+                    entry_price=421,
+                    quantity=3,
+                    initial_stop=400,
+                    current_stop=400,
+                    status="planned",
+                )
+            )
+            db_session.commit()
+        yield session_factory
+    finally:
+        Base.metadata.drop_all(engine)
+        engine.dispose()
 
 
 def test_import_csv_is_idempotent_and_matches_planned_position(session) -> None:
@@ -142,6 +207,56 @@ def test_import_csv_treats_unique_conflict_as_skipped(session, monkeypatch) -> N
     assert duplicate.import_record.rows_skipped == 1
     assert duplicate.fills == []
     assert ExecutionImportService.count_fills(session, principal) == 1
+    assert position.quantity == 10
+    assert position.entry_price == 425.5
+
+
+def test_import_csv_concurrent_duplicate_uploads_are_idempotent(
+    disposable_postgres_session_factory,
+    monkeypatch,
+) -> None:
+    principal = _principal()
+    csv_text = "\n".join(
+        [
+            "executed_at,symbol,side,quantity,price,fees,position_id,execution_id",
+            "2026-05-08T14:30:00+00:00,SPY,buy,10,425.50,1.25,pos_spy,exec_1",
+        ]
+    )
+    original_fill_exists = ExecutionImportService._fill_exists
+    barrier = Barrier(2)
+
+    def racing_fill_exists(db_session, idempotency_key: str) -> bool:
+        exists = original_fill_exists(db_session, idempotency_key)
+        barrier.wait(timeout=10)
+        return exists
+
+    monkeypatch.setattr(
+        ExecutionImportService,
+        "_fill_exists",
+        staticmethod(racing_fill_exists),
+    )
+
+    def run_import():
+        with disposable_postgres_session_factory() as db_session:
+            return ExecutionImportService.import_csv(
+                db_session,
+                principal,
+                ExecutionCSVImportRequest(csv_text=csv_text, source_filename="fills.csv"),
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: run_import(), range(2)))
+
+    imported_counts = sorted(result.import_record.rows_imported for result in results)
+    skipped_counts = sorted(result.import_record.rows_skipped for result in results)
+    with disposable_postgres_session_factory() as db_session:
+        position = db_session.get(db.Position, "pos_spy")
+        fills_count = ExecutionImportService.count_fills(db_session, principal)
+
+    assert imported_counts == [0, 1]
+    assert skipped_counts == [0, 1]
+    assert fills_count == 1
+    assert position is not None
     assert position.quantity == 10
     assert position.entry_price == 425.5
 
