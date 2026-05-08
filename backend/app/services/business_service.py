@@ -1,17 +1,16 @@
 from collections import Counter
 from datetime import UTC, datetime
-from hashlib import sha1
 import json
 import math
 from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import delete, exists, func, inspect, or_, select
+from sqlalchemy import delete, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
-from backend.app.core.auth import AuthPrincipal, AuthService
+from backend.app.core.auth import AuthPrincipal
 from backend.app.schemas.business import (
     AccountRiskSettings,
     AccountRiskSettingsUpdate,
@@ -48,7 +47,6 @@ from backend.app.schemas.business import (
     PositionReduce,
     PositionStopUpdate,
     PositionUpdate,
-    PortfolioRiskBucket,
     PortfolioRiskItem,
     PortfolioRiskSummary,
     GuardrailNotice,
@@ -70,20 +68,21 @@ from backend.app.schemas.outcome import (
     ScannerOutcomeSummary,
 )
 from backend.app.schemas.scanner import ScannerDecision
+from backend.app.services.audit_service import AuditService
 from backend.app.services.data_source_service import DataSourceService
 from backend.app.services.etf_seed_service import ETFSeedService
+from backend.app.services.job_run_service import JobRunService
+from backend.app.services.notification_service import (
+    NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY,
+    NotificationService,
+)
+from backend.app.services.portfolio_risk_service import PortfolioRiskService
+from backend.app.services.risk_settings_service import RiskSettingsService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.scanner_service import ETFScannerService
 from backend.app.services.strat_service import StratService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
-DEFAULT_ACCOUNT_EQUITY = 10_000.0
-DEFAULT_MAX_RISK_PER_TRADE_PCT = 0.005
-DEFAULT_MAX_TOTAL_RISK_PCT = 0.02
-DEFAULT_MAX_OPEN_POSITIONS = 3
-DEFAULT_MAX_RISK_DISTANCE_PCT = 0.12
-NOTIFICATION_SEVERITY_RANK = {"info": 0, "warning": 1, "action_required": 2}
-NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY = "edgepilot_notification_tables_available"
 
 
 def _average(values) -> float | None:
@@ -162,25 +161,14 @@ class BusinessService:
         entity_type: str,
         entity_id: str | None,
     ) -> None:
-        session.add(
-            db.AuditLog(
-                audit_id=AuthService.audit_id(),
-                account_id=principal.account_id,
-                tenant_id=principal.tenant_id,
-                actor_user_id=principal.user_id,
-                action=action,
-                entity_type=entity_type,
-                entity_id=entity_id,
-            )
-        )
+        AuditService.record(session, principal, action, entity_type, entity_id)
 
     @staticmethod
     def get_account_risk_settings(
         session: Session,
         principal: AuthPrincipal,
     ) -> AccountRiskSettings:
-        settings = BusinessService._get_account_risk_settings_model(session, principal)
-        return BusinessService._risk_settings_response(principal, settings)
+        return RiskSettingsService.get_account_risk_settings(session, principal)
 
     @staticmethod
     def update_account_risk_settings(
@@ -188,19 +176,7 @@ class BusinessService:
         principal: AuthPrincipal,
         request: AccountRiskSettingsUpdate,
     ) -> AccountRiskSettings:
-        settings = BusinessService._get_account_risk_settings_model(session, principal)
-        if settings is None:
-            settings = db.AccountRiskSettings(account_id=principal.account_id)
-            session.add(settings)
-
-        payload = request.model_dump(exclude_unset=True)
-        for key, value in payload.items():
-            setattr(settings, key, value)
-        settings.updated_at = datetime.now(UTC)
-        BusinessService._audit(session, principal, "risk_settings.update", "account", principal.account_id)
-        session.commit()
-        session.refresh(settings)
-        return BusinessService._risk_settings_response(principal, settings)
+        return RiskSettingsService.update_account_risk_settings(session, principal, request)
 
     @staticmethod
     def get_notification_preferences(
@@ -209,10 +185,7 @@ class BusinessService:
     ) -> NotificationPreferences:
         if not BusinessService._notification_tables_available(session):
             return BusinessService._default_notification_preferences_response(principal)
-        preferences = BusinessService._notification_preferences_model(session, principal)
-        session.commit()
-        session.refresh(preferences)
-        return BusinessService._notification_preferences_response(preferences)
+        return NotificationService.get_notification_preferences(session, principal)
 
     @staticmethod
     def update_notification_preferences(
@@ -222,135 +195,48 @@ class BusinessService:
     ) -> NotificationPreferences:
         if not BusinessService._notification_tables_available(session):
             return BusinessService._default_notification_preferences_response(principal, request)
-        preferences = BusinessService._notification_preferences_model(session, principal)
-        payload = request.model_dump(exclude_unset=True)
-        for key, value in payload.items():
-            setattr(preferences, key, value)
-        preferences.updated_at = datetime.now(UTC)
-        BusinessService._audit(
-            session,
-            principal,
-            "notification_preferences.update",
-            "notification_preferences",
-            principal.account_id,
-        )
-        session.commit()
-        session.refresh(preferences)
-        return BusinessService._notification_preferences_response(preferences)
+        return NotificationService.update_notification_preferences(session, principal, request)
 
     @staticmethod
     def _notification_preferences_model(
         session: Session,
         principal: AuthPrincipal,
     ) -> db.NotificationPreference:
-        preferences = session.get(db.NotificationPreference, principal.account_id)
-        if preferences is None:
-            preferences = db.NotificationPreference(
-                account_id=principal.account_id,
-                in_app_enabled=True,
-                email_enabled=False,
-                sms_enabled=False,
-                min_severity="info",
-                event_preferences={},
-            )
-            session.add(preferences)
-            session.flush()
-        return preferences
+        return NotificationService.notification_preferences_model(session, principal)
 
     @staticmethod
     def _notification_preferences_response(
         preferences: db.NotificationPreference,
     ) -> NotificationPreferences:
-        return NotificationPreferences(
-            account_id=preferences.account_id,
-            in_app_enabled=preferences.in_app_enabled
-            if preferences.in_app_enabled is not None
-            else True,
-            email_enabled=preferences.email_enabled if preferences.email_enabled is not None else False,
-            sms_enabled=preferences.sms_enabled if preferences.sms_enabled is not None else False,
-            min_severity=preferences.min_severity or "info",
-            email_to=preferences.email_to,
-            phone_to=preferences.phone_to,
-            event_preferences=preferences.event_preferences or {},
-            created_at=preferences.created_at,
-            updated_at=preferences.updated_at,
-        )
+        return NotificationService.notification_preferences_response(preferences)
 
     @staticmethod
     def _default_notification_preferences_response(
         principal: AuthPrincipal,
         request: NotificationPreferencesUpdate | None = None,
     ) -> NotificationPreferences:
-        payload = request.model_dump(exclude_unset=True) if request else {}
-        return NotificationPreferences(
-            account_id=principal.account_id,
-            in_app_enabled=payload.get("in_app_enabled")
-            if payload.get("in_app_enabled") is not None
-            else True,
-            email_enabled=payload.get("email_enabled")
-            if payload.get("email_enabled") is not None
-            else False,
-            sms_enabled=payload.get("sms_enabled")
-            if payload.get("sms_enabled") is not None
-            else False,
-            min_severity=payload.get("min_severity") or "info",
-            email_to=payload.get("email_to"),
-            phone_to=payload.get("phone_to"),
-            event_preferences=payload.get("event_preferences") or {},
-            created_at=None,
-            updated_at=None,
-        )
+        return NotificationService.default_notification_preferences_response(principal, request)
 
     @staticmethod
     def get_portfolio_risk(
         session: Session,
         principal: AuthPrincipal,
     ) -> PortfolioRiskSummary:
-        return BusinessService._portfolio_risk_summary(session, principal)
+        return PortfolioRiskService.get_portfolio_risk(session, principal)
 
     @staticmethod
     def _get_account_risk_settings_model(
         session: Session,
         principal: AuthPrincipal,
     ) -> db.AccountRiskSettings | None:
-        return session.get(db.AccountRiskSettings, principal.account_id)
+        return RiskSettingsService.get_account_risk_settings_model(session, principal)
 
     @staticmethod
     def _risk_settings_response(
         principal: AuthPrincipal,
         settings: db.AccountRiskSettings | None,
     ) -> AccountRiskSettings:
-        return AccountRiskSettings(
-            account_id=principal.account_id,
-            account_equity=settings.account_equity if settings and settings.account_equity else DEFAULT_ACCOUNT_EQUITY,
-            max_risk_per_trade_pct=(
-                settings.max_risk_per_trade_pct
-                if settings and settings.max_risk_per_trade_pct
-                else DEFAULT_MAX_RISK_PER_TRADE_PCT
-            ),
-            max_total_risk_pct=(
-                settings.max_total_risk_pct
-                if settings and settings.max_total_risk_pct
-                else DEFAULT_MAX_TOTAL_RISK_PCT
-            ),
-            max_open_positions=(
-                settings.max_open_positions
-                if settings and settings.max_open_positions
-                else DEFAULT_MAX_OPEN_POSITIONS
-            ),
-            max_risk_distance_pct=(
-                settings.max_risk_distance_pct
-                if settings and settings.max_risk_distance_pct
-                else DEFAULT_MAX_RISK_DISTANCE_PCT
-            ),
-            shadow_only_requires_paper=(
-                settings.shadow_only_requires_paper
-                if settings and settings.shadow_only_requires_paper is not None
-                else True
-            ),
-            created_at=settings.created_at if settings else None,
-            updated_at=settings.updated_at if settings else None,
-        )
+        return RiskSettingsService.risk_settings_response(principal, settings)
 
     @staticmethod
     def create_candidate(
@@ -566,199 +452,7 @@ class BusinessService:
         principal: AuthPrincipal,
         request: AutomationJobRunRequest,
     ) -> JobRun:
-        started_at = datetime.now(UTC)
-        run_id = f"job_{uuid4().hex}"
-        job = db.JobRun(
-            run_id=run_id,
-            account_id=principal.account_id,
-            job_type="market_refresh_scan",
-            status="running",
-            trigger="manual",
-            records_written=0,
-            metadata_json={"steps": [], "request": request.model_dump(mode="json")},
-            started_at=started_at,
-        )
-        session.add(job)
-        session.flush()
-
-        steps: list[dict[str, Any]] = []
-        records_written = 0
-        try:
-            if request.refresh_market_data:
-                refresh_response = BusinessService.refresh_account_oneil_core_universe(
-                    session,
-                    principal,
-                    AccountETFUniverseRefreshRequest(
-                        symbols=request.symbols,
-                        min_score=request.min_score,
-                        max_candidates=request.max_candidates,
-                    ),
-                )
-                records_written += (
-                    refresh_response.bars_written
-                    + refresh_response.facts_written
-                    + refresh_response.setups_written
-                    + refresh_response.candidates_written
-                )
-                symbols_succeeded = sum(
-                    1 for row in refresh_response.symbol_results if row.status == "success"
-                )
-                symbols_failed = len(refresh_response.symbol_results) - symbols_succeeded
-                error_summary = "; ".join(
-                    f"{row.symbol}: {row.error_message}"
-                    for row in refresh_response.symbol_results
-                    if row.status != "success" and row.error_message
-                )
-                capability = DataSourceService.record_polygon_refresh_result(
-                    session,
-                    principal.tenant_id,
-                    success_count=symbols_succeeded,
-                    failure_count=symbols_failed,
-                    error_summary=error_summary or None,
-                )
-                steps.append(
-                    {
-                        "name": "market_refresh_scan",
-                        "status": "succeeded",
-                        "summary": {
-                            "bars_written": refresh_response.bars_written,
-                            "facts_written": refresh_response.facts_written,
-                            "setups_written": refresh_response.setups_written,
-                            "candidates_written": refresh_response.candidates_written,
-                            "decision_counts": refresh_response.decision_counts,
-                            "latest_scan_date": refresh_response.latest_scan_date.isoformat()
-                            if refresh_response.latest_scan_date
-                            else None,
-                            "latest_bar_date": refresh_response.latest_bar_date.isoformat()
-                            if refresh_response.latest_bar_date
-                            else None,
-                            "data_source": {
-                                "provider": "polygon",
-                                "capability_key": capability.capability_key,
-                                "status": capability.status,
-                                "source": capability.source,
-                            },
-                            "symbols_requested": refresh_response.symbols_requested,
-                            "symbols_succeeded": symbols_succeeded,
-                            "symbols_failed": symbols_failed,
-                            "error_summary": error_summary or None,
-                        },
-                    }
-                )
-            else:
-                scanner_response = BusinessService.run_account_oneil_core_scanner(
-                    session,
-                    principal,
-                    AccountETFOneilScannerRequest(
-                        symbols=request.symbols,
-                        min_score=request.min_score,
-                        max_candidates=request.max_candidates,
-                        recalculate_facts=True,
-                    ),
-                )
-                records_written += (
-                    scanner_response.facts_written
-                    + scanner_response.setups_written
-                    + scanner_response.candidates_written
-                )
-                steps.append(
-                    {
-                        "name": "oneil_core_scan",
-                        "status": "succeeded",
-                        "summary": {
-                            "facts_written": scanner_response.facts_written,
-                            "setups_written": scanner_response.setups_written,
-                            "candidates_written": scanner_response.candidates_written,
-                            "decision_counts": scanner_response.decision_counts,
-                            "latest_scan_date": scanner_response.latest_scan_date.isoformat()
-                            if scanner_response.latest_scan_date
-                            else None,
-                            "latest_bar_date": scanner_response.latest_bar_date.isoformat()
-                            if scanner_response.latest_bar_date
-                            else None,
-                        },
-                    }
-                )
-
-            if request.recalculate_outcomes:
-                outcome_response = BusinessService.recalculate_scanner_outcomes(
-                    session,
-                    principal,
-                    ScannerOutcomeRecalculateRequest(
-                        strategy_name=ONEIL_CORE_US_ETF_STRATEGY,
-                        limit=request.outcome_limit,
-                    ),
-                )
-                records_written += outcome_response.outcomes_written
-                steps.append(
-                    {
-                        "name": "scanner_outcomes",
-                        "status": "succeeded",
-                        "summary": {
-                            "candidates_scanned": outcome_response.candidates_scanned,
-                            "outcomes_written": outcome_response.outcomes_written,
-                            "skipped_candidates": outcome_response.skipped_candidates,
-                            "status_counts": outcome_response.status_counts,
-                        },
-                    }
-                )
-
-            if request.evaluate_alerts:
-                alert_response = BusinessService.evaluate_exit_alerts(
-                    session,
-                    principal,
-                    ExitAlertEvaluationRequest(limit=request.alert_limit),
-                )
-                records_written += alert_response.alerts_created
-                steps.append(
-                    {
-                        "name": "exit_alerts",
-                        "status": "succeeded",
-                        "summary": {
-                            "positions_evaluated": alert_response.positions_evaluated,
-                            "alerts_created": alert_response.alerts_created,
-                            "skipped_positions": alert_response.skipped_positions,
-                            "duplicate_alerts": alert_response.duplicate_alerts,
-                        },
-                    }
-                )
-
-            return BusinessService._complete_job_run(
-                session=session,
-                principal=principal,
-                run_id=run_id,
-                started_at=started_at,
-                status="succeeded",
-                records_written=records_written,
-                steps=steps,
-                request=request,
-            )
-        except Exception as exc:
-            session.rollback()
-            if not steps or steps[-1].get("status") != "failed":
-                steps.append(
-                    {
-                        "name": "market_refresh_scan"
-                        if request.refresh_market_data
-                        else "oneil_core_scan",
-                        "status": "failed",
-                        "summary": {
-                            "error": str(exc),
-                            "symbols_requested": request.symbols or [],
-                        },
-                    }
-                )
-            return BusinessService._complete_job_run(
-                session=session,
-                principal=principal,
-                run_id=run_id,
-                started_at=started_at,
-                status="failed",
-                records_written=records_written,
-                steps=steps,
-                request=request,
-                error_message=str(exc),
-            )
+        return JobRunService.run_automation_job(session, principal, request)
 
     @staticmethod
     def _complete_job_run(
@@ -773,30 +467,17 @@ class BusinessService:
         request: AutomationJobRunRequest,
         error_message: str | None = None,
     ) -> JobRun:
-        completed_at = datetime.now(UTC)
-        job = session.get(db.JobRun, run_id)
-        if job is None:
-            job = db.JobRun(
-                run_id=run_id,
-                account_id=principal.account_id,
-                job_type="market_refresh_scan",
-                trigger="manual",
-                started_at=started_at,
-            )
-            session.add(job)
-        job.status = status
-        job.records_written = records_written
-        job.error_message = error_message
-        job.completed_at = completed_at
-        job.duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-        job.metadata_json = {
-            "steps": steps,
-            "request": request.model_dump(mode="json"),
-        }
-        BusinessService._audit(session, principal, "job.run", "job_run", run_id)
-        session.commit()
-        session.refresh(job)
-        return JobRun.model_validate(job)
+        return JobRunService.complete_job_run(
+            session=session,
+            principal=principal,
+            run_id=run_id,
+            started_at=started_at,
+            status=status,
+            records_written=records_written,
+            steps=steps,
+            request=request,
+            error_message=error_message,
+        )
 
     @staticmethod
     def list_job_runs(
@@ -807,9 +488,13 @@ class BusinessService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[JobRun]:
-        statement = BusinessService._job_runs_statement(principal=principal, status=status)
-        statement = statement.order_by(db.JobRun.started_at.desc()).limit(limit).offset(offset)
-        return [JobRun.model_validate(row) for row in session.scalars(statement).all()]
+        return JobRunService.list_job_runs(
+            session,
+            principal,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
 
     @staticmethod
     def count_job_runs(
@@ -818,8 +503,7 @@ class BusinessService:
         *,
         status: str | None = None,
     ) -> int:
-        statement = BusinessService._job_runs_statement(principal=principal, status=status)
-        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        return JobRunService.count_job_runs(session, principal, status=status)
 
     @staticmethod
     def _job_runs_statement(
@@ -827,10 +511,7 @@ class BusinessService:
         principal: AuthPrincipal,
         status: str | None = None,
     ):
-        statement = select(db.JobRun).where(db.JobRun.account_id == principal.account_id)
-        if status:
-            statement = statement.where(db.JobRun.status == status)
-        return statement
+        return JobRunService.job_runs_statement(principal=principal, status=status)
 
     @staticmethod
     def list_scanner_outcomes(
@@ -1011,91 +692,11 @@ class BusinessService:
         extra_item: PortfolioRiskItem | None = None,
         exclude_position_id: str | None = None,
     ) -> PortfolioRiskSummary:
-        risk_settings = BusinessService.get_account_risk_settings(session, principal)
-        statement = (
-            select(db.Position)
-            .where(
-                db.Position.account_id == principal.account_id,
-                db.Position.status.in_(("planned", "open", "reduce")),
-            )
-            .order_by(db.Position.updated_at.desc())
-        )
-        rows = list(session.scalars(statement).all())
-        items: list[PortfolioRiskItem] = []
-        for row in rows:
-            if exclude_position_id and row.position_id == exclude_position_id:
-                continue
-            items.append(BusinessService._portfolio_risk_item(row, risk_settings))
-        if extra_item is not None:
-            items.append(extra_item)
-
-        total_risk_amount = round(
-            sum(item.risk_amount or 0 for item in items),
-            6,
-        )
-        total_risk_pct = round(total_risk_amount / risk_settings.account_equity, 6)
-        max_total_risk_amount = round(
-            risk_settings.account_equity * risk_settings.max_total_risk_pct,
-            6,
-        )
-        remaining_risk_amount = round(max_total_risk_amount - total_risk_amount, 6)
-        remaining_risk_pct = round(remaining_risk_amount / risk_settings.account_equity, 6)
-
-        by_symbol: dict[str, dict[str, float | int]] = {}
-        for item in items:
-            bucket = by_symbol.setdefault(
-                item.symbol_id,
-                {"risk_amount": 0.0, "position_count": 0},
-            )
-            bucket["risk_amount"] = float(bucket["risk_amount"]) + (item.risk_amount or 0)
-            bucket["position_count"] = int(bucket["position_count"]) + 1
-
-        buckets = [
-            PortfolioRiskBucket(
-                symbol_id=symbol,
-                risk_amount=round(float(bucket["risk_amount"]), 6),
-                risk_pct=round(float(bucket["risk_amount"]) / risk_settings.account_equity, 6),
-                position_count=int(bucket["position_count"]),
-            )
-            for symbol, bucket in by_symbol.items()
-        ]
-        buckets.sort(key=lambda bucket: bucket.risk_amount, reverse=True)
-
-        notices: list[GuardrailNotice] = []
-        if total_risk_pct > risk_settings.max_total_risk_pct:
-            notices.append(GuardrailNotice(level="block", code="portfolio_risk_budget_exceeded"))
-        elif remaining_risk_amount <= risk_settings.account_equity * risk_settings.max_risk_per_trade_pct:
-            notices.append(GuardrailNotice(level="warning", code="portfolio_risk_budget_low"))
-        if len(items) >= risk_settings.max_open_positions:
-            notices.append(GuardrailNotice(level="warning", code="portfolio_position_limit_reached"))
-
-        return PortfolioRiskSummary(
-            account_id=principal.account_id,
-            account_equity=risk_settings.account_equity,
-            max_total_risk_pct=risk_settings.max_total_risk_pct,
-            max_total_risk_amount=max_total_risk_amount,
-            max_open_positions=risk_settings.max_open_positions,
-            active_position_count=len(items),
-            total_risk_amount=total_risk_amount,
-            total_risk_pct=total_risk_pct,
-            remaining_risk_amount=remaining_risk_amount,
-            remaining_risk_pct=remaining_risk_pct,
-            planned_risk_amount=round(
-                sum(item.risk_amount or 0 for item in items if item.status == "planned"),
-                6,
-            ),
-            open_risk_amount=round(
-                sum(item.risk_amount or 0 for item in items if item.status == "open"),
-                6,
-            ),
-            reduced_risk_amount=round(
-                sum(item.risk_amount or 0 for item in items if item.status == "reduce"),
-                6,
-            ),
-            highest_symbol_risk=buckets[0] if buckets else None,
-            by_symbol=buckets,
-            positions=items,
-            notices=notices,
+        return PortfolioRiskService.portfolio_risk_summary(
+            session,
+            principal,
+            extra_item=extra_item,
+            exclude_position_id=exclude_position_id,
         )
 
     @staticmethod
@@ -1103,24 +704,7 @@ class BusinessService:
         position: db.Position,
         risk_settings: AccountRiskSettings,
     ) -> PortfolioRiskItem:
-        stop = position.current_stop or position.initial_stop
-        risk_amount = _risk_amount(position.entry_price, stop, position.quantity)
-        return PortfolioRiskItem(
-            position_id=position.position_id,
-            symbol_id=position.symbol_id,
-            status=position.status,
-            entry_price=position.entry_price,
-            stop_price=stop,
-            quantity=position.quantity,
-            risk_amount=risk_amount,
-            risk_pct=(
-                round(risk_amount / risk_settings.account_equity, 6)
-                if risk_amount is not None
-                else None
-            ),
-            source="position",
-            updated_at=position.updated_at,
-        )
+        return PortfolioRiskService.portfolio_risk_item(position, risk_settings)
 
     @staticmethod
     def _preview_portfolio_risk_item(
@@ -1131,21 +715,12 @@ class BusinessService:
         quantity: float | None,
         risk_settings: AccountRiskSettings,
     ) -> PortfolioRiskItem:
-        risk_amount = _risk_amount(entry_price, initial_stop, quantity)
-        return PortfolioRiskItem(
-            position_id=_candidate_plan_position_id(candidate.candidate_id),
-            symbol_id=candidate.symbol_id,
-            status="planned",
+        return PortfolioRiskService.preview_portfolio_risk_item(
+            candidate=candidate,
             entry_price=entry_price,
-            stop_price=initial_stop,
+            initial_stop=initial_stop,
             quantity=quantity,
-            risk_amount=risk_amount,
-            risk_pct=(
-                round(risk_amount / risk_settings.account_equity, 6)
-                if risk_amount is not None
-                else None
-            ),
-            source="preview",
+            risk_settings=risk_settings,
         )
 
     @staticmethod
@@ -2502,16 +2077,15 @@ class BusinessService:
     ) -> list[NotificationEvent]:
         if not BusinessService._notification_tables_available(session):
             return []
-        statement = BusinessService._notification_list_statement(
+        return NotificationService.list_notifications(
+            session=session,
             principal=principal,
             read=read,
             acknowledged=acknowledged,
             include_snoozed=include_snoozed,
+            limit=limit,
+            offset=offset,
         )
-        rows = session.scalars(
-            statement.order_by(db.NotificationEvent.created_at.desc()).offset(offset).limit(limit)
-        ).all()
-        return [NotificationEvent.model_validate(row) for row in rows]
 
     @staticmethod
     def count_notifications(
@@ -2523,13 +2097,13 @@ class BusinessService:
     ) -> int:
         if not BusinessService._notification_tables_available(session):
             return 0
-        statement = BusinessService._notification_list_statement(
+        return NotificationService.count_notifications(
+            session=session,
             principal=principal,
             read=read,
             acknowledged=acknowledged,
             include_snoozed=include_snoozed,
         )
-        return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
 
     @staticmethod
     def _notification_list_statement(
@@ -2539,33 +2113,12 @@ class BusinessService:
         acknowledged: bool | None = None,
         include_snoozed: bool = False,
     ):
-        statement = select(db.NotificationEvent).where(
-            db.NotificationEvent.account_id == principal.account_id
+        return NotificationService.notification_list_statement(
+            principal=principal,
+            read=read,
+            acknowledged=acknowledged,
+            include_snoozed=include_snoozed,
         )
-        statement = statement.where(
-            exists().where(
-                db.NotificationDeliveryLog.notification_id
-                == db.NotificationEvent.notification_id,
-                db.NotificationDeliveryLog.channel == "in_app",
-                db.NotificationDeliveryLog.status == "delivered",
-            )
-        )
-        if read is True:
-            statement = statement.where(db.NotificationEvent.read_at.is_not(None))
-        elif read is False:
-            statement = statement.where(db.NotificationEvent.read_at.is_(None))
-        if acknowledged is True:
-            statement = statement.where(db.NotificationEvent.acknowledged_at.is_not(None))
-        elif acknowledged is False:
-            statement = statement.where(db.NotificationEvent.acknowledged_at.is_(None))
-        if not include_snoozed:
-            statement = statement.where(
-                or_(
-                    db.NotificationEvent.snoozed_until.is_(None),
-                    db.NotificationEvent.snoozed_until <= datetime.now(UTC),
-                )
-            )
-        return statement
 
     @staticmethod
     def update_notification(
@@ -2576,29 +2129,7 @@ class BusinessService:
     ) -> NotificationEvent:
         if not BusinessService._notification_tables_available(session):
             raise ValueError(f"Notification not found: {notification_id}")
-        notification = BusinessService._get_notification_model(session, principal, notification_id)
-        now = datetime.now(UTC)
-        payload = request.model_dump(exclude_unset=True)
-        if "read" in payload:
-            notification.read_at = now if payload["read"] else None
-        if "acknowledged" in payload:
-            notification.acknowledged_at = now if payload["acknowledged"] else None
-            if payload["acknowledged"]:
-                notification.read_at = notification.read_at or now
-        if "snoozed_until" in payload:
-            notification.snoozed_until = payload["snoozed_until"]
-        if payload:
-            notification.updated_at = now
-            BusinessService._audit(
-                session,
-                principal,
-                "notification.update",
-                "notification",
-                notification_id,
-            )
-            session.commit()
-            session.refresh(notification)
-        return NotificationEvent.model_validate(notification)
+        return NotificationService.update_notification(session, principal, notification_id, request)
 
     @staticmethod
     def _get_notification_model(
@@ -2606,15 +2137,7 @@ class BusinessService:
         principal: AuthPrincipal,
         notification_id: str,
     ) -> db.NotificationEvent:
-        notification = session.scalar(
-            select(db.NotificationEvent).where(
-                db.NotificationEvent.notification_id == notification_id,
-                db.NotificationEvent.account_id == principal.account_id,
-            )
-        )
-        if notification is None:
-            raise ValueError(f"Notification not found: {notification_id}")
-        return notification
+        return NotificationService.get_notification_model(session, principal, notification_id)
 
     @staticmethod
     def _create_notification_event(
@@ -2633,27 +2156,9 @@ class BusinessService:
     ) -> db.NotificationEvent | None:
         if not BusinessService._notification_tables_available(session):
             return None
-        preferences = BusinessService._notification_preferences_model(session, principal)
-        if not BusinessService._notification_allowed(preferences, event_type, severity):
-            return None
-        existing = BusinessService._find_existing_notification(
-            session,
-            principal,
-            event_type=event_type,
-            source_type=source_type,
-            source_id=source_id,
-        )
-        if existing is not None:
-            return existing
-        notification_id = BusinessService._notification_id(
-            principal.account_id,
-            event_type,
-            source_type,
-            source_id,
-        )
-        notification = db.NotificationEvent(
-            notification_id=notification_id,
-            account_id=principal.account_id,
+        return NotificationService.create_notification_event(
+            session=session,
+            principal=principal,
             event_type=event_type,
             severity=severity,
             source_type=source_type,
@@ -2662,12 +2167,8 @@ class BusinessService:
             body=body,
             target_view=target_view,
             target_id=target_id,
-            metadata_json=metadata_json or {},
+            metadata_json=metadata_json,
         )
-        session.add(notification)
-        session.flush([notification])
-        BusinessService._add_notification_delivery_logs(session, preferences, notification)
-        return notification
 
     @staticmethod
     def _notification_allowed(
@@ -2675,14 +2176,7 @@ class BusinessService:
         event_type: str,
         severity: str,
     ) -> bool:
-        event_preferences = preferences.event_preferences or {}
-        if event_preferences.get(event_type) is False:
-            return False
-        min_severity = preferences.min_severity or "info"
-        return NOTIFICATION_SEVERITY_RANK.get(severity, 0) >= NOTIFICATION_SEVERITY_RANK.get(
-            min_severity,
-            0,
-        )
+        return NotificationService.notification_allowed(preferences, event_type, severity)
 
     @staticmethod
     def _find_existing_notification(
@@ -2693,15 +2187,12 @@ class BusinessService:
         source_type: str | None,
         source_id: str | None,
     ) -> db.NotificationEvent | None:
-        if source_id is None:
-            return None
-        return session.scalar(
-            select(db.NotificationEvent).where(
-                db.NotificationEvent.account_id == principal.account_id,
-                db.NotificationEvent.event_type == event_type,
-                db.NotificationEvent.source_type == source_type,
-                db.NotificationEvent.source_id == source_id,
-            )
+        return NotificationService.find_existing_notification(
+            session,
+            principal,
+            event_type=event_type,
+            source_type=source_type,
+            source_id=source_id,
         )
 
     @staticmethod
@@ -2711,8 +2202,7 @@ class BusinessService:
         source_type: str | None,
         source_id: str | None,
     ) -> str:
-        raw = "|".join((account_id, event_type, source_type or "", source_id or uuid4().hex))
-        return f"notif_{sha1(raw.encode('utf-8')).hexdigest()[:24]}"
+        return NotificationService.notification_id(account_id, event_type, source_type, source_id)
 
     @staticmethod
     def _add_notification_delivery_logs(
@@ -2720,44 +2210,7 @@ class BusinessService:
         preferences: db.NotificationPreference,
         notification: db.NotificationEvent,
     ) -> None:
-        now = datetime.now(UTC)
-        if preferences.in_app_enabled is not False:
-            session.add(
-                db.NotificationDeliveryLog(
-                    delivery_id=f"delivery_{notification.notification_id}_in_app",
-                    notification_id=notification.notification_id,
-                    account_id=notification.account_id,
-                    channel="in_app",
-                    status="delivered",
-                    target="workspace",
-                    attempted_at=now,
-                    delivered_at=now,
-                )
-            )
-        if preferences.email_enabled and preferences.email_to:
-            session.add(
-                db.NotificationDeliveryLog(
-                    delivery_id=f"delivery_{notification.notification_id}_email",
-                    notification_id=notification.notification_id,
-                    account_id=notification.account_id,
-                    channel="email",
-                    status="queued",
-                    target=preferences.email_to,
-                    attempted_at=now,
-                )
-            )
-        if preferences.sms_enabled and preferences.phone_to:
-            session.add(
-                db.NotificationDeliveryLog(
-                    delivery_id=f"delivery_{notification.notification_id}_sms",
-                    notification_id=notification.notification_id,
-                    account_id=notification.account_id,
-                    channel="sms",
-                    status="queued",
-                    target=preferences.phone_to,
-                    attempted_at=now,
-                )
-            )
+        NotificationService.add_notification_delivery_logs(session, preferences, notification)
 
     @staticmethod
     def _acknowledge_notifications_for_source(
@@ -2767,21 +2220,12 @@ class BusinessService:
         source_type: str,
         source_id: str,
     ) -> None:
-        if not BusinessService._notification_tables_available(session):
-            return
-        now = datetime.now(UTC)
-        notifications = session.scalars(
-            select(db.NotificationEvent).where(
-                db.NotificationEvent.account_id == principal.account_id,
-                db.NotificationEvent.source_type == source_type,
-                db.NotificationEvent.source_id == source_id,
-                db.NotificationEvent.acknowledged_at.is_(None),
-            )
-        ).all()
-        for notification in notifications:
-            notification.acknowledged_at = now
-            notification.read_at = notification.read_at or now
-            notification.updated_at = now
+        NotificationService.acknowledge_notifications_for_source(
+            session,
+            principal,
+            source_type=source_type,
+            source_id=source_id,
+        )
 
     @staticmethod
     def _notification_tables_available(session: Session) -> bool:
