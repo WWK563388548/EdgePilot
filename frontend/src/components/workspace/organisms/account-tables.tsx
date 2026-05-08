@@ -49,6 +49,7 @@ export function PositionsTable({
     "open",
     "reduce",
     "exit_pending",
+    "review_needed",
     "closed",
     "cancelled"
   ];

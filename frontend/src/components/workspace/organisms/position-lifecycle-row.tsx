@@ -567,6 +567,9 @@ function nextStepText(status: string | null, t: ReturnType<typeof useAppI18n>["t
   if (status === "cancelled") {
     return t("positionNextStepCancelled");
   }
+  if (status === "review_needed") {
+    return t("positionNextStepReviewNeeded");
+  }
   return t("positionNextStepUnknown");
 }
 

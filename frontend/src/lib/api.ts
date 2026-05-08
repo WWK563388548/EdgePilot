@@ -555,6 +555,7 @@ export type PositionStatus =
   | "open"
   | "reduce"
   | "exit_pending"
+  | "review_needed"
   | "closed"
   | "cancelled";
 
@@ -651,6 +652,66 @@ export type JournalTrade = {
 export type PositionCloseResponse = {
   position: Position;
   journal_trade: JournalTrade;
+};
+
+export type ExecutionImportStatus = "completed" | "partial" | "failed";
+
+export type ExecutionCSVImportRequest = {
+  broker?: string;
+  source_filename?: string | null;
+  csv_text: string;
+};
+
+export type ExecutionImport = {
+  import_id: string;
+  account_id: string;
+  broker: string;
+  source_filename: string | null;
+  status: ExecutionImportStatus;
+  rows_total: number;
+  rows_imported: number;
+  rows_skipped: number;
+  rows_failed: number;
+  error_message: string | null;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type ExecutionFill = {
+  fill_id: string;
+  import_id: string;
+  account_id: string;
+  position_id: string | null;
+  idempotency_key: string;
+  broker: string;
+  broker_account_id: string | null;
+  broker_order_id: string | null;
+  broker_execution_id: string | null;
+  symbol_id: string;
+  asset_type: string;
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  gross_amount: number | null;
+  fees: number | null;
+  net_amount: number | null;
+  currency: string | null;
+  executed_at: string;
+  raw_row_json: Record<string, unknown> | null;
+  created_at: string | null;
+};
+
+export type ExecutionImportError = {
+  row_number: number;
+  message: string;
+  raw_row: Record<string, unknown>;
+};
+
+export type ExecutionImportResult = {
+  import_record: ExecutionImport;
+  fills: ExecutionFill[];
+  errors: ExecutionImportError[];
 };
 
 export type AuthMe = {
@@ -1004,6 +1065,47 @@ export const api = {
     postJson<PositionCloseResponse>(
       `/api/positions/${encodeURIComponent(positionId)}/close`,
       request
+    ),
+  importExecutionCsv: (request: ExecutionCSVImportRequest) =>
+    postJson<ExecutionImportResult>("/api/execution/imports/csv", request),
+  executionImports: (
+    pagination: { limit?: number; offset?: number; status?: ExecutionImportStatus } = {}
+  ) =>
+    getJson<ExecutionImport[]>(
+      `/api/execution/imports${queryString({
+        limit: pagination.limit ?? 100,
+        offset: pagination.offset,
+        status: pagination.status
+      })}`
+    ),
+  executionImportsCount: (filters: { status?: ExecutionImportStatus } = {}) =>
+    getJson<CountResponse>(
+      `/api/execution/imports/count${queryString({
+        status: filters.status
+      })}`
+    ),
+  executionFills: (
+    filters: {
+      limit?: number;
+      offset?: number;
+      positionId?: string;
+      symbolId?: string;
+    } = {}
+  ) =>
+    getJson<ExecutionFill[]>(
+      `/api/execution/fills${queryString({
+        limit: filters.limit ?? 100,
+        offset: filters.offset,
+        position_id: filters.positionId,
+        symbol_id: filters.symbolId
+      })}`
+    ),
+  executionFillsCount: (filters: { positionId?: string; symbolId?: string } = {}) =>
+    getJson<CountResponse>(
+      `/api/execution/fills/count${queryString({
+        position_id: filters.positionId,
+        symbol_id: filters.symbolId
+      })}`
     ),
   alerts: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<ExitAlert[]>(
