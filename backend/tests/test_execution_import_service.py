@@ -70,6 +70,7 @@ def disposable_postgres_session_factory():
             tenant_id = principal.tenant_id
             db_session.add(db.User(user_id=principal.user_id, external_subject=principal.user_id))
             db_session.add(db.Tenant(tenant_id=tenant_id, name=tenant_id))
+            db_session.flush()
             db_session.add(
                 db.TenantMembership(
                     tenant_id=tenant_id,
@@ -84,6 +85,7 @@ def disposable_postgres_session_factory():
                     name=principal.account_id,
                 )
             )
+            db_session.flush()
             db_session.add(
                 db.AccountMembership(
                     account_id=principal.account_id,
@@ -105,6 +107,7 @@ def disposable_postgres_session_factory():
                     status="planned",
                 )
             )
+            db_session.flush()
             db_session.commit()
         yield session_factory
     finally:

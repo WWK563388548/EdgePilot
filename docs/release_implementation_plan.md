@@ -277,6 +277,7 @@ Current branch foundation slice:
 - Preserve idempotency so repeated imports skip existing fills.
 - Cover duplicate upload races with an opt-in Postgres concurrency test via
   `EDGEPILOT_DISPOSABLE_TEST_DATABASE_URL`.
+- Provide `scripts/test_execution_import_concurrency.sh` for local disposable Postgres coverage.
 - Mark `execution_import.csv` as available for tenant capability checks.
 
 Out of scope:

@@ -105,6 +105,15 @@ Backend:
 .venv/bin/alembic upgrade head
 ```
 
+Execution import concurrency test with a local disposable Postgres database:
+
+```bash
+scripts/test_execution_import_concurrency.sh
+```
+
+This uses the `postgres` service from `docker-compose.yml`, creates a temporary test database,
+runs the duplicate-upload race test, and drops that database when finished.
+
 Frontend:
 
 ```bash
