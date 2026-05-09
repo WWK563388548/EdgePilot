@@ -155,7 +155,7 @@ export function ExecutionImportView({ locale }: { locale: Locale }) {
         loading={reviewNeeded.isLoading || reviewNeededCount.isLoading}
         locale={locale}
         onReconcile={(fillId, request) => reconcileFill.mutate({ fillId, request })}
-        reconcilingFillId={reconcileFill.variables?.fillId}
+        reconcilingFillId={reconcileFill.isPending ? reconcileFill.variables?.fillId : undefined}
         reconcileError={reconcileFill.isError}
         totalCount={reviewNeededCount.data?.total}
       />
