@@ -13,7 +13,7 @@ import {
   ExecutionImportsTable,
   ReviewNeededPanel
 } from "@/components/workspace/organisms/execution-import/execution-import-tables";
-import { api, type ExecutionImportResult } from "@/lib/api";
+import { api, type ExecutionFillReconcileRequest, type ExecutionImportResult } from "@/lib/api";
 import type { Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
@@ -54,17 +54,22 @@ export function ExecutionImportView({ locale }: { locale: Locale }) {
     queryFn: () => api.executionFillsCount()
   });
   const reviewNeeded = useQuery({
-    queryKey: ["positions", "review_needed", 0],
+    queryKey: ["execution-fills", "review_needed", 0],
     queryFn: () =>
-      api.positions({
+      api.executionFills({
         limit: 5,
         offset: 0,
-        status: "review_needed"
+        reconciliationStatus: "review_needed",
+        status: "active"
       })
   });
   const reviewNeededCount = useQuery({
-    queryKey: ["positions-count", "review_needed"],
-    queryFn: () => api.positionsCount({ status: "review_needed" })
+    queryKey: ["execution-fills-count", "review_needed"],
+    queryFn: () =>
+      api.executionFillsCount({
+        reconciliationStatus: "review_needed",
+        status: "active"
+      })
   });
 
   const importCsv = useMutation({
@@ -79,6 +84,21 @@ export function ExecutionImportView({ locale }: { locale: Locale }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["execution-imports"] }),
         queryClient.invalidateQueries({ queryKey: ["execution-imports-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["execution-fills"] }),
+        queryClient.invalidateQueries({ queryKey: ["execution-fills-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["positions"] }),
+        queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      ]);
+    }
+  });
+
+  const reconcileFill = useMutation({
+    mutationFn: ({ fillId, request }: { fillId: string; request: ExecutionFillReconcileRequest }) =>
+      api.reconcileExecutionFill(fillId, request),
+    onSuccess: async () => {
+      await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["execution-fills"] }),
         queryClient.invalidateQueries({ queryKey: ["execution-fills-count"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
@@ -134,6 +154,9 @@ export function ExecutionImportView({ locale }: { locale: Locale }) {
         error={reviewNeeded.isError || reviewNeededCount.isError}
         loading={reviewNeeded.isLoading || reviewNeededCount.isLoading}
         locale={locale}
+        onReconcile={(fillId, request) => reconcileFill.mutate({ fillId, request })}
+        reconcilingFillId={reconcileFill.variables?.fillId}
+        reconcileError={reconcileFill.isError}
         totalCount={reviewNeededCount.data?.total}
       />
 

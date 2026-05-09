@@ -1,4 +1,12 @@
 export type ExecutionImportStatus = "completed" | "partial" | "failed";
+export type ExecutionFillStatus = "active" | "ignored";
+export type ExecutionFillReconciliationStatus =
+  | "matched"
+  | "review_needed"
+  | "bound"
+  | "confirmed"
+  | "ignored";
+export type ExecutionFillReconcileAction = "bind_position" | "confirm_position" | "ignore_fill";
 
 export type ExecutionCSVImportRequest = {
   broker?: string;
@@ -42,6 +50,10 @@ export type ExecutionFill = {
   net_amount: number | null;
   currency: string | null;
   executed_at: string;
+  status: ExecutionFillStatus | null;
+  reconciliation_status: ExecutionFillReconciliationStatus | null;
+  reconciliation_note: string | null;
+  reconciled_at: string | null;
   raw_row_json: Record<string, unknown> | null;
   created_at: string | null;
 };
@@ -56,4 +68,17 @@ export type ExecutionImportResult = {
   import_record: ExecutionImport;
   fills: ExecutionFill[];
   errors: ExecutionImportError[];
+};
+
+export type ExecutionFillReconcileRequest = {
+  action: ExecutionFillReconcileAction;
+  target_position_id?: string | null;
+  note?: string | null;
+};
+
+export type ExecutionFillReconciliationResult = {
+  fill: ExecutionFill;
+  source_position: import("./positions").Position | null;
+  target_position: import("./positions").Position | null;
+  message: string;
 };

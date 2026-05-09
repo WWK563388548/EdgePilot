@@ -722,6 +722,13 @@ class ExecutionFill(Base):
     net_amount: Mapped[float | None] = mapped_column(Float)
     currency: Mapped[str | None] = mapped_column(Text)
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str | None] = mapped_column(Text, server_default=text("'active'"))
+    reconciliation_status: Mapped[str | None] = mapped_column(
+        Text,
+        server_default=text("'matched'"),
+    )
+    reconciliation_note: Mapped[str | None] = mapped_column(Text)
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_row_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
