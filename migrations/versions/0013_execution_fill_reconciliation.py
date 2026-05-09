@@ -16,6 +16,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
     op.execute("ALTER TABLE execution_fills ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'")
     op.execute(
         """
