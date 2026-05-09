@@ -112,6 +112,7 @@ function CandidateListItem({
       : row.strategy_name === "oneil_core_us_etf"
         ? "O'Neil Core"
         : row.strategy_name;
+  const role = candidateRole(row);
 
   return (
     <button
@@ -134,6 +135,10 @@ function CandidateListItem({
               tone={decisionTone(row.validation_status)}
             />
             <StatusPill label={labelFor("status", row.decision ?? "unknown")} tone={decisionTone(row.decision)} />
+            <StatusPill
+              label={t(role)}
+              tone={role === "primaryCandidate" ? "good" : role === "satelliteConfirmation" ? "warn" : "neutral"}
+            />
             <span className="inline-flex h-6 items-center whitespace-nowrap rounded-md border border-teal/20 bg-teal-50 px-2 text-xs font-semibold text-teal">
               {strategyLabel}
             </span>
@@ -163,6 +168,19 @@ function CandidateListItem({
       </div>
     </button>
   );
+}
+
+function candidateRole(row: Candidate) {
+  if (row.decision !== "candidate") {
+    return "watchCandidate";
+  }
+  if (row.strategy_name === "etf_rotation_us_etf") {
+    return "primaryCandidate";
+  }
+  if (row.strategy_name === "oneil_core_us_etf") {
+    return "satelliteConfirmation";
+  }
+  return "watchCandidate";
 }
 
 function MiniField({

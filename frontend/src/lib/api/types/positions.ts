@@ -40,6 +40,7 @@ export type Position = {
   symbol_id: string;
   asset_type: string;
   strategy_name: string | null;
+  exit_profile: string | null;
   entry_date: string | null;
   entry_price: number | null;
   quantity: number | null;

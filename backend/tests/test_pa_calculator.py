@@ -33,3 +33,6 @@ def test_daily_pa_facts_calculator_adds_trend_and_range_facts() -> None:
     assert latest["return_3m"] > 0
     assert latest["return_12m"] > 0
     assert latest["relative_volume"] > 1
+    assert latest["atr_14"] > 0
+    assert latest["atr_pct"] > 0
+    assert 0 <= latest["vol_rank"] <= 1

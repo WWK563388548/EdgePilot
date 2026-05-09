@@ -33,6 +33,17 @@ def _candidate_plan_position_id(candidate_id: str) -> str:
     return f"plan_{candidate_id}"
 
 
+def _position_exit_profile(strategy_name: str | None, exit_plan: dict | None = None) -> str | None:
+    exit_profile = exit_plan.get("exit_profile") if exit_plan else None
+    if isinstance(exit_profile, str) and exit_profile.strip():
+        return exit_profile.strip()
+    if strategy_name == "etf_rotation_us_etf":
+        return "etf_rotation_trend"
+    if strategy_name == "oneil_core_us_etf":
+        return "momentum_leader"
+    return None
+
+
 def _position_pnl(entry_price: float | None, exit_price: float, quantity: float | None) -> float | None:
     if entry_price is None or quantity is None:
         return None
@@ -83,6 +94,7 @@ class BusinessPositionsMixin:
             symbol_id=request.symbol_id,
             asset_type=request.asset_type,
             strategy_name=request.strategy_name,
+            exit_profile=request.exit_profile,
             entry_date=request.entry_date,
             entry_price=request.entry_price,
             quantity=request.quantity,
@@ -111,6 +123,7 @@ class BusinessPositionsMixin:
         setup = cls._candidate_pa_setup(session, candidate)
         entry_plan = setup.entry_plan if setup else None
         exit_plan = setup.exit_plan if setup else None
+        exit_profile = _position_exit_profile(candidate.strategy_name, exit_plan)
         entry_price = (
             request.entry_price
             or cls._candidate_plan_trigger(candidate, entry_plan)
@@ -148,6 +161,7 @@ class BusinessPositionsMixin:
                 existing,
                 entry_price=entry_price,
                 initial_stop=initial_stop,
+                exit_profile=exit_profile,
                 quantity=request.quantity
                 or (
                     preview.suggested_quantity
@@ -174,6 +188,7 @@ class BusinessPositionsMixin:
             symbol_id=candidate.symbol_id,
             asset_type=request.asset_type,
             strategy_name=candidate.strategy_name,
+            exit_profile=exit_profile,
             entry_date=None,
             entry_price=entry_price,
             quantity=request.quantity
@@ -204,6 +219,7 @@ class BusinessPositionsMixin:
                 "entry_price": position.entry_price,
                 "initial_stop": position.initial_stop,
                 "quantity": position.quantity,
+                "exit_profile": position.exit_profile,
             },
         )
         cls._audit(
@@ -226,6 +242,7 @@ class BusinessPositionsMixin:
                 or position.initial_stop is None
                 or position.current_stop is None
                 or position.quantity is None
+                or position.exit_profile is None
             )
         )
 
@@ -235,6 +252,7 @@ class BusinessPositionsMixin:
         *,
         entry_price: float | None,
         initial_stop: float | None,
+        exit_profile: str | None,
         quantity: float | None,
     ) -> bool:
         if position.status != "planned":
@@ -248,6 +266,9 @@ class BusinessPositionsMixin:
             updated = True
         if position.current_stop is None and initial_stop is not None:
             position.current_stop = initial_stop
+            updated = True
+        if position.exit_profile is None and exit_profile is not None:
+            position.exit_profile = exit_profile
             updated = True
         if position.quantity is None and quantity is not None:
             position.quantity = quantity

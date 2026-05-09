@@ -112,6 +112,12 @@ export type CandidatePlanPreview = {
   account_equity: number;
   max_risk_per_trade_pct: number;
   max_risk_amount: number;
+  base_suggested_quantity: number | null;
+  volatility_adjusted_quantity: number | null;
+  volatility_multiplier: number | null;
+  atr_pct: number | null;
+  vol_rank: number | null;
+  exit_profile: string | null;
   suggested_quantity: number | null;
   planned_quantity: number | null;
   planned_risk_amount: number | null;

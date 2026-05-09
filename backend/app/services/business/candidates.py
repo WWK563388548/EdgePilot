@@ -29,6 +29,7 @@ from backend.app.schemas.business import (
 from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.business.positions import (
     _candidate_plan_position_id,
+    _position_exit_profile,
     _risk_amount,
     _risk_per_unit,
 )
@@ -40,6 +41,16 @@ def _number_from_plan(data: dict | None, key: str) -> float | None:
     if isinstance(value, int | float):
         return float(value)
     return None
+
+
+def _volatility_multiplier(vol_rank: float | None) -> float:
+    if vol_rank is None:
+        return 1.0
+    if vol_rank > 0.8:
+        return 0.5
+    if vol_rank >= 0.6:
+        return 0.75
+    return 1.0
 
 
 class BusinessCandidatesMixin:
@@ -180,6 +191,18 @@ class BusinessCandidatesMixin:
         setup = cls._candidate_pa_setup(session, candidate)
         entry_plan = setup.entry_plan if setup else None
         exit_plan = setup.exit_plan if setup else None
+        timeframe = setup.timeframe if setup is not None else "1d"
+        reference_ts = setup.detected_ts if setup is not None else None
+        facts = cls._latest_fact_payload(
+            session,
+            symbol=candidate.symbol_id,
+            timeframe=timeframe,
+            reference_ts=reference_ts,
+        )
+        atr_pct = _number_from_plan(facts, "atr_pct")
+        vol_rank = _number_from_plan(facts, "vol_rank")
+        volatility_multiplier = _volatility_multiplier(vol_rank)
+        exit_profile = _position_exit_profile(candidate.strategy_name, exit_plan)
         request = request or CandidatePlanCreate()
         entry_price = (
             request.entry_price
@@ -197,11 +220,17 @@ class BusinessCandidatesMixin:
             6,
         )
         risk_per_unit = _risk_per_unit(entry_price, initial_stop)
-        suggested_quantity = (
+        base_suggested_quantity = (
             math.floor(max_risk_amount / risk_per_unit)
             if risk_per_unit is not None and risk_per_unit > 0
             else None
         )
+        volatility_adjusted_quantity = (
+            math.floor(base_suggested_quantity * volatility_multiplier)
+            if base_suggested_quantity is not None
+            else None
+        )
+        suggested_quantity = volatility_adjusted_quantity
         planned_quantity = request.quantity or (
             suggested_quantity if suggested_quantity is not None and suggested_quantity > 0 else None
         )
@@ -252,6 +281,12 @@ class BusinessCandidatesMixin:
             account_equity=risk_settings.account_equity,
             max_risk_per_trade_pct=risk_settings.max_risk_per_trade_pct,
             max_risk_amount=max_risk_amount,
+            base_suggested_quantity=base_suggested_quantity,
+            volatility_adjusted_quantity=volatility_adjusted_quantity,
+            volatility_multiplier=round(volatility_multiplier, 6),
+            atr_pct=atr_pct,
+            vol_rank=vol_rank,
+            exit_profile=exit_profile,
             suggested_quantity=suggested_quantity,
             planned_quantity=planned_quantity,
             planned_risk_amount=planned_risk_amount,

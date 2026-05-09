@@ -1418,6 +1418,7 @@ def test_create_candidate_plan_backfills_missing_legacy_plan_quantity(session) -
     assert preview.portfolio_before.total_risk_amount == 0
     assert preview.portfolio_after_plan.total_risk_amount == 46.65
     assert repaired.quantity == 3
+    assert repaired.exit_profile == "momentum_leader"
     assert repaired.risk_amount == 46.65
     assert BusinessService.get_portfolio_risk(session, principal).total_risk_amount == 46.65
 
@@ -1478,6 +1479,10 @@ def test_candidate_plan_preview_sizes_quantity_and_guardrails(session) -> None:
     assert preview.max_risk_amount == 200
     assert preview.risk_per_unit == 10
     assert preview.suggested_quantity == 20
+    assert preview.base_suggested_quantity == 20
+    assert preview.volatility_adjusted_quantity == 20
+    assert preview.volatility_multiplier == 1
+    assert preview.exit_profile == "momentum_leader"
     assert preview.planned_risk_amount == 200
     assert preview.planned_risk_pct == 0.01
     assert {notice.code for notice in preview.guardrails} == {
@@ -1485,8 +1490,65 @@ def test_candidate_plan_preview_sizes_quantity_and_guardrails(session) -> None:
         "max_open_positions_reached",
     }
     assert position.quantity == 20
+    assert position.exit_profile == "momentum_leader"
     assert position.risk_amount == 200
     assert position.risk_pct == 0.01
+
+
+def test_candidate_plan_preview_reduces_size_for_high_volatility_rotation(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.update_account_risk_settings(
+        session,
+        principal,
+        AccountRiskSettingsUpdate(
+            account_equity=20_000,
+            max_risk_per_trade_pct=0.01,
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_xlk_high_vol",
+            symbol_id="XLK",
+            scan_date=date(2026, 4, 26),
+            strategy_name="etf_rotation_us_etf",
+            setup_type="etf_rotation_leader",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=90,
+        ),
+    )
+    session.add(
+        db.PAFact(
+            fact_id="pafact_xlk_1d_2026-04-26",
+            symbol_id="XLK",
+            timeframe="1d",
+            ts=datetime(2026, 4, 26, tzinfo=UTC),
+            facts={"atr_pct": 0.042, "vol_rank": 0.92},
+        )
+    )
+    session.commit()
+
+    preview = BusinessService.preview_candidate_plan(session, principal, "cand_xlk_high_vol")
+    position = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_xlk_high_vol",
+        CandidatePlanCreate(),
+    )
+
+    assert preview.base_suggested_quantity == 20
+    assert preview.volatility_multiplier == 0.5
+    assert preview.volatility_adjusted_quantity == 10
+    assert preview.suggested_quantity == 10
+    assert preview.atr_pct == 0.042
+    assert preview.vol_rank == 0.92
+    assert preview.exit_profile == "etf_rotation_trend"
+    assert preview.planned_risk_amount == 100
+    assert position.quantity == 10
+    assert position.exit_profile == "etf_rotation_trend"
+    assert position.risk_amount == 100
 
 
 def test_portfolio_risk_summary_and_candidate_preview_after_plan(session) -> None:
@@ -2284,6 +2346,7 @@ def test_evaluate_exit_alerts_v2_adds_breakeven_time_and_failed_breakout_rules(s
             position_id="pos_breakeven",
             symbol_id="SPY",
             asset_type="etf",
+            strategy_name="oneil_core_us_etf",
             status="open",
             entry_price=100,
             initial_stop=90,
@@ -2342,6 +2405,18 @@ def test_evaluate_exit_alerts_v2_adds_breakeven_time_and_failed_breakout_rules(s
     assert "move_stop_to_breakeven_after_1r" in reasons
     assert "time_stop_no_progress_20d" in reasons
     assert "failed_breakout_heavy_volume" in reasons
+    breakeven_alert = next(
+        alert for alert in response.alerts if alert.reason == "move_stop_to_breakeven_after_1r"
+    )
+    assert breakeven_alert.action == "review_stop"
+    notifications = BusinessService.list_notifications(session, principal)
+    breakeven_notification = next(
+        row
+        for row in notifications
+        if row.metadata_json and row.metadata_json.get("rule") == "move_stop_to_breakeven_after_1r"
+    )
+    assert breakeven_notification.metadata_json["exit_profile"] == "momentum_leader"
+    assert "momentum_leader" in (breakeven_notification.body or "")
 
 
 def test_evaluate_exit_alerts_v2_adds_trailing_and_market_context_rules(session) -> None:

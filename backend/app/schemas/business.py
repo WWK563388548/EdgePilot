@@ -227,6 +227,12 @@ class CandidatePlanPreview(BaseModel):
     account_equity: float
     max_risk_per_trade_pct: float
     max_risk_amount: float
+    base_suggested_quantity: int | None = None
+    volatility_adjusted_quantity: int | None = None
+    volatility_multiplier: float | None = None
+    atr_pct: float | None = None
+    vol_rank: float | None = None
+    exit_profile: str | None = None
     suggested_quantity: int | None = None
     planned_quantity: float | None = None
     planned_risk_amount: float | None = None
@@ -243,6 +249,7 @@ class PositionBase(BaseModel):
     symbol_id: str = Field(..., min_length=1)
     asset_type: str = Field(..., min_length=1)
     strategy_name: str | None = None
+    exit_profile: str | None = None
     entry_date: datetime | None = None
     entry_price: float | None = None
     quantity: float | None = None
@@ -267,6 +274,7 @@ class CandidatePlanCreate(BaseModel):
 
 class PositionUpdate(BaseModel):
     strategy_name: str | None = None
+    exit_profile: str | None = None
     current_stop: float | None = None
     status: PositionStatus | None = None
     current_r: float | None = None

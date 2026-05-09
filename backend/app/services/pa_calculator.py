@@ -20,16 +20,28 @@ class DailyPAFactsCalculator:
         highs = [_as_float(bar.high) for bar in ordered_bars]
         lows = [_as_float(bar.low) for bar in ordered_bars]
         volumes = [_as_float(bar.volume) for bar in ordered_bars]
+        true_ranges = [
+            _true_range(
+                high=_as_float(bar.high),
+                low=_as_float(bar.low),
+                previous_close=closes[index - 1] if index > 0 else None,
+            )
+            if _has_ohlc(bar)
+            else None
+            for index, bar in enumerate(ordered_bars)
+        ]
         range_pcts = [
             _safe_div(_as_float(bar.high) - _as_float(bar.low), _as_float(bar.close))
             if _has_ohlc(bar)
             else None
             for bar in ordered_bars
         ]
+        atr_pcts: list[float | None] = []
 
         calculated: list[CalculatedPAFact] = []
         for index, bar in enumerate(ordered_bars):
             if not _has_ohlc(bar):
+                atr_pcts.append(None)
                 continue
 
             close = _as_float(bar.close)
@@ -42,6 +54,10 @@ class DailyPAFactsCalculator:
             volume_sma_20 = _average(volumes, index, 20)
             range_pct_5d_avg = _average(range_pcts, index, 5)
             range_pct_20d_avg = _average(range_pcts, index, 20)
+            atr_14 = _average(true_ranges, index, 14)
+            atr_pct = _safe_div(atr_14, close)
+            atr_pcts.append(atr_pct)
+            vol_rank = _rolling_percentile_rank(atr_pcts, index, 252)
             high_52w = _rolling_max(highs, index, 252)
             low_52w = _rolling_min(lows, index, 252)
             high_60d = _rolling_max(highs, index, 60)
@@ -92,6 +108,9 @@ class DailyPAFactsCalculator:
                 else None,
                 "range_pct_5d_avg": _rounded(range_pct_5d_avg),
                 "range_pct_20d_avg": _rounded(range_pct_20d_avg),
+                "atr_14": _rounded(atr_14),
+                "atr_pct": _rounded(atr_pct),
+                "vol_rank": _rounded(vol_rank),
                 "volatility_contraction": range_pct_5d_avg is not None
                 and range_pct_20d_avg is not None
                 and range_pct_5d_avg < range_pct_20d_avg,
@@ -134,6 +153,19 @@ def _safe_div(numerator: float | None, denominator: float | None) -> float | Non
     return numerator / denominator
 
 
+def _true_range(
+    *,
+    high: float | None,
+    low: float | None,
+    previous_close: float | None,
+) -> float | None:
+    if high is None or low is None:
+        return None
+    if previous_close is None:
+        return high - low
+    return max(high - low, abs(high - previous_close), abs(low - previous_close))
+
+
 def _average(values: Sequence[float | None], index: int, window: int) -> float | None:
     if index < window - 1:
         return None
@@ -155,6 +187,17 @@ def _rolling_min(values: Sequence[float | None], index: int, window: int) -> flo
         return None
     sample = [value for value in values[max(0, index - window + 1) : index + 1] if value is not None]
     return min(sample) if sample else None
+
+
+def _rolling_percentile_rank(values: Sequence[float | None], index: int, window: int) -> float | None:
+    current = values[index] if index >= 0 else None
+    if current is None:
+        return None
+    sample = [value for value in values[max(0, index - window + 1) : index + 1] if value is not None]
+    if not sample:
+        return None
+    less_or_equal = sum(1 for value in sample if value <= current)
+    return less_or_equal / len(sample)
 
 
 def _pct_diff(value: float | None, reference: float | None) -> float | None:
