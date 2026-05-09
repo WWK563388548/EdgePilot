@@ -585,6 +585,48 @@ def test_reconcile_fill_confirms_review_needed_buy_as_standalone_position(sessio
     assert position.entry_price == 150.25
 
 
+def test_reconcile_fill_locks_fill_row_before_updates(session, monkeypatch) -> None:
+    principal = _principal()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_lock",
+                ]
+            )
+        ),
+    )
+    original_get_fill_model = ExecutionImportService._get_fill_model
+    lock_flags: list[bool] = []
+
+    def _spy_get_fill_model(db_session, db_principal, fill_id, *, for_update=False):
+        lock_flags.append(for_update)
+        return original_get_fill_model(
+            db_session,
+            db_principal,
+            fill_id,
+            for_update=for_update,
+        )
+
+    monkeypatch.setattr(
+        ExecutionImportService,
+        "_get_fill_model",
+        staticmethod(_spy_get_fill_model),
+    )
+
+    ExecutionImportService.reconcile_fill(
+        session,
+        principal,
+        result.fills[0].fill_id,
+        ExecutionFillReconcileRequest(action="confirm_position"),
+    )
+
+    assert lock_flags == [True]
+
+
 def test_reconcile_fill_binds_review_needed_buy_to_planned_position(session) -> None:
     principal = _principal()
     result = ExecutionImportService.import_csv(

@@ -72,24 +72,26 @@ export function ReviewNeededPanel({
               <td className="px-4 py-3">
                 <div className="grid max-w-xl gap-2">
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      className={reviewButtonClass}
-                      disabled={reconcilingFillId === row.fill_id}
-                      onClick={() =>
-                        onReconcile(row.fill_id, {
-                          action: "confirm_position",
-                          note: t("confirmedStandaloneFillNote")
-                        })
-                      }
-                      type="button"
-                    >
-                      {reconcilingFillId === row.fill_id ? (
-                        <Loader2 className="animate-spin" size={14} />
-                      ) : (
-                        <CheckCircle2 size={14} />
-                      )}
-                      {t("confirmStandalone")}
-                    </button>
+                    {row.side === "buy" ? (
+                      <button
+                        className={reviewButtonClass}
+                        disabled={reconcilingFillId === row.fill_id}
+                        onClick={() =>
+                          onReconcile(row.fill_id, {
+                            action: "confirm_position",
+                            note: t("confirmedStandaloneFillNote")
+                          })
+                        }
+                        type="button"
+                      >
+                        {reconcilingFillId === row.fill_id ? (
+                          <Loader2 className="animate-spin" size={14} />
+                        ) : (
+                          <CheckCircle2 size={14} />
+                        )}
+                        {t("confirmStandalone")}
+                      </button>
+                    ) : null}
                     <button
                       className={dangerReviewButtonClass}
                       disabled={reconcilingFillId === row.fill_id}

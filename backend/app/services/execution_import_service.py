@@ -260,7 +260,12 @@ class ExecutionImportService:
         fill_id: str,
         request: ExecutionFillReconcileRequest,
     ) -> ExecutionFillReconciliationResult:
-        fill = ExecutionImportService._get_fill_model(session, principal, fill_id)
+        fill = ExecutionImportService._get_fill_model(
+            session,
+            principal,
+            fill_id,
+            for_update=True,
+        )
         if fill.status == "ignored":
             raise ValueError(f"Execution fill is already ignored: {fill_id}")
 
@@ -504,13 +509,16 @@ class ExecutionImportService:
         session: Session,
         principal: AuthPrincipal,
         fill_id: str,
+        *,
+        for_update: bool = False,
     ) -> db.ExecutionFill:
-        fill = session.scalar(
-            select(db.ExecutionFill).where(
-                db.ExecutionFill.fill_id == fill_id,
-                db.ExecutionFill.account_id == principal.account_id,
-            )
+        statement = select(db.ExecutionFill).where(
+            db.ExecutionFill.fill_id == fill_id,
+            db.ExecutionFill.account_id == principal.account_id,
         )
+        if for_update:
+            statement = statement.with_for_update()
+        fill = session.scalar(statement)
         if fill is None:
             raise ValueError(f"Execution fill not found: {fill_id}")
         return fill
