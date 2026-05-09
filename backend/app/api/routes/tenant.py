@@ -103,7 +103,9 @@ def list_data_capabilities(
     session: DbSession,
     principal: VerifiedPrincipal,
 ) -> list[TenantDataCapability]:
-    return TenantService.list_data_capabilities(session=session, principal=principal)
+    capabilities = TenantService.list_data_capabilities(session=session, principal=principal)
+    session.commit()
+    return capabilities
 
 
 @router.post("/data-capabilities/{capability_key}/check", response_model=DataSourceCheckResponse)

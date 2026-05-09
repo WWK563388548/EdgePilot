@@ -21,6 +21,7 @@ from backend.app.schemas.ingestion import (
     OptionChainIngestionRequest,
 )
 from backend.app.services.polygon_client import PolygonClient
+from backend.app.services.market_data_provider import DailyBarProvider, PolygonMarketDataProvider
 
 
 class IngestionService:
@@ -29,6 +30,10 @@ class IngestionService:
         if not settings.polygon_api_key:
             raise ValueError("POLYGON_API_KEY is required")
         return PolygonClient(api_key=settings.polygon_api_key, base_url=settings.polygon_base_url)
+
+    @staticmethod
+    def _daily_bar_provider() -> DailyBarProvider:
+        return PolygonMarketDataProvider(IngestionService._client())
 
     @staticmethod
     def _upsert_freshness(
@@ -80,7 +85,13 @@ class IngestionService:
         )
 
     @staticmethod
-    def _record_failed_run(dataset_key: str, started_at: datetime, error_message: str) -> None:
+    def _record_failed_run(
+        dataset_key: str,
+        started_at: datetime,
+        error_message: str,
+        *,
+        source: str = "polygon",
+    ) -> None:
         completed_at = datetime.now(UTC)
         with SessionLocal() as session:
             IngestionService._record_ingestion_run(
@@ -88,7 +99,7 @@ class IngestionService:
                 dataset_key=dataset_key,
                 status="failed",
                 records_written=0,
-                source="polygon",
+                source=source,
                 started_at=started_at,
                 completed_at=completed_at,
                 error_message=error_message,
@@ -99,39 +110,35 @@ class IngestionService:
     def ingest_bars(request: BarsIngestionRequest) -> IngestionResponse:
         dataset_key = f"bars:{request.ticker}:{request.timeframe}"
         started_at = datetime.now(UTC)
+        source = "polygon"
         try:
-            rows = IngestionService._client().list_daily_bars(
-                ticker=request.ticker,
-                from_date=request.from_date,
-                to_date=request.to_date,
-            )
+            provider = IngestionService._daily_bar_provider()
+            source = provider.provider_id
+            rows = provider.list_daily_bars(request.ticker, request.from_date, request.to_date)
         except Exception as exc:
-            IngestionService._record_failed_run(dataset_key, started_at, str(exc))
+            IngestionService._record_failed_run(dataset_key, started_at, str(exc), source=source)
             raise
 
         if not rows:
-            error_message = f"Polygon returned no bars for {request.ticker}"
-            IngestionService._record_failed_run(dataset_key, started_at, error_message)
+            error_message = f"{_provider_display_name(source)} returned no bars for {request.ticker}"
+            IngestionService._record_failed_run(dataset_key, started_at, error_message, source=source)
             raise RuntimeError(error_message)
 
         with SessionLocal() as session:
             records_written = 0
-            for row in rows:
-                if "t" not in row:
-                    continue
-                ts = datetime.fromtimestamp(row["t"] / 1000, tz=UTC)
+            for bar in rows:
                 statement = insert(db.Bar).values(
-                    ts=ts,
+                    ts=bar.ts,
                     symbol_id=request.ticker,
                     timeframe=request.timeframe,
-                    open=row.get("o"),
-                    high=row.get("h"),
-                    low=row.get("l"),
-                    close=row.get("c"),
-                    volume=row.get("v"),
-                    vwap=row.get("vw"),
-                    adjusted=True,
-                    source="polygon",
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                    vwap=bar.vwap,
+                    adjusted=bar.adjusted,
+                    source=bar.source,
                 )
                 session.execute(
                     statement.on_conflict_do_update(
@@ -156,13 +163,15 @@ class IngestionService:
 
             last_updated_at = datetime.now(UTC)
             if records_written == 0:
-                error_message = f"Polygon returned no writable bars for {request.ticker}"
+                error_message = (
+                    f"{_provider_display_name(source)} returned no writable bars for {request.ticker}"
+                )
                 IngestionService._record_ingestion_run(
                     session,
                     dataset_key=dataset_key,
                     status="failed",
                     records_written=0,
-                    source="polygon",
+                    source=source,
                     started_at=started_at,
                     completed_at=last_updated_at,
                     error_message=error_message,
@@ -174,14 +183,14 @@ class IngestionService:
                 session,
                 dataset_key=dataset_key,
                 last_updated_at=last_updated_at,
-                source="polygon",
+                source=source,
             )
             IngestionService._record_ingestion_run(
                 session,
                 dataset_key=dataset_key,
                 status="success",
                 records_written=records_written,
-                source="polygon",
+                source=source,
                 started_at=started_at,
                 completed_at=last_updated_at,
             )
@@ -441,3 +450,7 @@ class IngestionService:
         if not value:
             return None
         return date.fromisoformat(value)
+
+
+def _provider_display_name(source: str) -> str:
+    return "Polygon" if source == "polygon" else source
