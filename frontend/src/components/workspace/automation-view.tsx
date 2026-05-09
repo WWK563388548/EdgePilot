@@ -43,7 +43,8 @@ export function AutomationView({ locale }: { locale: Locale }) {
       api.runAutomationJob({
         evaluate_alerts: true,
         recalculate_outcomes: true,
-        refresh_market_data: true
+        refresh_market_data: true,
+        strategy_name: "etf_rotation_us_etf"
       }),
     onSuccess: async (response) => {
       setLastRun(response);

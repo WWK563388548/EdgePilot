@@ -7,8 +7,13 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.app import models as db
 from backend.app.core.database import Base
-from backend.app.schemas.pa import ETFOneilScannerRequest
-from backend.app.services.scanner_service import ETFScannerService, _scanner_decision
+from backend.app.schemas.pa import ETFRotationScannerRequest, ETFOneilScannerRequest
+from backend.app.services.scanner_service import ETFScannerService
+from backend.app.services.scanners.oneil import _scanner_decision
+from backend.app.services.scanners.rotation import (
+    _benchmark_relative_strength_score,
+    _rotation_entry_mode,
+)
 
 
 @pytest.fixture
@@ -87,6 +92,107 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert outcome.candidate_id == candidate.candidate_id
     assert outcome.evaluation_status == "pending"
     assert outcome.bars_available == 0
+
+
+def test_us_etf_rotation_scanner_generates_separate_candidate(session) -> None:
+    _add_compounding_bars(session, "QQQ")
+    session.flush()
+    response = ETFScannerService.run_us_etf_rotation_for_session(
+        session,
+        ETFRotationScannerRequest(symbols=["QQQ"], account_id="acct_local", min_score=60),
+    )
+    session.commit()
+
+    assert response.facts_written == 520
+    assert response.setups_written == 1
+    assert response.candidates_written == 1
+    assert response.candidates[0].strategy_name == "etf_rotation_us_etf"
+    assert response.candidates[0].decision == "candidate"
+    assert response.candidates[0].setup_type == "etf_rotation_leader"
+    assert response.decision_counts == {"candidate": 1}
+
+    setup = session.scalar(
+        select(db.PASetup).where(db.PASetup.setup_type == "etf_rotation_leader")
+    )
+    candidate = session.scalar(
+        select(db.Candidate).where(db.Candidate.strategy_name == "etf_rotation_us_etf")
+    )
+
+    assert setup is not None
+    assert setup.entry_plan is not None
+    assert setup.entry_plan["entry_mode"] == "breakout_allowed"
+    assert setup.entry_plan["momentum_horizon"]["rank_3m"] == 100
+    assert setup.entry_plan["momentum_horizon"]["rank_6m"] == 100
+    assert setup.entry_plan["momentum_horizon"]["rank_12m"] == 100
+    scanner_decision = setup.entry_plan["scanner_decision"]
+    assert scanner_decision["version"] == "etf_rotation_us_etf_v1"
+    assert scanner_decision["strategy"] == "etf_rotation_us_etf"
+    assert scanner_decision["metrics"]["entry_mode"] == "breakout_allowed"
+    assert scanner_decision["metrics"]["benchmark_relative_strength"]["benchmark_symbol"] == "SPY"
+    assert candidate is not None
+    assert json.loads(candidate.ai_review_json)["strategy_name"] == "etf_rotation_us_etf"
+
+
+def test_us_etf_rotation_scanner_treats_explicit_empty_symbols_as_noop(session) -> None:
+    response = ETFScannerService.run_us_etf_rotation_for_session(
+        session,
+        ETFRotationScannerRequest(symbols=[], account_id="acct_local", min_score=60),
+    )
+
+    assert response.symbols_scanned == []
+    assert response.facts_written == 0
+    assert response.setups_written == 0
+    assert response.candidates_written == 0
+    assert response.decision_counts == {}
+
+
+def test_rotation_entry_mode_requires_pullback_when_one_month_is_extended() -> None:
+    assert (
+        _rotation_entry_mode(
+            medium_term_strong=True,
+            rank_3m=0.9,
+            rank_6m=0.9,
+            one_month_zscore=2.4,
+        )
+        == "pullback_required"
+    )
+    assert (
+        _rotation_entry_mode(
+            medium_term_strong=True,
+            rank_3m=0.9,
+            rank_6m=0.9,
+            one_month_zscore=3.4,
+        )
+        == "watch_only"
+    )
+    assert (
+        _rotation_entry_mode(
+            medium_term_strong=True,
+            rank_3m=0.9,
+            rank_6m=0.9,
+            one_month_zscore=-1.2,
+        )
+        == "retest_required"
+    )
+
+
+def test_benchmark_relative_strength_treats_equal_returns_as_neutral() -> None:
+    facts = {
+        "return_3m": 0.12,
+        "return_6m": 0.2,
+        "return_12m": 0.32,
+    }
+
+    score, metrics = _benchmark_relative_strength_score(
+        facts=facts,
+        benchmark_facts=facts,
+        benchmark_symbol="SPY",
+    )
+
+    assert score == 5.0
+    assert metrics["return_3m_vs_benchmark"] == 0
+    assert metrics["return_6m_vs_benchmark"] == 0
+    assert metrics["return_12m_vs_benchmark"] == 0
 
 
 def test_scanner_decision_flags_bearish_strat_without_hiding_candidate() -> None:
@@ -274,6 +380,26 @@ def _add_trending_bars(session, symbol: str) -> None:
                 low=close - 2,
                 close=close,
                 volume=1_000_000 + (index * 2_000),
+                adjusted=True,
+                source="test",
+            )
+        )
+
+
+def _add_compounding_bars(session, symbol: str) -> None:
+    start = datetime(2025, 8, 13, tzinfo=UTC)
+    for index in range(260):
+        close = round(100 * (1.004**index), 4)
+        session.add(
+            db.Bar(
+                symbol_id=symbol,
+                timeframe="1d",
+                ts=start + timedelta(days=index),
+                open=close * 0.99,
+                high=close * 1.003,
+                low=close * 0.985,
+                close=close,
+                volume=1_500_000 + (index * 2_000),
                 adjusted=True,
                 source="test",
             )

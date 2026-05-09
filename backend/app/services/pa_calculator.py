@@ -84,6 +84,7 @@ class DailyPAFactsCalculator:
                 "return_1m": _rounded(_return(closes, index, 21)),
                 "return_3m": _rounded(_return(closes, index, 63)),
                 "return_6m": _rounded(_return(closes, index, 126)),
+                "return_12m": _rounded(_return(closes, index, 252)),
                 "high_60d": _rounded(high_60d),
                 "low_60d": _rounded(low_60d),
                 "base_depth_60d": _rounded(_safe_div(high_60d - low_60d, high_60d))

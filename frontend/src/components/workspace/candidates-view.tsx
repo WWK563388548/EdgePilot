@@ -9,7 +9,9 @@ import { CandidateDetailPanel } from "@/components/workspace/detail-panels";
 import { DataState } from "@/components/workspace/atoms/data-state";
 import {
   DecisionFilterControl,
-  type CandidateDecisionFilter
+  StrategyFilterControl,
+  type CandidateDecisionFilter,
+  type CandidateStrategyFilter
 } from "@/components/workspace/molecules/candidate-decision-filter";
 import {
   ScanResultPanel,
@@ -24,11 +26,14 @@ import type { Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
 export type { CandidateDecisionFilter } from "@/components/workspace/molecules/candidate-decision-filter";
+export type { CandidateStrategyFilter } from "@/components/workspace/molecules/candidate-decision-filter";
 
 export function CandidatesView({
   data,
   decisionFilter,
+  strategyFilter,
   onDecisionFilterChange,
+  onStrategyFilterChange,
   page,
   pageSize,
   totalCount,
@@ -40,7 +45,9 @@ export function CandidatesView({
 }: {
   data: Candidate[];
   decisionFilter: CandidateDecisionFilter;
+  strategyFilter: CandidateStrategyFilter;
   onDecisionFilterChange: (filter: CandidateDecisionFilter) => void;
+  onStrategyFilterChange: (filter: CandidateStrategyFilter) => void;
   page: number;
   pageSize: number;
   totalCount?: number;
@@ -55,6 +62,9 @@ export function CandidatesView({
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [scanResult, setScanResult] = useState<AccountScanResult | null>(null);
+  const [scanStrategy, setScanStrategy] = useState<Exclude<CandidateStrategyFilter, "all">>(
+    "etf_rotation_us_etf"
+  );
   const activeCandidateId = detailOpen ? selectedCandidateId ?? data[0]?.candidate_id ?? null : null;
   const detail = useQuery({
     queryKey: ["candidate-detail", activeCandidateId],
@@ -62,11 +72,15 @@ export function CandidatesView({
     enabled: Boolean(activeCandidateId)
   });
   const quickScan = useMutation({
-    mutationFn: () => api.scanAccountOneilCandidates({ recalculate_facts: true }),
+    mutationFn: () =>
+      scanStrategy === "etf_rotation_us_etf"
+        ? api.scanAccountRotationCandidates({ recalculate_facts: true })
+        : api.scanAccountOneilCandidates({ recalculate_facts: true }),
     onSuccess: async (response) => {
       setScanResult(response);
       setDetailOpen(false);
       setSelectedCandidateId(null);
+      onStrategyFilterChange(scanStrategy);
       onPageChange(0);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["candidates"] }),
@@ -84,11 +98,15 @@ export function CandidatesView({
     }
   });
   const marketRefreshScan = useMutation({
-    mutationFn: () => api.refreshAccountOneilCandidates(),
+    mutationFn: () =>
+      scanStrategy === "etf_rotation_us_etf"
+        ? api.refreshAccountRotationCandidates()
+        : api.refreshAccountOneilCandidates(),
     onSuccess: async (response) => {
       setScanResult(response);
       setDetailOpen(false);
       setSelectedCandidateId(null);
+      onStrategyFilterChange(scanStrategy);
       onPageChange(0);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["candidates"] }),
@@ -146,7 +164,9 @@ export function CandidatesView({
                 active={decisionFilter}
                 onChange={onDecisionFilterChange}
               />
+              <StrategyFilterControl active={strategyFilter} onChange={onStrategyFilterChange} />
               <DataState isLoading={loading || scanPending} isError={error || scanError} locale={locale} />
+              <ScanStrategyControl active={scanStrategy} onChange={setScanStrategy} />
               <button
                 className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={scanPending}
@@ -175,7 +195,7 @@ export function CandidatesView({
               {t("scanParameterSummary", {
                 maxCandidates: 25,
                 minScore: 60,
-                universe: "US ETF"
+                universe: scanStrategy === "etf_rotation_us_etf" ? t("usEtfRotation") : t("oneilSatelliteStrategy")
               })}
             </p>
           </div>
@@ -231,6 +251,38 @@ export function CandidatesView({
         />
       ) : null}
     </section>
+  );
+}
+
+function ScanStrategyControl({
+  active,
+  onChange
+}: {
+  active: Exclude<CandidateStrategyFilter, "all">;
+  onChange: (value: Exclude<CandidateStrategyFilter, "all">) => void;
+}) {
+  const { t } = useAppI18n();
+  const options: Array<{ value: Exclude<CandidateStrategyFilter, "all">; label: string }> = [
+    { value: "etf_rotation_us_etf", label: t("etfRotationStrategy") },
+    { value: "oneil_core_us_etf", label: t("oneilSatelliteStrategy") }
+  ];
+
+  return (
+    <div className="inline-flex h-9 rounded-md border border-line bg-white p-1" role="group" aria-label={t("scanStrategy")}>
+      {options.map((option) => (
+        <button
+          aria-pressed={active === option.value}
+          className={`focus-ring rounded px-3 text-sm font-semibold transition-colors ${
+            active === option.value ? "bg-teal text-white shadow-sm" : "text-slate-600 hover:text-ink"
+          }`}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

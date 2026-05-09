@@ -64,6 +64,7 @@ export type ScannerDecision = {
 
 export type CandidateFilters = {
   decision?: string;
+  strategy_name?: string;
   limit?: number;
   offset?: number;
 };
@@ -77,6 +78,7 @@ export type AccountScannerRequest = {
   min_score?: number;
   max_candidates?: number;
   recalculate_facts?: boolean;
+  benchmark_symbol?: string;
 };
 
 export type AccountRefreshRequest = {

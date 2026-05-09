@@ -106,6 +106,12 @@ function CandidateListItem({
   const score = row.score_total ?? 0;
   const scoreWidth = Math.max(0, Math.min(100, score));
   const setupLabel = row.setup_type ? labelFor("setup", row.setup_type) : row.strategy_name;
+  const strategyLabel =
+    row.strategy_name === "etf_rotation_us_etf"
+      ? t("usEtfRotation")
+      : row.strategy_name === "oneil_core_us_etf"
+        ? "O'Neil Core"
+        : row.strategy_name;
 
   return (
     <button
@@ -128,6 +134,9 @@ function CandidateListItem({
               tone={decisionTone(row.validation_status)}
             />
             <StatusPill label={labelFor("status", row.decision ?? "unknown")} tone={decisionTone(row.decision)} />
+            <span className="inline-flex h-6 items-center whitespace-nowrap rounded-md border border-teal/20 bg-teal-50 px-2 text-xs font-semibold text-teal">
+              {strategyLabel}
+            </span>
           </div>
           <div className="mt-1 truncate text-sm font-medium text-ink" title={setupLabel ?? undefined}>
             {setupLabel}

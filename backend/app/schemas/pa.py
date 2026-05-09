@@ -186,6 +186,26 @@ class AccountETFOneilScannerRequest(ETFUniverseFactsRequest):
     recalculate_facts: bool = True
 
 
+class ETFRotationScannerRequest(ETFOneilScannerRequest):
+    benchmark_symbol: str = Field(default="SPY", min_length=1)
+
+    @model_validator(mode="after")
+    def normalize_rotation_request(self) -> "ETFRotationScannerRequest":
+        super().normalize_symbols()
+        self.benchmark_symbol = self.benchmark_symbol.strip().upper()
+        return self
+
+
+class AccountETFRotationScannerRequest(AccountETFOneilScannerRequest):
+    benchmark_symbol: str = Field(default="SPY", min_length=1)
+
+    @model_validator(mode="after")
+    def normalize_rotation_request(self) -> "AccountETFRotationScannerRequest":
+        super().normalize_symbols()
+        self.benchmark_symbol = self.benchmark_symbol.strip().upper()
+        return self
+
+
 class ETFOneilScannerResponse(BaseModel):
     account_id: str
     timeframe: str

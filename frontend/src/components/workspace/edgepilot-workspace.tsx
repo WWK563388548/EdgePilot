@@ -17,7 +17,11 @@ import { useEffect, useState } from "react";
 
 import { AuthScreen } from "@/components/workspace/auth-screen";
 import { AutomationView } from "@/components/workspace/automation-view";
-import { CandidatesView, type CandidateDecisionFilter } from "@/components/workspace/candidates-view";
+import {
+  CandidatesView,
+  type CandidateDecisionFilter,
+  type CandidateStrategyFilter
+} from "@/components/workspace/candidates-view";
 import { DataState } from "@/components/workspace/atoms/data-state";
 import { ExecutionImportView } from "@/components/workspace/organisms/execution-import-view";
 import { OverviewView } from "@/components/workspace/overview-view";
@@ -53,6 +57,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const auth = useAuth();
   const { view, setView } = useWorkspaceStore();
   const [candidateDecision, setCandidateDecision] = useState<CandidateDecisionFilter>("candidate");
+  const [candidateStrategy, setCandidateStrategy] = useState<CandidateStrategyFilter>("all");
   const [candidatePage, setCandidatePage] = useState(0);
   const [positionPage, setPositionPage] = useState(0);
   const [positionStatus, setPositionStatus] = useState<PositionStatus | "all">("all");
@@ -85,20 +90,22 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     enabled: queriesEnabled
   });
   const candidates = useQuery({
-    queryKey: ["candidates", candidateDecision, candidatePage],
+    queryKey: ["candidates", candidateDecision, candidateStrategy, candidatePage],
     queryFn: () =>
       api.candidates({
         decision: candidateDecision === "all" ? undefined : candidateDecision,
+        strategy_name: candidateStrategy === "all" ? undefined : candidateStrategy,
         limit: LIST_PAGE_SIZE + 1,
         offset: candidatePage * LIST_PAGE_SIZE
       }),
     enabled: queriesEnabled
   });
   const candidatesCount = useQuery({
-    queryKey: ["candidates-count", candidateDecision],
+    queryKey: ["candidates-count", candidateDecision, candidateStrategy],
     queryFn: () =>
       api.candidateCount({
-        decision: candidateDecision === "all" ? undefined : candidateDecision
+        decision: candidateDecision === "all" ? undefined : candidateDecision,
+        strategy_name: candidateStrategy === "all" ? undefined : candidateStrategy
       }),
     enabled: queriesEnabled
   });
@@ -266,9 +273,14 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
               setCandidateDecision(filter);
               setCandidatePage(0);
             }}
+            onStrategyFilterChange={(filter) => {
+              setCandidateStrategy(filter);
+              setCandidatePage(0);
+            }}
             onPageChange={setCandidatePage}
             page={candidatePage}
             pageSize={LIST_PAGE_SIZE}
+            strategyFilter={candidateStrategy}
             totalCount={candidatesCount.data?.total}
           />
         )}

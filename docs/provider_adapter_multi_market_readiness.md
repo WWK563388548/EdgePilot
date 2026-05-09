@@ -73,13 +73,15 @@ licensed, fresh, tradable, or eligible for scanner output.
 
 ## Next After This PR
 
-The next implementation PR should return to the US ETF roadmap:
+The next implementation PR after provider readiness is the US ETF roadmap:
 
 - ETF Rotation / Momentum Horizon foundation.
 - Momentum windows: 3M, 6M, 12M.
 - 1M overextension penalty.
 - Entry mode: breakout allowed, pullback required, retest required, watch only.
 - Validation hooks for backtest, shadow, and paper states.
+
+That scope is documented in `docs/etf_rotation_momentum_horizon.md`.
 
 MAX_20D should follow as an analytics/warning layer after the ETF Rotation
 foundation, not as an unvalidated hard reject.

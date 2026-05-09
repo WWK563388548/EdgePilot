@@ -156,6 +156,50 @@ def test_candidate_queries_can_filter_by_decision(session) -> None:
     assert BusinessService.count_candidates(session, principal, decision="candidate") == 1
 
 
+def test_candidate_queries_can_filter_by_strategy(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_rotation",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="etf_rotation_us_etf",
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_oneil",
+            symbol_id="QQQ",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+        ),
+    )
+
+    assert [
+        row.candidate_id
+        for row in BusinessService.list_candidates(
+            session,
+            principal,
+            strategy_name="etf_rotation_us_etf",
+        )
+    ] == ["cand_rotation"]
+    assert (
+        BusinessService.count_candidates(
+            session,
+            principal,
+            strategy_name="oneil_core_us_etf",
+        )
+        == 1
+    )
+
+
 def test_candidate_queries_support_offset_pagination(session) -> None:
     principal = _principal("user_a", "acct_a")
     for index, symbol in enumerate(("AAA", "BBB", "CCC")):
@@ -717,6 +761,161 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
     assert refresh_notifications[0].metadata_json["candidates_written"] == 1
 
 
+def test_rotation_refresh_scans_only_successfully_refreshed_symbols(
+    session,
+    monkeypatch,
+) -> None:
+    from backend.app.services import business_service
+
+    principal = _principal("user_a", "acct_a")
+    captured_symbols: list[str] = []
+
+    monkeypatch.setattr(
+        business_service.DataSourceService,
+        "polygon_client_for_tenant",
+        lambda db_session, request_principal: (
+            object(),
+            DataSourceResolution(
+                provider="polygon",
+                capability_key="market_data.us_etf_daily",
+                source="env",
+                api_key="secret",
+            ),
+        ),
+    )
+
+    def _fake_seed(*, session, client, request):
+        return ETFUniverseSeedResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=["SPY", "QQQ"],
+            bars_written=260,
+            facts_written=260,
+            symbol_results=[
+                ETFUniverseSeedSymbolResult(symbol="SPY", status="success", bars_written=260),
+                ETFUniverseSeedSymbolResult(
+                    symbol="QQQ",
+                    status="failed",
+                    error_message="Polygon returned no bars",
+                ),
+            ],
+        )
+
+    def _fake_rotation_scan(db_session, request):
+        captured_symbols.extend(request.symbols or [])
+        return ETFOneilScannerResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=request.symbols or [],
+            facts_written=0,
+            setups_written=1,
+            candidates_written=1,
+            decision_counts={"candidate": 1},
+            latest_scan_date=date(2026, 5, 9),
+            latest_bar_date=date(2026, 5, 9),
+        )
+
+    monkeypatch.setattr(
+        business_service.ETFSeedService,
+        "seed_us_etf_universe_for_session",
+        _fake_seed,
+    )
+    monkeypatch.setattr(
+        business_service.ETFScannerService,
+        "run_us_etf_rotation_for_session",
+        _fake_rotation_scan,
+    )
+
+    response = BusinessService.refresh_account_etf_rotation_universe(
+        session,
+        principal,
+        AccountETFUniverseRefreshRequest(symbols=["spy", "qqq"]),
+    )
+
+    assert captured_symbols == ["SPY"]
+    assert response.candidates_written == 1
+    assert response.symbols_requested == ["SPY", "QQQ"]
+    assert response.skipped_symbols == ["QQQ"]
+    notifications = BusinessService.list_notifications(session, principal)
+    assert notifications[0].metadata_json["symbols_succeeded"] == 1
+    assert notifications[0].metadata_json["symbols_failed"] == 1
+
+
+def test_rotation_refresh_seeds_benchmark_without_scanning_it(
+    session,
+    monkeypatch,
+) -> None:
+    from backend.app.services import business_service
+
+    principal = _principal("user_a", "acct_a")
+    seeded_symbols: list[str] = []
+    scanned_symbols: list[str] = []
+
+    monkeypatch.setattr(
+        business_service.DataSourceService,
+        "polygon_client_for_tenant",
+        lambda db_session, request_principal: (
+            object(),
+            DataSourceResolution(
+                provider="polygon",
+                capability_key="market_data.us_etf_daily",
+                source="env",
+                api_key="secret",
+            ),
+        ),
+    )
+
+    def _fake_seed(*, session, client, request):
+        seeded_symbols.extend(request.symbols or [])
+        return ETFUniverseSeedResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols or [],
+            bars_written=520,
+            facts_written=520,
+            symbol_results=[
+                ETFUniverseSeedSymbolResult(symbol="QQQ", status="success", bars_written=260),
+                ETFUniverseSeedSymbolResult(symbol="SPY", status="success", bars_written=260),
+            ],
+        )
+
+    def _fake_rotation_scan(db_session, request):
+        scanned_symbols.extend(request.symbols or [])
+        return ETFOneilScannerResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=request.symbols or [],
+            facts_written=0,
+            setups_written=1,
+            candidates_written=1,
+            decision_counts={"candidate": 1},
+        )
+
+    monkeypatch.setattr(
+        business_service.ETFSeedService,
+        "seed_us_etf_universe_for_session",
+        _fake_seed,
+    )
+    monkeypatch.setattr(
+        business_service.ETFScannerService,
+        "run_us_etf_rotation_for_session",
+        _fake_rotation_scan,
+    )
+
+    BusinessService.refresh_account_etf_rotation_universe(
+        session,
+        principal,
+        AccountETFUniverseRefreshRequest(symbols=["qqq"]),
+    )
+
+    assert seeded_symbols == ["QQQ", "SPY"]
+    assert scanned_symbols == ["QQQ"]
+
+
 def test_account_refresh_blocks_before_deleting_when_data_source_missing(
     session,
     monkeypatch,
@@ -925,6 +1124,34 @@ def test_run_automation_job_persists_failure(session, monkeypatch) -> None:
     assert run.records_written == 0
     assert run.metadata_json["steps"][0]["status"] == "failed"
     assert BusinessService.count_job_runs(session, principal, status="failed") == 1
+
+
+def test_run_automation_job_uses_scan_step_id_for_non_refresh_failure(
+    session,
+    monkeypatch,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_scan(db_session, request_principal, request):
+        raise RuntimeError("rotation scan failed")
+
+    monkeypatch.setattr(BusinessService, "run_account_etf_rotation_scanner", _fake_scan)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(
+            symbols=["spy"],
+            strategy_name="etf_rotation_us_etf",
+            refresh_market_data=False,
+            recalculate_outcomes=False,
+            evaluate_alerts=False,
+        ),
+    )
+
+    assert run.status == "failed"
+    assert run.metadata_json["steps"][0]["name"] == "etf_rotation_scan"
+    assert run.metadata_json["steps"][0]["status"] == "failed"
 
 
 def test_dashboard_candidate_count_only_counts_candidates(session) -> None:

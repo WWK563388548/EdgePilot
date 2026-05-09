@@ -2,6 +2,7 @@ export type JobRunStatus = "running" | "succeeded" | "failed";
 
 export type AutomationJobRunRequest = {
   symbols?: string[];
+  strategy_name?: string;
   min_score?: number;
   max_candidates?: number;
   refresh_market_data?: boolean;

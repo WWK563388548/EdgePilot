@@ -31,4 +31,5 @@ def test_daily_pa_facts_calculator_adds_trend_and_range_facts() -> None:
     assert latest["new_52w_high"] is True
     assert latest["close_near_high"] is True
     assert latest["return_3m"] > 0
+    assert latest["return_12m"] > 0
     assert latest["relative_volume"] > 1

@@ -1,58 +1,33 @@
-import json
 from collections import Counter
-from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
 from backend.app.core.database import SessionLocal
 from backend.app.schemas.business import Candidate
 from backend.app.schemas.pa import (
+    ETFRotationScannerRequest,
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
     PAFactsCalculationResponse,
 )
-from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.pa_service import PAService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
+from backend.app.services.scanners.common import ScoredETFSetup
+from backend.app.services.scanners.oneil import _score_oneil_core_setup
+from backend.app.services.scanners.persistence import _upsert_candidate, _upsert_pa_setup
+from backend.app.services.scanners.queries import (
+    _latest_facts,
+    _latest_strat_plans,
+    _latest_strat_signals,
+    _market_context_score,
+    _normalize_symbols,
+    _one_month_return_zscores,
+    _percentile_ranks,
+)
+from backend.app.services.scanners.rotation import _score_etf_rotation_setup
 from backend.app.services.strat_service import StratService
 from backend.app.services.universes import default_symbols_when_omitted
-
-
-@dataclass(frozen=True)
-class ScoredETFSetup:
-    symbol_id: str
-    timeframe: str
-    detected_ts: datetime
-    setup_type: str
-    setup_grade: str
-    total_score: float
-    trend_score: float
-    rs_score: float
-    volume_score: float
-    base_score: float
-    market_score: float
-    fundamental_lite_score: float
-    risk_stop_score: float
-    followthrough_score: float
-    decision: str
-    entry_plan: dict[str, Any]
-    exit_plan: dict[str, Any]
-    invalidation: dict[str, Any]
-    metrics: dict[str, Any]
-    scanner_decision: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class SetupQuality:
-    setup_type: str
-    base_score: float
-    passed_rules: list[str]
-    failed_rules: list[str]
-
 
 class ETFScannerService:
     @staticmethod
@@ -156,906 +131,134 @@ class ETFScannerService:
             candidates=candidates,
         )
 
+    @staticmethod
+    def run_us_etf_rotation(
+        request: ETFRotationScannerRequest,
+    ) -> ETFOneilScannerResponse:
+        with SessionLocal() as session:
+            response = ETFScannerService.run_us_etf_rotation_for_session(session, request)
+            session.commit()
+            return response
 
-def _latest_facts(
-    session: Session,
-    symbols: list[str],
-    timeframe: str,
-) -> dict[str, db.PAFact]:
-    latest: dict[str, db.PAFact] = {}
-    for symbol in symbols:
-        fact = session.scalar(
-            select(db.PAFact)
-            .where(db.PAFact.symbol_id == symbol, db.PAFact.timeframe == timeframe)
-            .order_by(db.PAFact.ts.desc())
-            .limit(1)
-        )
-        if fact is not None:
-            latest[symbol] = fact
-    return latest
+    @staticmethod
+    def run_us_etf_rotation_for_session(
+        session: Session,
+        request: ETFRotationScannerRequest,
+    ) -> ETFOneilScannerResponse:
+        if session.get(db.Account, request.account_id) is None:
+            raise ValueError(f"Account not found: {request.account_id}")
 
+        symbols = _normalize_symbols(default_symbols_when_omitted(request.symbols))
+        if not symbols:
+            return ETFOneilScannerResponse(
+                account_id=request.account_id,
+                timeframe=request.timeframe,
+                symbols_scanned=[],
+                facts_written=0,
+                setups_written=0,
+                candidates_written=0,
+                decision_counts={},
+                latest_scan_date=None,
+                latest_bar_date=None,
+                skipped_symbols=[],
+                candidates=[],
+            )
 
-def _latest_strat_signals(
-    session: Session,
-    symbols: list[str],
-    timeframe: str,
-) -> dict[str, db.StratSignal]:
-    latest: dict[str, db.StratSignal] = {}
-    for symbol in symbols:
-        signal = session.scalar(
-            select(db.StratSignal)
-            .where(db.StratSignal.symbol_id == symbol, db.StratSignal.timeframe == timeframe)
-            .order_by(db.StratSignal.ts.desc())
-            .limit(1)
-        )
-        if signal is not None:
-            latest[symbol] = signal
-    return latest
-
-
-def _latest_strat_plans(
-    *,
-    session: Session,
-    latest_facts: dict[str, db.PAFact],
-    timeframe: str,
-) -> dict[str, dict[str, Any]]:
-    latest: dict[str, dict[str, Any]] = {}
-    for symbol, fact in latest_facts.items():
-        latest[symbol] = StratService.latest_trigger_plan(
+        facts_symbols = _normalize_symbols([*symbols, request.benchmark_symbol])
+        if request.recalculate_facts:
+            facts_result = PAService.calculate_and_store_daily_facts(
+                session=session,
+                symbols=facts_symbols,
+                timeframe=request.timeframe,
+            )
+        else:
+            facts_result = PAFactsCalculationResponse(
+                timeframe=request.timeframe,
+                symbols_processed=facts_symbols,
+                facts_written=0,
+            )
+        StratService.calculate_and_store_signals(
             session=session,
-            symbol=symbol,
-            timeframe=timeframe,
-            reference_ts=fact.ts,
-            facts=fact.facts,
-        ).to_payload()
-    return latest
-
-
-def _score_oneil_core_setup(
-    *,
-    fact: db.PAFact,
-    rank_3m: float,
-    rank_6m: float,
-    market_score: float,
-    market_context: dict[str, Any],
-    strat_signal: db.StratSignal | None,
-    strat_plan: dict[str, Any] | None,
-) -> ScoredETFSetup | None:
-    facts = fact.facts
-    close = _number(facts.get("close"))
-    high = _number(facts.get("high"))
-    low = _number(facts.get("low"))
-    sma_20 = _number(facts.get("sma_20"))
-    sma_50 = _number(facts.get("sma_50"))
-    sma_200 = _number(facts.get("sma_200"))
-    high_60d = _number(facts.get("high_60d"))
-    base_depth = _number(facts.get("base_depth_60d"))
-    close_position = _number(facts.get("close_position_in_range"))
-    pct_from_52w_high = _number(facts.get("pct_from_52w_high"))
-    relative_volume = _number(facts.get("relative_volume"))
-    volume_sma_20 = _number(facts.get("volume_sma_20"))
-    distance_to_sma_20 = _number(facts.get("distance_to_sma_20_pct"))
-    sma_20_slope = _number(facts.get("sma_20_slope_pct"))
-    volatility_contraction = bool(facts.get("volatility_contraction"))
-
-    if close is None or high is None or low is None:
-        return None
-
-    trend_score = _trend_score(
-        close=close,
-        sma_20=sma_20,
-        sma_50=sma_50,
-        sma_200=sma_200,
-        sma_20_slope=sma_20_slope,
-        pct_from_52w_high=pct_from_52w_high,
-    )
-    rs_score = _rs_score(rank_3m=rank_3m, rank_6m=rank_6m)
-    volume_score = _volume_score(close=close, volume_sma_20=volume_sma_20, relative_volume=relative_volume)
-    setup_quality = _detect_setup_quality(
-        close=close,
-        close_position=close_position,
-        high=high,
-        low=low,
-        high_60d=high_60d,
-        sma_20=sma_20,
-        sma_50=sma_50,
-        relative_volume=relative_volume,
-        distance_to_sma_20=distance_to_sma_20,
-        base_depth=base_depth,
-        trend_score=trend_score,
-        pct_from_52w_high=pct_from_52w_high,
-        volatility_contraction=volatility_contraction,
-    )
-    if setup_quality is None:
-        return None
-    setup_type = setup_quality.setup_type
-    base_score = setup_quality.base_score
-
-    fundamental_lite_score = 8.0
-    total_score = round(
-        trend_score
-        + rs_score
-        + volume_score
-        + base_score
-        + market_score
-        + fundamental_lite_score,
-        2,
-    )
-    initial_stop = _initial_stop(close=close, sma_20=sma_20, sma_50=sma_50)
-    risk_stop_score = _risk_stop_score(close=close, initial_stop=initial_stop)
-    followthrough_score = _followthrough_score(facts)
-    setup_grade = _setup_grade(total_score)
-    trigger_price = _trigger_price(setup_type=setup_type, close=close, high=high)
-    base_decision = "candidate" if total_score >= 75 else "watch"
-    score_breakdown = {
-        "trend": trend_score,
-        "relative_strength": rs_score,
-        "volume_liquidity": volume_score,
-        "base_setup": base_score,
-        "market_context": market_score,
-        "fundamental_lite": fundamental_lite_score,
-        "total": total_score,
-    }
-    scanner_decision = _scanner_decision(
-        base_score=base_score,
-        base_depth=base_depth,
-        close_position=close_position,
-        decision=base_decision,
-        distance_to_sma_20=distance_to_sma_20,
-        initial_stop=initial_stop,
-        market_score=market_score,
-        quality_failed_rules=setup_quality.failed_rules,
-        quality_passed_rules=setup_quality.passed_rules,
-        rank_3m=rank_3m,
-        rank_6m=rank_6m,
-        relative_volume=relative_volume,
-        risk_stop_score=risk_stop_score,
-        rs_score=rs_score,
-        setup_grade=setup_grade,
-        setup_type=setup_type,
-        total_score=total_score,
-        trend_score=trend_score,
-        trigger_price=trigger_price,
-        volume_score=volume_score,
-        strat_signal=strat_signal,
-        strat_plan=strat_plan,
-    )
-    decision = scanner_decision.get("decision", base_decision)
-
-    return ScoredETFSetup(
-        symbol_id=fact.symbol_id,
-        timeframe=fact.timeframe,
-        detected_ts=fact.ts,
-        setup_type=setup_type,
-        setup_grade=setup_grade,
-        total_score=total_score,
-        trend_score=trend_score,
-        rs_score=rs_score,
-        volume_score=volume_score,
-        base_score=base_score,
-        market_score=market_score,
-        fundamental_lite_score=fundamental_lite_score,
-        risk_stop_score=risk_stop_score,
-        followthrough_score=followthrough_score,
-        decision=decision,
-        entry_plan={
-            "side": "long",
-            "trigger_type": "break_above_high" if setup_type != "pullback_to_20ma" else "reclaim_momentum",
-            "trigger_price": trigger_price,
-            "timeframe": fact.timeframe,
-            "strat_trigger_plan": strat_plan,
-            "score_breakdown": score_breakdown,
-            "scanner_decision": scanner_decision,
-        },
-        exit_plan={
-            "initial_stop": initial_stop,
-            "trail_reference": "20ma",
-            "first_trim_r": 2.0,
-        },
-        invalidation={
-            "price_below": initial_stop,
-            "reason": "daily close below initial stop or setup loses 20/50MA support",
-        },
-        metrics={
-            "oneil_core": score_breakdown,
-            "scanner_decision": scanner_decision,
-            "market_context": market_context,
-            "facts_snapshot": {
-                key: facts.get(key)
-                for key in (
-                    "close",
-                    "relative_volume",
-                    "pct_from_52w_high",
-                    "base_depth_60d",
-                    "close_position_in_range",
-                    "volatility_contraction",
-                    "sma_20_slope_pct",
-                    "return_3m",
-                    "return_6m",
-                )
-            },
-        },
-        scanner_decision=scanner_decision,
-    )
-
-
-def _trend_score(
-    *,
-    close: float,
-    sma_20: float | None,
-    sma_50: float | None,
-    sma_200: float | None,
-    sma_20_slope: float | None,
-    pct_from_52w_high: float | None,
-) -> float:
-    score = 0.0
-    if sma_50 is not None and sma_200 is not None and close > sma_50 > sma_200:
-        score += 10
-    elif sma_50 is not None and close > sma_50:
-        score += 5
-    if sma_20 is not None and sma_50 is not None and close > sma_20 > sma_50:
-        score += 5
-    elif sma_20 is not None and close > sma_20:
-        score += 3
-    if sma_20_slope is not None and sma_20_slope > 0:
-        score += 5
-    if pct_from_52w_high is not None and pct_from_52w_high >= -0.15:
-        score += 5
-    return score
-
-
-def _rs_score(*, rank_3m: float, rank_6m: float) -> float:
-    return round((rank_3m * 10.0) + (rank_6m * 15.0), 2)
-
-
-def _volume_score(
-    *,
-    close: float,
-    volume_sma_20: float | None,
-    relative_volume: float | None,
-) -> float:
-    score = 0.0
-    if volume_sma_20 is not None and volume_sma_20 >= 1_000_000:
-        score += 7
-    elif volume_sma_20 is not None and volume_sma_20 >= 250_000:
-        score += 5
-    elif volume_sma_20 is not None and volume_sma_20 >= 100_000:
-        score += 3
-    if relative_volume is not None and relative_volume >= 1.5:
-        score += 5
-    elif relative_volume is not None and relative_volume >= 1.0:
-        score += 3
-    if close >= 20:
-        score += 3
-    return score
-
-
-def _detect_setup_quality(
-    *,
-    close: float,
-    close_position: float | None,
-    high: float,
-    low: float,
-    high_60d: float | None,
-    sma_20: float | None,
-    sma_50: float | None,
-    relative_volume: float | None,
-    distance_to_sma_20: float | None,
-    base_depth: float | None,
-    trend_score: float,
-    pct_from_52w_high: float | None,
-    volatility_contraction: bool,
-) -> SetupQuality | None:
-    if (
-        high_60d is not None
-        and close >= high_60d * 0.98
-        and (base_depth is None or base_depth <= 0.35)
-        and (relative_volume is None or relative_volume >= 1.0)
-    ):
-        score = 9.0
-        passed_rules = ["setup_location"]
-        failed_rules: list[str] = []
-        if close >= high_60d * 0.995:
-            score += 1.5
-            passed_rules.append("breakout_near_pivot")
-        if relative_volume is not None and relative_volume >= 1.2:
-            score += 2.0
-            passed_rules.append("breakout_volume_confirmed")
-        else:
-            failed_rules.append("breakout_volume_missing")
-        if close_position is not None and close_position >= 0.7:
-            score += 1.5
-            passed_rules.append("breakout_close_near_high")
-        else:
-            failed_rules.append("weak_close_position")
-        if base_depth is not None and base_depth <= 0.25:
-            score += 1.0
-            passed_rules.append("base_depth_healthy")
-        elif base_depth is not None and base_depth > 0.35:
-            failed_rules.append("base_too_deep")
-        if volatility_contraction:
-            score += 1.0
-            passed_rules.append("volatility_contraction")
-        return SetupQuality("breakout", min(15.0, round(score, 2)), passed_rules, failed_rules)
-    if (
-        sma_20 is not None
-        and sma_50 is not None
-        and distance_to_sma_20 is not None
-        and abs(distance_to_sma_20) <= 0.04
-        and close > sma_50
-        and (relative_volume is None or relative_volume <= 1.25)
-    ):
-        score = 8.0
-        passed_rules = ["setup_location"]
-        failed_rules: list[str] = []
-        if abs(distance_to_sma_20) <= 0.025:
-            score += 2.0
-            passed_rules.append("pullback_near_20ma")
-        if relative_volume is not None and relative_volume <= 1.0:
-            score += 2.0
-            passed_rules.append("pullback_volume_quiet")
-        else:
-            failed_rules.append("pullback_volume_heavy")
-        if close > sma_20:
-            score += 1.0
-            passed_rules.append("hold_above_20ma")
-        if close_position is not None and close_position >= 0.5:
-            score += 1.0
-            passed_rules.append("supportive_close_position")
-        else:
-            failed_rules.append("weak_close_position")
-        if volatility_contraction:
-            score += 1.0
-            passed_rules.append("volatility_contraction")
-        return SetupQuality("pullback_to_20ma", min(15.0, round(score, 2)), passed_rules, failed_rules)
-    if (
-        sma_50 is not None
-        and low < sma_50 < close
-        and (relative_volume is None or relative_volume >= 1.0)
-    ):
-        score = 9.0
-        passed_rules = ["setup_location", "reclaim_50ma"]
-        failed_rules: list[str] = []
-        if relative_volume is not None and relative_volume >= 1.1:
-            score += 2.0
-            passed_rules.append("reclaim_volume_confirmed")
-        else:
-            failed_rules.append("volume_confirmation_missing")
-        if close_position is not None and close_position >= 0.6:
-            score += 1.5
-            passed_rules.append("supportive_close_position")
-        else:
-            failed_rules.append("weak_close_position")
-        return SetupQuality("failed_breakdown_reclaim", min(15.0, round(score, 2)), passed_rules, failed_rules)
-    if pct_from_52w_high is not None and pct_from_52w_high >= -0.12 and trend_score >= 18:
-        score = 7.0
-        passed_rules = ["setup_location", "leader_near_high"]
-        failed_rules: list[str] = []
-        if volatility_contraction:
-            score += 1.0
-            passed_rules.append("volatility_contraction")
-        if base_depth is not None and base_depth <= 0.25:
-            score += 1.0
-            passed_rules.append("base_depth_healthy")
-        if close_position is not None and close_position >= 0.6:
-            score += 1.0
-            passed_rules.append("supportive_close_position")
-        return SetupQuality("oneil_leader_watch", min(15.0, round(score, 2)), passed_rules, failed_rules)
-    return None
-
-
-def _initial_stop(*, close: float, sma_20: float | None, sma_50: float | None) -> float:
-    stop_candidates = [close * 0.92]
-    if sma_20 is not None and sma_20 < close:
-        stop_candidates.append(sma_20 * 0.98)
-    if sma_50 is not None and sma_50 < close:
-        stop_candidates.append(sma_50 * 0.98)
-    return round(max(stop_candidates), 2)
-
-
-def _risk_stop_score(*, close: float, initial_stop: float) -> float:
-    stop_distance = 1 - (initial_stop / close)
-    if stop_distance <= 0.08:
-        return 10.0
-    if stop_distance <= 0.12:
-        return 7.0
-    return 4.0
-
-
-def _followthrough_score(facts: dict[str, Any]) -> float:
-    score = 0.0
-    if facts.get("close_near_high"):
-        score += 5
-    relative_volume = _number(facts.get("relative_volume"))
-    if relative_volume is not None and relative_volume >= 1.2:
-        score += 5
-    return score
-
-
-def _scanner_decision(
-    *,
-    base_score: float,
-    base_depth: float | None,
-    close_position: float | None,
-    decision: str,
-    distance_to_sma_20: float | None,
-    initial_stop: float,
-    market_score: float,
-    quality_failed_rules: list[str],
-    quality_passed_rules: list[str],
-    rank_3m: float,
-    rank_6m: float,
-    relative_volume: float | None,
-    risk_stop_score: float,
-    rs_score: float,
-    setup_grade: str,
-    setup_type: str,
-    total_score: float,
-    trend_score: float,
-    trigger_price: float,
-    volume_score: float,
-    strat_signal: db.StratSignal | None,
-    strat_plan: dict[str, Any] | None,
-) -> dict[str, Any]:
-    passed_rules: list[dict[str, Any]] = []
-    failed_rules: list[dict[str, Any]] = []
-
-    _add_score_rule(
-        passed_rules,
-        failed_rules,
-        score=trend_score,
-        max_score=25,
-        threshold=18,
-        passed_key="trend_aligned",
-        failed_key="trend_needs_alignment",
-    )
-    _add_score_rule(
-        passed_rules,
-        failed_rules,
-        score=rs_score,
-        max_score=25,
-        threshold=12.5,
-        passed_key="relative_strength_leader",
-        failed_key="relative_strength_lagging",
-    )
-    _add_score_rule(
-        passed_rules,
-        failed_rules,
-        score=volume_score,
-        max_score=15,
-        threshold=8,
-        passed_key="volume_liquidity",
-        failed_key="volume_confirmation_missing",
-    )
-    _add_score_rule(
-        passed_rules,
-        failed_rules,
-        score=base_score,
-        max_score=15,
-        threshold=9,
-        passed_key="setup_location",
-        failed_key="setup_location_unclear",
-    )
-    _add_score_rule(
-        passed_rules,
-        failed_rules,
-        score=market_score,
-        max_score=10,
-        threshold=8,
-        passed_key="market_support",
-        failed_key="market_context_caution",
-    )
-    _add_score_rule(
-        passed_rules,
-        failed_rules,
-        score=risk_stop_score,
-        max_score=10,
-        threshold=7,
-        passed_key="risk_contained",
-        failed_key="risk_too_wide",
-    )
-    _add_boolean_rule(
-        passed_rules,
-        failed_rules,
-        passed=rank_3m >= 0.7 and rank_6m >= 0.7,
-        passed_key="rs_top_quartile",
-        failed_key="rs_not_leading",
-    )
-    for key in quality_passed_rules:
-        _add_rule_key(passed_rules, key=key, passed=True)
-    for key in quality_failed_rules:
-        _add_rule_key(failed_rules, key=key, passed=False)
-
-    watch_reasons = ["shadow_only", "needs_trigger_confirmation"]
-    if decision == "watch":
-        watch_reasons.insert(0, "score_below_candidate")
-    if volume_score < 8 or "breakout_volume_missing" in quality_failed_rules:
-        watch_reasons.append("volume_needs_confirmation")
-    if "weak_close_position" in quality_failed_rules:
-        watch_reasons.append("weak_close_position")
-    if market_score < 8:
-        watch_reasons.append("market_context_caution")
-
-    upgrade_conditions = ["break_above_trigger", "hold_above_20_50ma"]
-    if (
-        volume_score < 8
-        or relative_volume is None
-        or relative_volume < 1.2
-        or "breakout_volume_missing" in quality_failed_rules
-    ):
-        upgrade_conditions.append("volume_expansion")
-    if market_score < 8:
-        upgrade_conditions.append("market_context_green")
-
-    risk_notes = ["initial_stop_required", "invalidates_below_stop"]
-    if distance_to_sma_20 is not None and distance_to_sma_20 > 0.12:
-        risk_notes.append("extended_from_20ma")
-    if "base_too_deep" in quality_failed_rules:
-        risk_notes.append("base_too_deep")
-    if "weak_close_position" in quality_failed_rules:
-        risk_notes.append("weak_close_position")
-    if market_score < 8:
-        risk_notes.append("market_context_caution")
-
-    final_decision, strat_confirmation = _apply_strat_confirmation(
-        decision=decision,
-        failed_rules=failed_rules,
-        passed_rules=passed_rules,
-        risk_notes=risk_notes,
-        strat_signal=strat_signal,
-        strat_plan=strat_plan,
-        upgrade_conditions=upgrade_conditions,
-        watch_reasons=watch_reasons,
-    )
-
-    return ScannerDecision(
-        decision=final_decision,
-        failed_rules=failed_rules,
-        initial_stop=initial_stop,
-        metrics={
-            "base_depth": base_depth,
-            "close_position_in_range": close_position,
-            "relative_volume": relative_volume,
-            "rs_percentile_3m": round(rank_3m * 100, 1),
-            "rs_percentile_6m": round(rank_6m * 100, 1),
-            "strat_trigger_plan": strat_plan,
-        },
-        passed_rules=passed_rules,
-        risk_notes=_dedupe(risk_notes),
-        score=total_score,
-        setup_grade=setup_grade,
-        setup_type=setup_type,
-        total_score=total_score,
-        strat_confirmation=strat_confirmation,
-        trigger_price=trigger_price,
-        upgrade_conditions=_dedupe(upgrade_conditions),
-        validation_status="shadow_only",
-        watch_reasons=_dedupe(watch_reasons),
-    ).model_dump(exclude_none=True)
-
-
-def _apply_strat_confirmation(
-    *,
-    decision: str,
-    failed_rules: list[dict[str, Any]],
-    passed_rules: list[dict[str, Any]],
-    risk_notes: list[str],
-    strat_signal: db.StratSignal | None,
-    strat_plan: dict[str, Any] | None,
-    upgrade_conditions: list[str],
-    watch_reasons: list[str],
-) -> tuple[str, dict[str, Any]]:
-    armed_plan = _usable_strat_plan(strat_plan)
-    if strat_signal is None and armed_plan is None:
-        watch_reasons.append("strat_signal_missing")
-        upgrade_conditions.append("strat_bullish_trigger_needed")
-        return decision, {
-            "status": "missing",
-            "base_decision": decision,
-            "final_decision": decision,
-            "reason": "strat_signal_missing",
-            "can_create_trade_alone": False,
-        }
-
-    if armed_plan is not None:
-        for rule in armed_plan.get("no_chase_rules", []):
-            if isinstance(rule, dict) and rule.get("level") == "block":
-                _add_rule_key(failed_rules, key=str(rule.get("code")), passed=False)
-                risk_notes.append(str(rule.get("code")))
-        if armed_plan.get("status") == "blocked":
-            watch_reasons.append("strat_no_chase_blocked")
-            return decision, {
-                "status": "blocked",
-                "base_decision": decision,
-                "final_decision": decision,
-                "bar_type": armed_plan.get("latest_bar_type"),
-                "pattern": armed_plan.get("pattern"),
-                "direction": armed_plan.get("direction"),
-                "trigger_price": armed_plan.get("trigger_price"),
-                "trigger_stop": armed_plan.get("trigger_stop"),
-                "order_type": armed_plan.get("order_type"),
-                "stop_limit_price": armed_plan.get("stop_limit_price"),
-                "max_entry_price": armed_plan.get("max_entry_price"),
-                "no_chase_rules": armed_plan.get("no_chase_rules", []),
-                "reason": "strat_no_chase_blocked",
-                "can_create_trade_alone": False,
-            }
-
-        if not (strat_signal is not None and strat_signal.pattern and strat_signal.direction):
-            watch_reasons.append("strat_pending_trigger_armed")
-            upgrade_conditions.append("strat_trigger_price_reached")
-            return decision, {
-                "status": "armed",
-                "base_decision": decision,
-                "final_decision": decision,
-                "bar_type": armed_plan.get("latest_bar_type"),
-                "pattern": armed_plan.get("pattern"),
-                "direction": armed_plan.get("direction"),
-                "trigger_price": armed_plan.get("trigger_price"),
-                "trigger_stop": armed_plan.get("trigger_stop"),
-                "order_type": armed_plan.get("order_type"),
-                "stop_limit_price": armed_plan.get("stop_limit_price"),
-                "max_entry_price": armed_plan.get("max_entry_price"),
-                "no_chase_rules": armed_plan.get("no_chase_rules", []),
-                "reason": "strat_pending_trigger_armed",
-                "can_create_trade_alone": False,
-            }
-
-    payload = {
-        "status": "wait",
-        "base_decision": decision,
-        "final_decision": decision,
-        "bar_type": strat_signal.bar_type if strat_signal is not None else armed_plan.get("latest_bar_type"),
-        "pattern": strat_signal.pattern if strat_signal is not None else armed_plan.get("pattern"),
-        "direction": strat_signal.direction if strat_signal is not None else armed_plan.get("direction"),
-        "trigger_price": strat_signal.trigger_price if strat_signal is not None else armed_plan.get("trigger_price"),
-        "trigger_stop": strat_signal.trigger_stop if strat_signal is not None else armed_plan.get("trigger_stop"),
-        "reason": "strat_waiting_for_trigger",
-        "can_create_trade_alone": False,
-    }
-    if strat_signal.pattern and strat_signal.direction == "long":
-        _add_rule_key(passed_rules, key="strat_bullish_trigger", passed=True)
-        payload["status"] = "confirm"
-        payload["reason"] = "strat_bullish_trigger"
-        return decision, payload
-
-    if strat_signal.pattern and strat_signal.direction == "short":
-        _add_rule_key(failed_rules, key="strat_bearish_trigger", passed=False)
-        watch_reasons.append("strat_bearish_downgrade")
-        risk_notes.append("strat_bearish_context")
-        payload["status"] = "downgrade"
-        payload["final_decision"] = decision
-        payload["reason"] = "strat_bearish_trigger"
-        return decision, payload
-
-    watch_reasons.append("strat_waiting_for_trigger")
-    upgrade_conditions.append("strat_bullish_trigger_needed")
-    return decision, payload
-
-
-def _usable_strat_plan(strat_plan: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(strat_plan, dict):
-        return None
-    if strat_plan.get("direction") != "long":
-        return None
-    if strat_plan.get("status") not in {"armed", "blocked"}:
-        return None
-    if strat_plan.get("trigger_price") is None or strat_plan.get("trigger_stop") is None:
-        return None
-    return strat_plan
-
-
-def _add_score_rule(
-    passed_rules: list[dict[str, Any]],
-    failed_rules: list[dict[str, Any]],
-    *,
-    score: float,
-    max_score: float,
-    threshold: float,
-    passed_key: str,
-    failed_key: str,
-) -> None:
-    passed = score >= threshold
-    target = passed_rules if passed else failed_rules
-    target.append(
-        {
-            "key": passed_key if passed else failed_key,
-            "score": round(score, 2),
-            "max_score": max_score,
-            "passed": passed,
-            "threshold": threshold,
-        }
-    )
-
-
-def _add_boolean_rule(
-    passed_rules: list[dict[str, Any]],
-    failed_rules: list[dict[str, Any]],
-    *,
-    passed: bool,
-    passed_key: str,
-    failed_key: str,
-) -> None:
-    _add_rule_key(
-        passed_rules if passed else failed_rules,
-        key=passed_key if passed else failed_key,
-        passed=passed,
-    )
-
-
-def _add_rule_key(target: list[dict[str, Any]], *, key: str, passed: bool) -> None:
-    if any(rule.get("key") == key for rule in target):
-        return
-    target.append({"key": key, "passed": passed})
-
-
-def _dedupe(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            result.append(value)
-    return result
-
-
-def _trigger_price(*, setup_type: str, close: float, high: float) -> float:
-    if setup_type == "pullback_to_20ma":
-        return round(close * 1.005, 2)
-    return round(high * 1.001, 2)
-
-
-def _setup_grade(total_score: float) -> str:
-    if total_score >= 85:
-        return "A"
-    if total_score >= 75:
-        return "B"
-    if total_score >= 65:
-        return "C"
-    return "D"
-
-
-def _upsert_pa_setup(session: Session, scored: ScoredETFSetup) -> db.PASetup:
-    setup_id = _setup_id(scored)
-    setup = session.get(db.PASetup, setup_id)
-    payload = {
-        "symbol_id": scored.symbol_id,
-        "timeframe": scored.timeframe,
-        "detected_ts": scored.detected_ts,
-        "setup_type": scored.setup_type,
-        "setup_grade": scored.setup_grade,
-        "pa_quality_score": scored.total_score,
-        "structure_score": scored.trend_score,
-        "location_score": scored.base_score,
-        "volume_score": scored.volume_score,
-        "trend_rs_score": scored.rs_score,
-        "context_score": scored.market_score,
-        "risk_stop_score": scored.risk_stop_score,
-        "followthrough_score": scored.followthrough_score,
-        "entry_plan": scored.entry_plan,
-        "exit_plan": scored.exit_plan,
-        "invalidation": scored.invalidation,
-        "status": scored.decision,
-        "validation_status": "shadow_only",
-        "updated_at": datetime.now(UTC),
-    }
-    if setup is None:
-        setup = db.PASetup(setup_id=setup_id, **payload)
-        session.add(setup)
-    else:
-        for key, value in payload.items():
-            setattr(setup, key, value)
-    return setup
-
-
-def _upsert_candidate(
-    *,
-    session: Session,
-    account_id: str,
-    scored: ScoredETFSetup,
-    setup_id: str,
-) -> db.Candidate:
-    candidate_id = _candidate_id(account_id, scored)
-    candidate = session.get(db.Candidate, candidate_id)
-    payload = {
-        "account_id": account_id,
-        "symbol_id": scored.symbol_id,
-        "scan_date": scored.detected_ts.date(),
-        "strategy_name": "oneil_core_us_etf",
-        "setup_type": scored.setup_type,
-        "pa_setup_id": setup_id,
-        "score_total": scored.total_score,
-        "entry_trigger": scored.entry_plan.get("trigger_price"),
-        "initial_stop": scored.exit_plan.get("initial_stop"),
-        "decision": scored.decision,
-        "option_suitability": "stock_etf_only",
-        "ai_review_json": _candidate_ai_review_placeholder(scored, setup_id),
-    }
-    if candidate is None:
-        candidate = db.Candidate(candidate_id=candidate_id, **payload)
-        session.add(candidate)
-    else:
-        for key, value in payload.items():
-            setattr(candidate, key, value)
-    return candidate
-
-
-def _candidate_ai_review_placeholder(scored: ScoredETFSetup, setup_id: str) -> str:
-    return json.dumps(
-        {
-            "source": "pa_scanner_v2",
-            "pa_setup_id": setup_id,
-            "validation_status": "shadow_only",
-            "score_breakdown": scored.entry_plan["score_breakdown"],
-            "scanner_decision": scored.scanner_decision,
-        },
-        sort_keys=True,
-    )
-
-
-def _market_context_score(session: Session) -> tuple[float, dict[str, Any]]:
-    context = session.scalar(
-        select(db.MarketContextSnapshot)
-        .where(db.MarketContextSnapshot.market == "global")
-        .order_by(db.MarketContextSnapshot.snapshot_ts.desc())
-        .limit(1)
-    )
-    if context is None:
-        return 8.0, {"source": "missing", "risk_level": "unknown"}
-    if context.risk_level == "shock" or context.us_bias == "bearish":
-        score = 0.0
-    elif context.risk_level == "watch":
-        score = 5.0
-    else:
-        score = 10.0
-    return score, {
-        "source": "market_context_snapshots",
-        "snapshot_ts": context.snapshot_ts.isoformat(),
-        "risk_level": context.risk_level,
-        "us_bias": context.us_bias,
-    }
-
-
-def _percentile_ranks(latest_facts: dict[str, db.PAFact], key: str) -> dict[str, float]:
-    values = [
-        (symbol, _number(fact.facts.get(key)))
-        for symbol, fact in latest_facts.items()
-        if _number(fact.facts.get(key)) is not None
-    ]
-    if not values:
-        return {symbol: 0 for symbol in latest_facts}
-    if len(values) == 1:
-        return {values[0][0]: 1.0}
-    values.sort(key=lambda item: item[1])
-    return {symbol: rank / (len(values) - 1) for rank, (symbol, _value) in enumerate(values)}
-
-
-def _normalize_symbols(symbols: list[str]) -> list[str]:
-    seen: set[str] = set()
-    normalized: list[str] = []
-    for symbol in symbols:
-        ticker = symbol.strip().upper()
-        if ticker and ticker not in seen:
-            normalized.append(ticker)
-            seen.add(ticker)
-    return normalized
-
-
-def _number(value: object) -> float | None:
-    if value is None:
-        return None
-    return float(value)
-
-
-def _setup_id(scored: ScoredETFSetup) -> str:
-    return (
-        f"pasetup_{scored.symbol_id.lower()}_{scored.timeframe}_"
-        f"{scored.detected_ts.date().isoformat()}_{scored.setup_type}"
-    )
-
-
-def _candidate_id(account_id: str, scored: ScoredETFSetup) -> str:
-    return (
-        f"cand_pa_{account_id}_{scored.symbol_id}_{scored.detected_ts.date().isoformat()}_"
-        f"{scored.setup_type}"
-    ).lower()
+            symbols=symbols,
+            timeframe=request.timeframe,
+        )
+        latest_facts = _latest_facts(session, facts_symbols, request.timeframe)
+        scan_facts = {symbol: fact for symbol, fact in latest_facts.items() if symbol in set(symbols)}
+        latest_strat_signals = _latest_strat_signals(session, symbols, request.timeframe)
+        latest_strat_plans = _latest_strat_plans(
+            session=session,
+            latest_facts=scan_facts,
+            timeframe=request.timeframe,
+        )
+        ranks_3m = _percentile_ranks(scan_facts, "return_3m")
+        ranks_6m = _percentile_ranks(scan_facts, "return_6m")
+        ranks_12m = _percentile_ranks(scan_facts, "return_12m")
+        one_month_zscores = _one_month_return_zscores(
+            session=session,
+            symbols=symbols,
+            timeframe=request.timeframe,
+            latest_facts=scan_facts,
+        )
+        market_score, market_context = _market_context_score(session)
+        benchmark_fact = latest_facts.get(request.benchmark_symbol)
+
+        scored_setups: list[ScoredETFSetup] = []
+        skipped_symbols = [symbol for symbol in facts_result.skipped_symbols if symbol in symbols]
+        for symbol in symbols:
+            fact = scan_facts.get(symbol)
+            if fact is None:
+                if symbol not in skipped_symbols:
+                    skipped_symbols.append(symbol)
+                continue
+            scored = _score_etf_rotation_setup(
+                fact=fact,
+                rank_3m=ranks_3m.get(symbol, 0),
+                rank_6m=ranks_6m.get(symbol, 0),
+                rank_12m=ranks_12m.get(symbol, 0),
+                one_month_zscore=one_month_zscores.get(symbol),
+                benchmark_fact=benchmark_fact,
+                benchmark_symbol=request.benchmark_symbol,
+                market_score=market_score,
+                market_context=market_context,
+                strat_signal=latest_strat_signals.get(symbol),
+                strat_plan=latest_strat_plans.get(symbol),
+            )
+            if scored and scored.total_score >= request.min_score:
+                scored_setups.append(scored)
+
+        scored_setups.sort(key=lambda item: item.total_score, reverse=True)
+        selected_setups = scored_setups[: request.max_candidates]
+
+        candidates: list[Candidate] = []
+        for scored in selected_setups:
+            setup = _upsert_pa_setup(session, scored)
+            session.flush()
+            candidate = _upsert_candidate(
+                session=session,
+                account_id=request.account_id,
+                scored=scored,
+                setup_id=setup.setup_id,
+            )
+            ScannerOutcomeService.calculate_for_candidate(session=session, candidate=candidate)
+            candidate_schema = Candidate.model_validate(candidate)
+            candidate_schema.pa_setup_grade = setup.setup_grade
+            candidate_schema.validation_status = setup.validation_status
+            candidates.append(candidate_schema)
+
+        decision_counts = Counter(candidate.decision or "unknown" for candidate in candidates)
+        latest_scan_date = max((candidate.scan_date for candidate in candidates), default=None)
+        latest_bar_date = max((fact.ts.date() for fact in scan_facts.values()), default=None)
+
+        return ETFOneilScannerResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=sorted(scan_facts),
+            facts_written=facts_result.facts_written,
+            setups_written=len(selected_setups),
+            candidates_written=len(candidates),
+            decision_counts=dict(decision_counts),
+            latest_scan_date=latest_scan_date,
+            latest_bar_date=latest_bar_date,
+            skipped_symbols=skipped_symbols,
+            candidates=candidates,
+        )

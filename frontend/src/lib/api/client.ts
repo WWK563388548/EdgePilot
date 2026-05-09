@@ -118,6 +118,7 @@ export const api = {
     getJson<Candidate[]>(
       `/api/candidates${queryString({
         decision: filters.decision,
+        strategy_name: filters.strategy_name,
         limit: filters.limit ?? 100,
         offset: filters.offset
       })}`
@@ -125,7 +126,8 @@ export const api = {
   candidateCount: (filters: CandidateFilters = {}) =>
     getJson<CountResponse>(
       `/api/candidates/count${queryString({
-        decision: filters.decision
+        decision: filters.decision,
+        strategy_name: filters.strategy_name
       })}`
     ),
   scanAccountOneilCandidates: (request: AccountScannerRequest = {}) =>
@@ -133,6 +135,13 @@ export const api = {
   refreshAccountOneilCandidates: (request: AccountRefreshRequest = {}) =>
     postJson<ETFUniverseSeedResponse>(
       "/api/candidates/scanners/us-etf/oneil-core/refresh",
+      request
+    ),
+  scanAccountRotationCandidates: (request: AccountScannerRequest = {}) =>
+    postJson<ETFOneilScannerResponse>("/api/candidates/scanners/us-etf/rotation", request),
+  refreshAccountRotationCandidates: (request: AccountRefreshRequest = {}) =>
+    postJson<ETFUniverseSeedResponse>(
+      "/api/candidates/scanners/us-etf/rotation/refresh",
       request
     ),
   candidateDetail: (candidateId: string) =>
