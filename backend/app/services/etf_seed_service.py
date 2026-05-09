@@ -1,6 +1,5 @@
 from collections import Counter
 from datetime import UTC, date, datetime
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -13,8 +12,15 @@ from backend.app.schemas.ingestion import (
     ETFUniverseSeedSymbolResult,
 )
 from backend.app.schemas.pa import ETFOneilScannerRequest
+from backend.app.services.market_data_provider import (
+    DailyBar,
+    DailyBarProvider,
+    SymbolMetadata,
+    coerce_daily_bar,
+    provider_id,
+    symbol_metadata,
+)
 from backend.app.services.pa_service import PAService
-from backend.app.services.polygon_client import PolygonClient
 from backend.app.services.scanner_service import ETFScannerService
 from backend.app.services.universes import default_symbols_when_omitted
 
@@ -32,17 +38,17 @@ class ETFSeedService:
             return response
 
     @staticmethod
-    def _client() -> PolygonClient:
+    def _client() -> DailyBarProvider:
         from backend.app.services.ingestion_service import IngestionService
 
-        return IngestionService._client()
+        return IngestionService._daily_bar_provider()
 
     @staticmethod
     def seed_us_etf_universe_for_session(
         *,
         session: Session,
         request: ETFUniverseSeedRequest,
-        client: PolygonClient,
+        client: DailyBarProvider,
     ) -> ETFUniverseSeedResponse:
         symbols = _normalize_symbols(default_symbols_when_omitted(request.symbols))
         successful_symbols: list[str] = []
@@ -134,45 +140,44 @@ class ETFSeedService:
     def _ingest_symbol_bars(
         *,
         session: Session,
-        client: PolygonClient,
+        client: DailyBarProvider,
         symbol: str,
         request: ETFUniverseSeedRequest,
     ) -> ETFUniverseSeedSymbolResult:
         dataset_key = f"bars:{symbol}:{request.timeframe}"
         started_at = datetime.now(UTC)
+        source = provider_id(client)
+        source_label = _provider_display_name(source)
         try:
-            rows = client.list_daily_bars(
-                ticker=symbol,
-                from_date=request.from_date,
-                to_date=request.to_date,
-            )
+            rows = client.list_daily_bars(symbol, request.from_date, request.to_date)
             if not rows:
-                raise RuntimeError(f"Polygon returned no bars for {symbol}")
+                raise RuntimeError(f"{source_label} returned no bars for {symbol}")
 
-            ETFSeedService._upsert_symbol(session, symbol)
+            ETFSeedService._upsert_symbol(session, symbol_metadata(client, symbol))
             records_written = 0
             for row in rows:
-                if "t" not in row:
+                bar = coerce_daily_bar(row, source=source)
+                if bar is None:
                     continue
-                ETFSeedService._upsert_bar(session, symbol, request.timeframe, row)
+                ETFSeedService._upsert_bar(session, symbol, request.timeframe, bar)
                 records_written += 1
 
             completed_at = datetime.now(UTC)
             if records_written == 0:
-                raise RuntimeError(f"Polygon returned no writable bars for {symbol}")
+                raise RuntimeError(f"{source_label} returned no writable bars for {symbol}")
 
             ETFSeedService._upsert_freshness(
                 session=session,
                 dataset_key=dataset_key,
                 last_updated_at=completed_at,
-                source="polygon",
+                source=source,
             )
             ETFSeedService._record_ingestion_run(
                 session=session,
                 dataset_key=dataset_key,
                 status="success",
                 records_written=records_written,
-                source="polygon",
+                source=source,
                 started_at=started_at,
                 completed_at=completed_at,
             )
@@ -188,7 +193,7 @@ class ETFSeedService:
                 dataset_key=dataset_key,
                 status="failed",
                 records_written=0,
-                source="polygon",
+                source=source,
                 started_at=started_at,
                 completed_at=completed_at,
                 error_message=str(exc),
@@ -200,57 +205,66 @@ class ETFSeedService:
             )
 
     @staticmethod
-    def _upsert_symbol(session: Session, symbol: str) -> None:
-        existing = session.get(db.Symbol, symbol)
+    def _upsert_symbol(session: Session, metadata: SymbolMetadata) -> None:
+        existing = session.get(db.Symbol, metadata.symbol_id)
         if existing:
             existing.active = True
-            existing.asset_type = "ETF"
-            existing.market = "US"
-            existing.source = "polygon"
+            existing.ticker = metadata.ticker
+            existing.asset_type = metadata.asset_type
+            existing.market = metadata.market
+            existing.exchange = metadata.exchange
+            existing.name = metadata.name
+            existing.sector = metadata.sector
+            existing.industry = metadata.industry
+            existing.currency = metadata.currency
+            existing.source = metadata.source
             existing.updated_at = datetime.now(UTC)
             return
 
         session.add(
             db.Symbol(
-                symbol_id=symbol,
-                ticker=symbol,
-                market="US",
-                asset_type="ETF",
-                currency="USD",
-                active=True,
-                source="polygon",
+                symbol_id=metadata.symbol_id,
+                ticker=metadata.ticker,
+                market=metadata.market,
+                asset_type=metadata.asset_type,
+                exchange=metadata.exchange,
+                name=metadata.name,
+                sector=metadata.sector,
+                industry=metadata.industry,
+                currency=metadata.currency,
+                active=metadata.active,
+                source=metadata.source,
             )
         )
 
     @staticmethod
-    def _upsert_bar(session: Session, symbol: str, timeframe: str, row: dict[str, Any]) -> None:
-        ts = datetime.fromtimestamp(row["t"] / 1000, tz=UTC)
-        primary_key = (symbol, timeframe, ts)
+    def _upsert_bar(session: Session, symbol: str, timeframe: str, bar: DailyBar) -> None:
+        primary_key = (symbol, timeframe, bar.ts)
         existing = session.get(db.Bar, primary_key)
         if existing:
-            existing.open = row.get("o")
-            existing.high = row.get("h")
-            existing.low = row.get("l")
-            existing.close = row.get("c")
-            existing.volume = row.get("v")
-            existing.vwap = row.get("vw")
-            existing.adjusted = True
-            existing.source = "polygon"
+            existing.open = bar.open
+            existing.high = bar.high
+            existing.low = bar.low
+            existing.close = bar.close
+            existing.volume = bar.volume
+            existing.vwap = bar.vwap
+            existing.adjusted = bar.adjusted
+            existing.source = bar.source
             return
 
         session.add(
             db.Bar(
-                ts=ts,
+                ts=bar.ts,
                 symbol_id=symbol,
                 timeframe=timeframe,
-                open=row.get("o"),
-                high=row.get("h"),
-                low=row.get("l"),
-                close=row.get("c"),
-                volume=row.get("v"),
-                vwap=row.get("vw"),
-                adjusted=True,
-                source="polygon",
+                open=bar.open,
+                high=bar.high,
+                low=bar.low,
+                close=bar.close,
+                volume=bar.volume,
+                vwap=bar.vwap,
+                adjusted=bar.adjusted,
+                source=bar.source,
             )
         )
 
@@ -327,3 +341,7 @@ def _normalize_symbols(symbols: list[str]) -> list[str]:
             normalized.append(ticker)
             seen.add(ticker)
     return normalized
+
+
+def _provider_display_name(source: str) -> str:
+    return "Polygon" if source == "polygon" else source

@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.core.config import settings
+from backend.app.services.market_data_provider import (
+    DailyBarProvider,
+    POLYGON_US_ETF_DAILY_PROFILE,
+    PolygonMarketDataProvider,
+)
 from backend.app.services.polygon_client import PolygonClient
 
 POLYGON_US_ETF_DAILY_CAPABILITY = "market_data.us_etf_daily"
@@ -52,10 +57,18 @@ class DataSourceCheckResult:
 
 class DataSourceService:
     @staticmethod
-    def polygon_client_for_tenant(
+    def market_data_provider_for_tenant(
         session: Session,
         principal: AuthPrincipal,
-    ) -> tuple[PolygonClient, DataSourceResolution]:
+        *,
+        capability_key: str = POLYGON_US_ETF_DAILY_CAPABILITY,
+    ) -> tuple[DailyBarProvider, DataSourceResolution]:
+        if capability_key != POLYGON_US_ETF_DAILY_CAPABILITY:
+            raise DataSourceUnavailable(
+                capability_key,
+                "missing",
+                f"No market data provider is registered for {capability_key}",
+            )
         AuthService.ensure_tenant_foundation(session=session, tenant_id=principal.tenant_id)
         session.flush()
         resolution = DataSourceService.resolve_polygon_market_data(session, principal.tenant_id)
@@ -77,10 +90,14 @@ class DataSourceService:
                 capability.status,
                 capability.reason,
             )
-        return (
-            PolygonClient(api_key=resolution.api_key, base_url=settings.polygon_base_url),
-            resolution,
-        )
+        return DataSourceService._provider_from_resolution(resolution), resolution
+
+    @staticmethod
+    def polygon_client_for_tenant(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> tuple[DailyBarProvider, DataSourceResolution]:
+        return DataSourceService.market_data_provider_for_tenant(session, principal)
 
     @staticmethod
     def resolve_polygon_market_data(
@@ -142,6 +159,21 @@ class DataSourceService:
                 source = "env_or_tenant_credential"
                 reason = "POLYGON_API_KEY or tenant Polygon credential is not configured"
 
+        capability.provider = POLYGON_US_ETF_DAILY_PROFILE.provider
+        capability.market = POLYGON_US_ETF_DAILY_PROFILE.market
+        capability.asset_type = POLYGON_US_ETF_DAILY_PROFILE.asset_type
+        capability.timeframe = POLYGON_US_ETF_DAILY_PROFILE.timeframe
+        capability_metadata = {
+            "supports_daily_bars": POLYGON_US_ETF_DAILY_PROFILE.supports_daily_bars,
+            "supports_intraday_bars": POLYGON_US_ETF_DAILY_PROFILE.supports_intraday_bars,
+            "supports_symbol_metadata": POLYGON_US_ETF_DAILY_PROFILE.supports_symbol_metadata,
+            "supports_corporate_actions": POLYGON_US_ETF_DAILY_PROFILE.supports_corporate_actions,
+            "freshness_probe_symbol": POLYGON_US_ETF_DAILY_PROFILE.freshness_probe_symbol,
+            "rate_limit_per_minute": POLYGON_US_ETF_DAILY_PROFILE.rate_limit_per_minute,
+        }
+        if POLYGON_US_ETF_DAILY_PROFILE.market_profile is not None:
+            capability_metadata["market_profile"] = POLYGON_US_ETF_DAILY_PROFILE.market_profile.metadata()
+        capability.metadata_json = capability_metadata
         capability.status = status
         capability.source = source
         capability.reason = reason
@@ -217,13 +249,13 @@ class DataSourceService:
                 checked_at=checked_at,
             )
 
-        client = PolygonClient(api_key=resolution.api_key, base_url=settings.polygon_base_url)
+        provider = DataSourceService._provider_from_resolution(resolution)
         try:
             to_date = date.today()
             from_date = to_date - timedelta(days=14)
-            rows = client.list_daily_bars("SPY", from_date=from_date, to_date=to_date)
+            rows = provider.list_daily_bars("SPY", from_date=from_date, to_date=to_date)
             if not rows:
-                raise RuntimeError("Polygon returned no SPY bars during connection check")
+                raise RuntimeError(f"{provider.provider_id} returned no SPY bars during connection check")
         except Exception as exc:
             message = str(exc)
             auth_error = _looks_like_auth_error(message)
@@ -328,6 +360,18 @@ class DataSourceService:
     def _current_polygon_source(session: Session, tenant_id: str) -> str:
         resolution = DataSourceService.resolve_polygon_market_data(session, tenant_id)
         return resolution.source if resolution else "env_or_tenant_credential"
+
+    @staticmethod
+    def _provider_from_resolution(resolution: DataSourceResolution) -> DailyBarProvider:
+        if resolution.provider != "polygon":
+            raise DataSourceUnavailable(
+                resolution.capability_key,
+                "missing",
+                f"No adapter is registered for provider {resolution.provider}",
+            )
+        return PolygonMarketDataProvider(
+            PolygonClient(api_key=resolution.api_key, base_url=settings.polygon_base_url)
+        )
 
     @staticmethod
     def _mark_credential_check(

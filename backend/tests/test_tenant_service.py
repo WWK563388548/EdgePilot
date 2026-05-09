@@ -233,6 +233,11 @@ def test_data_capability_check_updates_last_checked(monkeypatch) -> None:
         assert response.status == "available"
         assert response.source == "env"
         assert capability.last_checked_at is not None
+        assert capability.metadata_json["supports_daily_bars"] is True
+        assert capability.metadata_json["supports_symbol_metadata"] is True
+        assert capability.metadata_json["freshness_probe_symbol"] == "SPY"
+        assert capability.metadata_json["market_profile"]["calendar_key"] == "XNYS"
+        assert capability.metadata_json["market_profile"]["trading_timezone"] == "America/New_York"
 
 
 def test_transient_polygon_check_failure_keeps_credential_resolvable(monkeypatch) -> None:
