@@ -761,6 +761,88 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
     assert refresh_notifications[0].metadata_json["candidates_written"] == 1
 
 
+def test_rotation_refresh_scans_only_successfully_refreshed_symbols(
+    session,
+    monkeypatch,
+) -> None:
+    from backend.app.services import business_service
+
+    principal = _principal("user_a", "acct_a")
+    captured_symbols: list[str] = []
+
+    monkeypatch.setattr(
+        business_service.DataSourceService,
+        "polygon_client_for_tenant",
+        lambda db_session, request_principal: (
+            object(),
+            DataSourceResolution(
+                provider="polygon",
+                capability_key="market_data.us_etf_daily",
+                source="env",
+                api_key="secret",
+            ),
+        ),
+    )
+
+    def _fake_seed(*, session, client, request):
+        return ETFUniverseSeedResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=["SPY", "QQQ"],
+            bars_written=260,
+            facts_written=260,
+            symbol_results=[
+                ETFUniverseSeedSymbolResult(symbol="SPY", status="success", bars_written=260),
+                ETFUniverseSeedSymbolResult(
+                    symbol="QQQ",
+                    status="failed",
+                    error_message="Polygon returned no bars",
+                ),
+            ],
+        )
+
+    def _fake_rotation_scan(db_session, request):
+        captured_symbols.extend(request.symbols or [])
+        return ETFOneilScannerResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=request.symbols or [],
+            facts_written=0,
+            setups_written=1,
+            candidates_written=1,
+            decision_counts={"candidate": 1},
+            latest_scan_date=date(2026, 5, 9),
+            latest_bar_date=date(2026, 5, 9),
+        )
+
+    monkeypatch.setattr(
+        business_service.ETFSeedService,
+        "seed_us_etf_universe_for_session",
+        _fake_seed,
+    )
+    monkeypatch.setattr(
+        business_service.ETFScannerService,
+        "run_us_etf_rotation_for_session",
+        _fake_rotation_scan,
+    )
+
+    response = BusinessService.refresh_account_etf_rotation_universe(
+        session,
+        principal,
+        AccountETFUniverseRefreshRequest(symbols=["spy", "qqq"]),
+    )
+
+    assert captured_symbols == ["SPY"]
+    assert response.candidates_written == 1
+    assert response.symbols_requested == ["SPY", "QQQ"]
+    assert response.skipped_symbols == ["QQQ"]
+    notifications = BusinessService.list_notifications(session, principal)
+    assert notifications[0].metadata_json["symbols_succeeded"] == 1
+    assert notifications[0].metadata_json["symbols_failed"] == 1
+
+
 def test_account_refresh_blocks_before_deleting_when_data_source_missing(
     session,
     monkeypatch,

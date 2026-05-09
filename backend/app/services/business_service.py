@@ -553,10 +553,13 @@ class BusinessService:
                 max_candidates=request.max_candidates,
             ),
         )
+        successful_symbols = [
+            row.symbol for row in seed_response.symbol_results if row.status == "success"
+        ]
         scanner_response = ETFScannerService.run_us_etf_rotation_for_session(
             session,
             ETFRotationScannerRequest(
-                symbols=seed_response.symbols_requested,
+                symbols=successful_symbols,
                 timeframe=request.timeframe,
                 account_id=principal.account_id,
                 min_score=request.min_score,
@@ -564,12 +567,19 @@ class BusinessService:
                 recalculate_facts=False,
             ),
         )
-        success_count = sum(1 for row in seed_response.symbol_results if row.status == "success")
+        success_count = len(successful_symbols)
         failure_messages = [
             f"{row.symbol}: {row.error_message}"
             for row in seed_response.symbol_results
             if row.status != "success" and row.error_message
         ]
+        skipped_symbols = list(seed_response.skipped_symbols)
+        for row in seed_response.symbol_results:
+            if row.status != "success" and row.symbol not in skipped_symbols:
+                skipped_symbols.append(row.symbol)
+        for symbol in scanner_response.skipped_symbols:
+            if symbol not in skipped_symbols:
+                skipped_symbols.append(symbol)
         DataSourceService.record_polygon_refresh_result(
             session,
             principal.tenant_id,
@@ -585,7 +595,7 @@ class BusinessService:
                 "decision_counts": scanner_response.decision_counts,
                 "latest_scan_date": scanner_response.latest_scan_date,
                 "latest_bar_date": scanner_response.latest_bar_date or seed_response.latest_bar_date,
-                "skipped_symbols": scanner_response.skipped_symbols,
+                "skipped_symbols": skipped_symbols,
                 "candidates": scanner_response.candidates,
             }
         )
