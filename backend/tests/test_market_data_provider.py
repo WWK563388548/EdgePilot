@@ -37,7 +37,7 @@ def test_polygon_adapter_normalizes_daily_bars_and_metadata() -> None:
     assert bars[0].source == "polygon"
     assert metadata.symbol_id == "SPY"
     assert metadata.market == "US"
-    assert metadata.asset_type == "etf"
+    assert metadata.asset_type == "ETF"
     assert metadata.currency == "USD"
 
 

@@ -108,7 +108,7 @@ class PolygonMarketDataProvider:
             symbol_id=ticker,
             ticker=ticker,
             market=self.profile.market,
-            asset_type=self.profile.asset_type,
+            asset_type=self.profile.asset_type.upper(),
             currency=self.profile.market_profile.currency if self.profile.market_profile else "USD",
             active=True,
             source=self.provider_id,
