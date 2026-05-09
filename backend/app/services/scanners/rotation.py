@@ -354,7 +354,7 @@ def _benchmark_relative_strength_score(
     benchmark_facts: dict[str, Any] | None,
     benchmark_symbol: str,
 ) -> tuple[float, dict[str, Any]]:
-    comparisons: list[bool] = []
+    comparisons: list[float] = []
     deltas: dict[str, float | None] = {}
     for key in ("return_3m", "return_6m", "return_12m"):
         own = _number(facts.get(key))
@@ -362,11 +362,14 @@ def _benchmark_relative_strength_score(
         delta = own - benchmark if own is not None and benchmark is not None else None
         deltas[f"{key}_vs_benchmark"] = round(delta, 6) if delta is not None else None
         if delta is not None:
-            comparisons.append(delta >= 0)
+            if abs(delta) < 1e-12:
+                comparisons.append(0.5)
+            else:
+                comparisons.append(1.0 if delta > 0 else 0.0)
     if not comparisons:
         score = 5.0
     else:
-        score = round((sum(1 for passed in comparisons if passed) / len(comparisons)) * 10, 2)
+        score = round((sum(comparisons) / len(comparisons)) * 10, 2)
     return score, {
         "benchmark_symbol": benchmark_symbol,
         "score": score,

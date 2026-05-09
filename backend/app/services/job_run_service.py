@@ -51,6 +51,16 @@ class JobRunService:
         strategy_name = request.strategy_name or ETF_ROTATION_US_ETF_STRATEGY
         if strategy_name not in {ETF_ROTATION_US_ETF_STRATEGY, ONEIL_CORE_US_ETF_STRATEGY}:
             strategy_name = ONEIL_CORE_US_ETF_STRATEGY
+        refresh_step_name = (
+            "etf_rotation_refresh_scan"
+            if strategy_name == ETF_ROTATION_US_ETF_STRATEGY
+            else "market_refresh_scan"
+        )
+        scan_step_name = (
+            "etf_rotation_scan"
+            if strategy_name == ETF_ROTATION_US_ETF_STRATEGY
+            else "oneil_core_scan"
+        )
         try:
             if request.refresh_market_data:
                 refresh_request = AccountETFUniverseRefreshRequest(
@@ -64,14 +74,14 @@ class JobRunService:
                         principal,
                         refresh_request,
                     )
-                    step_name = "etf_rotation_refresh_scan"
+                    step_name = refresh_step_name
                 else:
                     refresh_response = BusinessService.refresh_account_oneil_core_universe(
                         session,
                         principal,
                         refresh_request,
                     )
-                    step_name = "market_refresh_scan"
+                    step_name = refresh_step_name
                 records_written += (
                     refresh_response.bars_written
                     + refresh_response.facts_written
@@ -136,7 +146,7 @@ class JobRunService:
                             recalculate_facts=True,
                         ),
                     )
-                    step_name = "etf_rotation_scan"
+                    step_name = scan_step_name
                 else:
                     scanner_response = BusinessService.run_account_oneil_core_scanner(
                         session,
@@ -148,7 +158,7 @@ class JobRunService:
                             recalculate_facts=True,
                         ),
                     )
-                    step_name = "oneil_core_scan"
+                    step_name = scan_step_name
                 records_written += (
                     scanner_response.facts_written
                     + scanner_response.setups_written
@@ -232,9 +242,9 @@ class JobRunService:
             if not steps or steps[-1].get("status") != "failed":
                 steps.append(
                     {
-                        "name": "market_refresh_scan"
+                        "name": refresh_step_name
                         if request.refresh_market_data
-                        else strategy_name,
+                        else scan_step_name,
                         "status": "failed",
                         "summary": {
                             "error": str(exc),

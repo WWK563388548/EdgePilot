@@ -1053,6 +1053,34 @@ def test_run_automation_job_persists_failure(session, monkeypatch) -> None:
     assert BusinessService.count_job_runs(session, principal, status="failed") == 1
 
 
+def test_run_automation_job_uses_scan_step_id_for_non_refresh_failure(
+    session,
+    monkeypatch,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    def _fake_scan(db_session, request_principal, request):
+        raise RuntimeError("rotation scan failed")
+
+    monkeypatch.setattr(BusinessService, "run_account_etf_rotation_scanner", _fake_scan)
+
+    run = BusinessService.run_automation_job(
+        session,
+        principal,
+        AutomationJobRunRequest(
+            symbols=["spy"],
+            strategy_name="etf_rotation_us_etf",
+            refresh_market_data=False,
+            recalculate_outcomes=False,
+            evaluate_alerts=False,
+        ),
+    )
+
+    assert run.status == "failed"
+    assert run.metadata_json["steps"][0]["name"] == "etf_rotation_scan"
+    assert run.metadata_json["steps"][0]["status"] == "failed"
+
+
 def test_dashboard_candidate_count_only_counts_candidates(session) -> None:
     principal = _principal("user_a", "acct_a")
 

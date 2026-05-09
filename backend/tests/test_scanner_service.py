@@ -10,7 +10,10 @@ from backend.app.core.database import Base
 from backend.app.schemas.pa import ETFRotationScannerRequest, ETFOneilScannerRequest
 from backend.app.services.scanner_service import ETFScannerService
 from backend.app.services.scanners.oneil import _scanner_decision
-from backend.app.services.scanners.rotation import _rotation_entry_mode
+from backend.app.services.scanners.rotation import (
+    _benchmark_relative_strength_score,
+    _rotation_entry_mode,
+)
 
 
 @pytest.fixture
@@ -171,6 +174,25 @@ def test_rotation_entry_mode_requires_pullback_when_one_month_is_extended() -> N
         )
         == "retest_required"
     )
+
+
+def test_benchmark_relative_strength_treats_equal_returns_as_neutral() -> None:
+    facts = {
+        "return_3m": 0.12,
+        "return_6m": 0.2,
+        "return_12m": 0.32,
+    }
+
+    score, metrics = _benchmark_relative_strength_score(
+        facts=facts,
+        benchmark_facts=facts,
+        benchmark_symbol="SPY",
+    )
+
+    assert score == 5.0
+    assert metrics["return_3m_vs_benchmark"] == 0
+    assert metrics["return_6m_vs_benchmark"] == 0
+    assert metrics["return_12m_vs_benchmark"] == 0
 
 
 def test_scanner_decision_flags_bearish_strat_without_hiding_candidate() -> None:
