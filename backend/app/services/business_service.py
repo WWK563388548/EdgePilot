@@ -6,15 +6,13 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import delete, func, inspect, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal
 from backend.app.schemas.business import (
     AccountRiskSettings,
-    AccountRiskSettingsUpdate,
-    AutomationJobRunRequest,
     Candidate,
     CandidateCreate,
     CandidateDetail,
@@ -33,12 +31,7 @@ from backend.app.schemas.business import (
     ExitAlertUpdate,
     JournalTrade,
     JournalTradeCreate,
-    JobRun,
     MarketContextSummary,
-    NotificationEvent,
-    NotificationEventUpdate,
-    NotificationPreferences,
-    NotificationPreferencesUpdate,
     Position,
     PositionActivate,
     PositionClose,
@@ -47,7 +40,6 @@ from backend.app.schemas.business import (
     PositionReduce,
     PositionStopUpdate,
     PositionUpdate,
-    PortfolioRiskItem,
     PortfolioRiskSummary,
     GuardrailNotice,
 )
@@ -71,15 +63,11 @@ from backend.app.schemas.outcome import (
 )
 from backend.app.schemas.scanner import ScannerDecision
 from backend.app.services.audit_service import AuditService
+from backend.app.services.business.jobs import BusinessJobsMixin
+from backend.app.services.business.notifications import BusinessNotificationsMixin
+from backend.app.services.business.risk import BusinessRiskMixin
 from backend.app.services.data_source_service import DataSourceService
 from backend.app.services.etf_seed_service import ETFSeedService
-from backend.app.services.job_run_service import JobRunService
-from backend.app.services.notification_service import (
-    NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY,
-    NotificationService,
-)
-from backend.app.services.portfolio_risk_service import PortfolioRiskService
-from backend.app.services.risk_settings_service import RiskSettingsService
 from backend.app.services.scanner_outcome_service import ScannerOutcomeService
 from backend.app.services.scanner_service import ETFScannerService
 from backend.app.services.strat_service import StratService
@@ -156,7 +144,7 @@ def _touch_position(position: db.Position) -> None:
     position.updated_at = datetime.now(UTC)
 
 
-class BusinessService:
+class BusinessService(BusinessNotificationsMixin, BusinessRiskMixin, BusinessJobsMixin):
     @staticmethod
     def _audit(
         session: Session,
@@ -166,81 +154,6 @@ class BusinessService:
         entity_id: str | None,
     ) -> None:
         AuditService.record(session, principal, action, entity_type, entity_id)
-
-    @staticmethod
-    def get_account_risk_settings(
-        session: Session,
-        principal: AuthPrincipal,
-    ) -> AccountRiskSettings:
-        return RiskSettingsService.get_account_risk_settings(session, principal)
-
-    @staticmethod
-    def update_account_risk_settings(
-        session: Session,
-        principal: AuthPrincipal,
-        request: AccountRiskSettingsUpdate,
-    ) -> AccountRiskSettings:
-        return RiskSettingsService.update_account_risk_settings(session, principal, request)
-
-    @staticmethod
-    def get_notification_preferences(
-        session: Session,
-        principal: AuthPrincipal,
-    ) -> NotificationPreferences:
-        if not BusinessService._notification_tables_available(session):
-            return BusinessService._default_notification_preferences_response(principal)
-        return NotificationService.get_notification_preferences(session, principal)
-
-    @staticmethod
-    def update_notification_preferences(
-        session: Session,
-        principal: AuthPrincipal,
-        request: NotificationPreferencesUpdate,
-    ) -> NotificationPreferences:
-        if not BusinessService._notification_tables_available(session):
-            return BusinessService._default_notification_preferences_response(principal, request)
-        return NotificationService.update_notification_preferences(session, principal, request)
-
-    @staticmethod
-    def _notification_preferences_model(
-        session: Session,
-        principal: AuthPrincipal,
-    ) -> db.NotificationPreference:
-        return NotificationService.notification_preferences_model(session, principal)
-
-    @staticmethod
-    def _notification_preferences_response(
-        preferences: db.NotificationPreference,
-    ) -> NotificationPreferences:
-        return NotificationService.notification_preferences_response(preferences)
-
-    @staticmethod
-    def _default_notification_preferences_response(
-        principal: AuthPrincipal,
-        request: NotificationPreferencesUpdate | None = None,
-    ) -> NotificationPreferences:
-        return NotificationService.default_notification_preferences_response(principal, request)
-
-    @staticmethod
-    def get_portfolio_risk(
-        session: Session,
-        principal: AuthPrincipal,
-    ) -> PortfolioRiskSummary:
-        return PortfolioRiskService.get_portfolio_risk(session, principal)
-
-    @staticmethod
-    def _get_account_risk_settings_model(
-        session: Session,
-        principal: AuthPrincipal,
-    ) -> db.AccountRiskSettings | None:
-        return RiskSettingsService.get_account_risk_settings_model(session, principal)
-
-    @staticmethod
-    def _risk_settings_response(
-        principal: AuthPrincipal,
-        settings: db.AccountRiskSettings | None,
-    ) -> AccountRiskSettings:
-        return RiskSettingsService.risk_settings_response(principal, settings)
 
     @staticmethod
     def create_candidate(
@@ -647,73 +560,6 @@ class BusinessService:
         return response
 
     @staticmethod
-    def run_automation_job(
-        session: Session,
-        principal: AuthPrincipal,
-        request: AutomationJobRunRequest,
-    ) -> JobRun:
-        return JobRunService.run_automation_job(session, principal, request)
-
-    @staticmethod
-    def _complete_job_run(
-        *,
-        session: Session,
-        principal: AuthPrincipal,
-        run_id: str,
-        started_at: datetime,
-        status: str,
-        records_written: int,
-        steps: list[dict[str, Any]],
-        request: AutomationJobRunRequest,
-        error_message: str | None = None,
-    ) -> JobRun:
-        return JobRunService.complete_job_run(
-            session=session,
-            principal=principal,
-            run_id=run_id,
-            started_at=started_at,
-            status=status,
-            records_written=records_written,
-            steps=steps,
-            request=request,
-            error_message=error_message,
-        )
-
-    @staticmethod
-    def list_job_runs(
-        session: Session,
-        principal: AuthPrincipal,
-        *,
-        status: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[JobRun]:
-        return JobRunService.list_job_runs(
-            session,
-            principal,
-            status=status,
-            limit=limit,
-            offset=offset,
-        )
-
-    @staticmethod
-    def count_job_runs(
-        session: Session,
-        principal: AuthPrincipal,
-        *,
-        status: str | None = None,
-    ) -> int:
-        return JobRunService.count_job_runs(session, principal, status=status)
-
-    @staticmethod
-    def _job_runs_statement(
-        *,
-        principal: AuthPrincipal,
-        status: str | None = None,
-    ):
-        return JobRunService.job_runs_statement(principal=principal, status=status)
-
-    @staticmethod
     def list_scanner_outcomes(
         session: Session,
         principal: AuthPrincipal,
@@ -882,45 +728,6 @@ class BusinessService:
             entry_plan=entry_plan,
             exit_plan=pa_setup.exit_plan if pa_setup else None,
             invalidation=pa_setup.invalidation if pa_setup else None,
-        )
-
-    @staticmethod
-    def _portfolio_risk_summary(
-        session: Session,
-        principal: AuthPrincipal,
-        *,
-        extra_item: PortfolioRiskItem | None = None,
-        exclude_position_id: str | None = None,
-    ) -> PortfolioRiskSummary:
-        return PortfolioRiskService.portfolio_risk_summary(
-            session,
-            principal,
-            extra_item=extra_item,
-            exclude_position_id=exclude_position_id,
-        )
-
-    @staticmethod
-    def _portfolio_risk_item(
-        position: db.Position,
-        risk_settings: AccountRiskSettings,
-    ) -> PortfolioRiskItem:
-        return PortfolioRiskService.portfolio_risk_item(position, risk_settings)
-
-    @staticmethod
-    def _preview_portfolio_risk_item(
-        *,
-        candidate: db.Candidate,
-        entry_price: float | None,
-        initial_stop: float | None,
-        quantity: float | None,
-        risk_settings: AccountRiskSettings,
-    ) -> PortfolioRiskItem:
-        return PortfolioRiskService.preview_portfolio_risk_item(
-            candidate=candidate,
-            entry_price=entry_price,
-            initial_stop=initial_stop,
-            quantity=quantity,
-            risk_settings=risk_settings,
         )
 
     @staticmethod
@@ -2276,186 +2083,6 @@ class BusinessService:
         if alert is None:
             raise ValueError(f"Exit alert not found: {alert_id}")
         return alert
-
-    @staticmethod
-    def list_notifications(
-        session: Session,
-        principal: AuthPrincipal,
-        read: bool | None = None,
-        acknowledged: bool | None = None,
-        include_snoozed: bool = False,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[NotificationEvent]:
-        if not BusinessService._notification_tables_available(session):
-            return []
-        return NotificationService.list_notifications(
-            session=session,
-            principal=principal,
-            read=read,
-            acknowledged=acknowledged,
-            include_snoozed=include_snoozed,
-            limit=limit,
-            offset=offset,
-        )
-
-    @staticmethod
-    def count_notifications(
-        session: Session,
-        principal: AuthPrincipal,
-        read: bool | None = None,
-        acknowledged: bool | None = None,
-        include_snoozed: bool = False,
-    ) -> int:
-        if not BusinessService._notification_tables_available(session):
-            return 0
-        return NotificationService.count_notifications(
-            session=session,
-            principal=principal,
-            read=read,
-            acknowledged=acknowledged,
-            include_snoozed=include_snoozed,
-        )
-
-    @staticmethod
-    def _notification_list_statement(
-        *,
-        principal: AuthPrincipal,
-        read: bool | None = None,
-        acknowledged: bool | None = None,
-        include_snoozed: bool = False,
-    ):
-        return NotificationService.notification_list_statement(
-            principal=principal,
-            read=read,
-            acknowledged=acknowledged,
-            include_snoozed=include_snoozed,
-        )
-
-    @staticmethod
-    def update_notification(
-        session: Session,
-        principal: AuthPrincipal,
-        notification_id: str,
-        request: NotificationEventUpdate,
-    ) -> NotificationEvent:
-        if not BusinessService._notification_tables_available(session):
-            raise ValueError(f"Notification not found: {notification_id}")
-        return NotificationService.update_notification(session, principal, notification_id, request)
-
-    @staticmethod
-    def _get_notification_model(
-        session: Session,
-        principal: AuthPrincipal,
-        notification_id: str,
-    ) -> db.NotificationEvent:
-        return NotificationService.get_notification_model(session, principal, notification_id)
-
-    @staticmethod
-    def _create_notification_event(
-        session: Session,
-        principal: AuthPrincipal,
-        *,
-        event_type: str,
-        severity: str,
-        source_type: str | None = None,
-        source_id: str | None = None,
-        title: str | None = None,
-        body: str | None = None,
-        target_view: str | None = None,
-        target_id: str | None = None,
-        metadata_json: dict[str, Any] | None = None,
-    ) -> db.NotificationEvent | None:
-        if not BusinessService._notification_tables_available(session):
-            return None
-        return NotificationService.create_notification_event(
-            session=session,
-            principal=principal,
-            event_type=event_type,
-            severity=severity,
-            source_type=source_type,
-            source_id=source_id,
-            title=title,
-            body=body,
-            target_view=target_view,
-            target_id=target_id,
-            metadata_json=metadata_json,
-        )
-
-    @staticmethod
-    def _notification_allowed(
-        preferences: db.NotificationPreference,
-        event_type: str,
-        severity: str,
-    ) -> bool:
-        return NotificationService.notification_allowed(preferences, event_type, severity)
-
-    @staticmethod
-    def _find_existing_notification(
-        session: Session,
-        principal: AuthPrincipal,
-        *,
-        event_type: str,
-        source_type: str | None,
-        source_id: str | None,
-    ) -> db.NotificationEvent | None:
-        return NotificationService.find_existing_notification(
-            session,
-            principal,
-            event_type=event_type,
-            source_type=source_type,
-            source_id=source_id,
-        )
-
-    @staticmethod
-    def _notification_id(
-        account_id: str,
-        event_type: str,
-        source_type: str | None,
-        source_id: str | None,
-    ) -> str:
-        return NotificationService.notification_id(account_id, event_type, source_type, source_id)
-
-    @staticmethod
-    def _add_notification_delivery_logs(
-        session: Session,
-        preferences: db.NotificationPreference,
-        notification: db.NotificationEvent,
-    ) -> None:
-        NotificationService.add_notification_delivery_logs(session, preferences, notification)
-
-    @staticmethod
-    def _acknowledge_notifications_for_source(
-        session: Session,
-        principal: AuthPrincipal,
-        *,
-        source_type: str,
-        source_id: str,
-    ) -> None:
-        NotificationService.acknowledge_notifications_for_source(
-            session,
-            principal,
-            source_type=source_type,
-            source_id=source_id,
-        )
-
-    @staticmethod
-    def _notification_tables_available(session: Session) -> bool:
-        cached = session.info.get(NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY)
-        if isinstance(cached, bool):
-            return cached
-
-        inspector = inspect(session.connection())
-        available = all(
-            inspector.has_table(table_name)
-            for table_name in (
-                "notification_preferences",
-                "notification_events",
-                "notification_delivery_logs",
-            )
-        )
-        session.info[NOTIFICATION_TABLES_AVAILABLE_CACHE_KEY] = available
-        return available
 
     @staticmethod
     def create_journal_trade(

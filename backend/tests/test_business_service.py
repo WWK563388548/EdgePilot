@@ -357,7 +357,7 @@ def test_notification_preferences_default_and_update(session) -> None:
 
 
 def test_notification_table_availability_is_cached_per_session(session, monkeypatch) -> None:
-    from backend.app.services import business_service
+    from backend.app.services.business import notifications
 
     calls = 0
 
@@ -374,7 +374,7 @@ def test_notification_table_availability_is_cached_per_session(session, monkeypa
         calls += 1
         return FakeInspector()
 
-    monkeypatch.setattr(business_service, "inspect", fake_inspect)
+    monkeypatch.setattr(notifications, "inspect", fake_inspect)
 
     assert BusinessService._notification_tables_available(session) is True
     assert BusinessService._notification_tables_available(session) is True
