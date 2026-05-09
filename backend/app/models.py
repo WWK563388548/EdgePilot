@@ -533,6 +533,7 @@ class Position(Base):
     symbol_id: Mapped[str] = mapped_column(Text)
     asset_type: Mapped[str] = mapped_column(Text)
     strategy_name: Mapped[str | None] = mapped_column(Text)
+    exit_profile: Mapped[str | None] = mapped_column(Text)
     entry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     entry_price: Mapped[float | None] = mapped_column(Float)
     quantity: Mapped[float | None] = mapped_column(Float)

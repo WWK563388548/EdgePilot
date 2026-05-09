@@ -113,6 +113,43 @@ export function CandidateTradePlanCard({
               value={formatNumber(planPreview.data?.suggested_quantity, 0, locale)}
             />
             <Field
+              label={t("baseSuggestedQuantity")}
+              value={formatNumber(planPreview.data?.base_suggested_quantity, 0, locale)}
+            />
+            <Field
+              label={t("volatilityAdjustedQuantity")}
+              value={formatNumber(planPreview.data?.volatility_adjusted_quantity, 0, locale)}
+            />
+            <Field
+              label={t("volatilityMultiplier")}
+              value={
+                planPreview.data?.volatility_multiplier === null ||
+                planPreview.data?.volatility_multiplier === undefined
+                  ? "-"
+                  : `${formatNumber(planPreview.data.volatility_multiplier, 2, locale)}x`
+              }
+            />
+            <Field
+              label={t("volatilityRank")}
+              value={
+                planPreview.data?.vol_rank === null || planPreview.data?.vol_rank === undefined
+                  ? "-"
+                  : formatPercent(planPreview.data.vol_rank, locale)
+              }
+            />
+            <Field
+              label={t("atrPct")}
+              value={
+                planPreview.data?.atr_pct === null || planPreview.data?.atr_pct === undefined
+                  ? "-"
+                  : formatPercent(planPreview.data.atr_pct, locale)
+              }
+            />
+            <Field
+              label={t("exitProfile")}
+              value={planPreview.data?.exit_profile ? labelFor("plan", planPreview.data.exit_profile) : "-"}
+            />
+            <Field
               label={t("maxRiskAmount")}
               value={formatMoney(planPreview.data?.max_risk_amount, locale)}
             />

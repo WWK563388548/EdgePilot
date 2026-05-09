@@ -15,6 +15,7 @@ from backend.app.schemas.business import (
     ExitAlertEvaluationResponse,
     ExitAlertUpdate,
 )
+from backend.app.services.business.positions import _position_exit_profile
 
 
 def _number_from_record(data: dict | None, key: str) -> float | None:
@@ -118,6 +119,7 @@ class BusinessExitAlertsMixin:
                         "alert_id": alert.alert_id,
                         "position_id": position.position_id,
                         "symbol_id": position.symbol_id,
+                        "exit_profile": spec.get("exit_profile"),
                         "level": spec["level"],
                         "action": spec["action"],
                         "reason": spec["reason"],
@@ -191,17 +193,25 @@ class BusinessExitAlertsMixin:
     @staticmethod
     def _exit_alert_notification_body(position: db.Position, spec: dict[str, object]) -> str:
         rule = spec["rule"]
+        suffix = BusinessExitAlertsMixin._exit_profile_body_suffix(spec)
         if rule == "planned_entry_trigger_reached":
-            return "Review the planned entry trigger and decide whether to enter."
+            return f"Review the planned entry trigger and decide whether to enter.{suffix}"
         if rule == "daily_close_below_current_stop":
-            return "Daily close is below the tracked stop. Review exit action."
+            return f"Daily close is below the tracked stop. Review exit action.{suffix}"
         if rule == "first_trim_target_reached_2r":
-            return "Price reached the first trim area. Review partial profit taking."
+            return f"Price reached the first trim area. Review partial profit taking.{suffix}"
         if rule == "move_stop_to_breakeven_after_1r":
-            return "Position reached 1R. Review moving stop to breakeven."
+            return f"Position reached 1R. Review whether this profile calls for moving stop near breakeven.{suffix}"
         if rule == "trail_stop_to_20ma_after_profit":
-            return "Position is profitable. Review trailing stop near the 20MA."
-        return "Review the latest position alert."
+            return f"Position is profitable. Review trailing stop near the 20MA.{suffix}"
+        return f"Review the latest position alert.{suffix}"
+
+    @staticmethod
+    def _exit_profile_body_suffix(spec: dict[str, object]) -> str:
+        exit_profile = spec.get("exit_profile")
+        if not isinstance(exit_profile, str) or not exit_profile:
+            return ""
+        return f" Exit profile: {exit_profile}."
 
     @staticmethod
     def _latest_bar(session: Session, symbol_id: str, timeframe: str = "1d") -> db.Bar | None:
@@ -243,6 +253,7 @@ class BusinessExitAlertsMixin:
             return []
 
         stop = position.current_stop or position.initial_stop
+        exit_profile = position.exit_profile or _position_exit_profile(position.strategy_name)
         if position.status == "planned":
             if position.entry_price is not None and high is not None and high >= position.entry_price:
                 return [
@@ -252,6 +263,7 @@ class BusinessExitAlertsMixin:
                         "action": "review_entry",
                         "reason": "planned_entry_trigger_reached",
                         "new_stop": stop,
+                        "exit_profile": exit_profile,
                     }
                 ]
             return []
@@ -318,7 +330,7 @@ class BusinessExitAlertsMixin:
                 {
                     "rule": "move_stop_to_breakeven_after_1r",
                     "level": 1,
-                    "action": "tighten_stop",
+                    "action": "review_stop",
                     "reason": "move_stop_to_breakeven_after_1r",
                     "new_stop": position.entry_price,
                 }
@@ -397,6 +409,8 @@ class BusinessExitAlertsMixin:
                     "new_stop": stop,
                 }
             )
+        for spec in specs:
+            spec.setdefault("exit_profile", exit_profile)
         return specs
 
     @staticmethod

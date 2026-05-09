@@ -259,6 +259,9 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
         <td className="px-4 py-3">{formatPercent(position.risk_pct)}</td>
         <td className="px-4 py-3">
           <div className="font-medium text-ink">{labelFor("status", position.status)}</div>
+          {position.exit_profile ? (
+            <div className="mt-1 text-xs font-semibold text-teal">{labelFor("plan", position.exit_profile)}</div>
+          ) : null}
           <div className="mt-1 max-w-56 text-xs leading-5 text-slate-500">{nextStepText(position.status, t)}</div>
         </td>
         <td className="px-4 py-3">
