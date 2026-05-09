@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.core.auth import AuthPrincipal, AuthService
 from backend.app.core.config import settings
 from backend.app.core.database import Base
-from backend.app.models import LegalAcknowledgement, TenantDataCapability, TenantApiKey
+from backend.app.models import LegalAcknowledgement, Tenant, TenantDataCapability, TenantApiKey
 from backend.app.schemas.tenant import LegalAcknowledgementCreate, TenantApiKeyCreate
 from backend.app.services.data_source_service import DataSourceService
 from backend.app.services.tenant_service import TenantService
@@ -274,6 +274,29 @@ def test_data_capability_list_backfills_provider_metadata(monkeypatch) -> None:
         assert refreshed.source == "env"
         assert refreshed.metadata_json["supports_daily_bars"] is True
         assert refreshed.metadata_json["market_profile"]["calendar_key"] == "XNYS"
+
+
+def test_data_capability_list_does_not_commit_unrelated_pending_writes(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "polygon_api_key", "env_key")
+
+    with _session() as session:
+        principal = AuthService.upsert_principal(
+            session=session,
+            user_id="user_1",
+            external_subject="auth0|user_1",
+            tenant_id="tenant_1",
+            account_id="acct_1",
+            role="owner",
+            email="user@example.com",
+            display_name="User",
+            email_verified=True,
+        )
+        session.add(Tenant(tenant_id="tenant_unrelated", name="Should Roll Back"))
+
+        TenantService.list_data_capabilities(session, principal)
+        session.rollback()
+
+        assert session.get(Tenant, "tenant_unrelated") is None
 
 
 def test_transient_polygon_check_failure_keeps_credential_resolvable(monkeypatch) -> None:

@@ -129,15 +129,27 @@ class TenantService:
         session: Session,
         principal: AuthPrincipal,
     ) -> list[db.TenantDataCapability]:
-        TenantService.current_tenant(session, principal)
+        TenantService._ensure_current_tenant_without_commit(session, principal)
         DataSourceService.sync_polygon_capability(session, principal.tenant_id)
-        session.commit()
+        session.flush()
         statement = (
             select(db.TenantDataCapability)
             .where(db.TenantDataCapability.tenant_id == principal.tenant_id)
             .order_by(db.TenantDataCapability.capability_key)
         )
         return list(session.scalars(statement))
+
+    @staticmethod
+    def _ensure_current_tenant_without_commit(
+        session: Session,
+        principal: AuthPrincipal,
+    ) -> db.Tenant:
+        tenant = session.get(db.Tenant, principal.tenant_id)
+        if tenant is None:
+            raise ValueError("Tenant not found")
+        AuthService.ensure_tenant_foundation(session=session, tenant_id=tenant.tenant_id)
+        session.flush()
+        return tenant
 
     @staticmethod
     def check_data_capability(
