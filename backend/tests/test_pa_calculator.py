@@ -19,7 +19,7 @@ def _bar(index: int, close: float) -> SimpleNamespace:
 
 
 def test_daily_pa_facts_calculator_adds_trend_and_range_facts() -> None:
-    bars = [_bar(index, 100 + index) for index in range(260)]
+    bars = [_bar(index, 100 + index) for index in range(280)]
 
     facts = DailyPAFactsCalculator.calculate(bars)
     latest = facts[-1].facts
@@ -36,3 +36,4 @@ def test_daily_pa_facts_calculator_adds_trend_and_range_facts() -> None:
     assert latest["atr_14"] > 0
     assert latest["atr_pct"] > 0
     assert 0 <= latest["vol_rank"] <= 1
+    assert facts[120].facts["vol_rank"] is None

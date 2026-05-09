@@ -194,7 +194,7 @@ def _rolling_percentile_rank(values: Sequence[float | None], index: int, window:
     if current is None:
         return None
     sample = [value for value in values[max(0, index - window + 1) : index + 1] if value is not None]
-    if not sample:
+    if len(sample) < window:
         return None
     less_or_equal = sum(1 for value in sample if value <= current)
     return less_or_equal / len(sample)

@@ -1551,6 +1551,62 @@ def test_candidate_plan_preview_reduces_size_for_high_volatility_rotation(sessio
     assert position.risk_amount == 100
 
 
+def test_candidate_plan_blocks_manual_quantity_above_volatility_adjusted_size(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.update_account_risk_settings(
+        session,
+        principal,
+        AccountRiskSettingsUpdate(
+            account_equity=20_000,
+            max_risk_per_trade_pct=0.01,
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_xly_manual_bypass",
+            symbol_id="XLY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="etf_rotation_us_etf",
+            setup_type="etf_rotation_leader",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=90,
+        ),
+    )
+    session.add(
+        db.PAFact(
+            fact_id="pafact_xly_1d_2026-04-26",
+            symbol_id="XLY",
+            timeframe="1d",
+            ts=datetime(2026, 4, 26, tzinfo=UTC),
+            facts={"atr_pct": 0.04, "vol_rank": 0.95},
+        )
+    )
+    session.commit()
+
+    preview = BusinessService.preview_candidate_plan(
+        session,
+        principal,
+        "cand_xly_manual_bypass",
+        CandidatePlanCreate(quantity=20),
+    )
+    with pytest.raises(ValueError, match="quantity_exceeds_volatility_adjusted_size"):
+        BusinessService.create_candidate_plan(
+            session,
+            principal,
+            "cand_xly_manual_bypass",
+            CandidatePlanCreate(quantity=20),
+        )
+
+    assert preview.volatility_adjusted_quantity == 10
+    assert preview.planned_quantity == 20
+    assert "quantity_exceeds_volatility_adjusted_size" in {
+        notice.code for notice in preview.guardrails if notice.level == "block"
+    }
+
+
 def test_portfolio_risk_summary_and_candidate_preview_after_plan(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.update_account_risk_settings(

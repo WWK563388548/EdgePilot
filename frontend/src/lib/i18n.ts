@@ -2100,6 +2100,11 @@ const labels = {
       en: "Current risk settings cannot size at least one unit.",
       ja: "現在のリスク設定では1単位以上の推奨数量を出せません。"
     },
+    quantity_exceeds_volatility_adjusted_size: {
+      zh: "输入数量超过波动率调整后的允许数量，当前计划被阻断。",
+      en: "Requested quantity exceeds the volatility-adjusted allowed size, so this plan is blocked.",
+      ja: "入力数量がボラティリティ調整後の許容数量を超えているため、この計画はブロックされます。"
+    },
     portfolio_risk_budget_exceeded: {
       zh: "加入这笔计划后会超过组合风险预算，当前计划被阻断。",
       en: "Adding this plan would exceed the portfolio risk budget, so it is blocked.",

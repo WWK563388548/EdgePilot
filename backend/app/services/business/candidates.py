@@ -204,6 +204,7 @@ class BusinessCandidatesMixin:
         volatility_multiplier = _volatility_multiplier(vol_rank)
         exit_profile = _position_exit_profile(candidate.strategy_name, exit_plan)
         request = request or CandidatePlanCreate()
+        explicit_quantity = request.quantity is not None
         entry_price = (
             request.entry_price
             or cls._candidate_plan_trigger(candidate, entry_plan)
@@ -231,7 +232,7 @@ class BusinessCandidatesMixin:
             else None
         )
         suggested_quantity = volatility_adjusted_quantity
-        planned_quantity = request.quantity or (
+        planned_quantity = request.quantity if explicit_quantity else (
             suggested_quantity if suggested_quantity is not None and suggested_quantity > 0 else None
         )
         planned_risk_amount = _risk_amount(entry_price, initial_stop, planned_quantity)
@@ -264,8 +265,11 @@ class BusinessCandidatesMixin:
         guardrails = cls._candidate_plan_guardrails(
             entry_price=entry_price,
             initial_stop=initial_stop,
+            planned_quantity=planned_quantity,
             risk_distance_pct=risk_distance_pct,
             suggested_quantity=suggested_quantity,
+            volatility_adjusted_quantity=volatility_adjusted_quantity,
+            volatility_multiplier=volatility_multiplier,
             active_position_count=portfolio_before.active_position_count,
             portfolio_after_plan=portfolio_after_plan,
             validation_status=validation_status,
@@ -308,8 +312,11 @@ class BusinessCandidatesMixin:
         *,
         entry_price: float | None,
         initial_stop: float | None,
+        planned_quantity: float | None,
         risk_distance_pct: float | None,
         suggested_quantity: int | None,
+        volatility_adjusted_quantity: int | None,
+        volatility_multiplier: float | None,
         active_position_count: int,
         portfolio_after_plan: PortfolioRiskSummary,
         validation_status: str | None,
@@ -332,6 +339,16 @@ class BusinessCandidatesMixin:
             guardrails.append(GuardrailNotice(level="info", code="shadow_only_paper_only"))
         if suggested_quantity is not None and suggested_quantity <= 0:
             guardrails.append(GuardrailNotice(level="warning", code="no_suggested_quantity"))
+        if (
+            volatility_multiplier is not None
+            and volatility_multiplier < 1
+            and planned_quantity is not None
+            and volatility_adjusted_quantity is not None
+            and planned_quantity > volatility_adjusted_quantity
+        ):
+            guardrails.append(
+                GuardrailNotice(level="block", code="quantity_exceeds_volatility_adjusted_size")
+            )
         return guardrails
 
     @classmethod
