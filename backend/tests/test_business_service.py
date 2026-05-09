@@ -382,7 +382,7 @@ def test_notification_table_availability_is_cached_per_session(session, monkeypa
 
 
 def test_account_scanner_replaces_only_current_account_candidates(session, monkeypatch) -> None:
-    from backend.app.services import business_service
+    from backend.app.services.business import scanners
 
     principal_a = _principal("user_a", "acct_a")
     principal_b = _principal("user_b", "acct_b")
@@ -454,7 +454,7 @@ def test_account_scanner_replaces_only_current_account_candidates(session, monke
         )
 
     monkeypatch.setattr(
-        business_service.ETFScannerService,
+        scanners.ETFScannerService,
         "run_us_etf_oneil_core_for_session",
         _fake_scan,
     )
@@ -483,7 +483,7 @@ def test_account_scanner_replaces_only_current_account_candidates(session, monke
 
 
 def test_account_scanner_notifies_even_when_no_candidates(session, monkeypatch) -> None:
-    from backend.app.services import business_service
+    from backend.app.services.business import scanners
 
     principal = _principal("user_a", "acct_a")
 
@@ -500,7 +500,7 @@ def test_account_scanner_notifies_even_when_no_candidates(session, monkeypatch) 
         )
 
     monkeypatch.setattr(
-        business_service.ETFScannerService,
+        scanners.ETFScannerService,
         "run_us_etf_oneil_core_for_session",
         _fake_scan,
     )
@@ -682,7 +682,7 @@ def test_recalculate_scanner_outcomes_backfills_existing_candidates(session) -> 
 
 
 def test_account_refresh_replaces_current_account_candidates(session, monkeypatch) -> None:
-    from backend.app.services import business_service
+    from backend.app.services.business import scanners
 
     principal = _principal("user_a", "acct_a")
     BusinessService.create_candidate(
@@ -722,7 +722,7 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
         )
 
     monkeypatch.setattr(
-        business_service.DataSourceService,
+        scanners.DataSourceService,
         "polygon_client_for_tenant",
         lambda db_session, request_principal: (
             object(),
@@ -735,7 +735,7 @@ def test_account_refresh_replaces_current_account_candidates(session, monkeypatc
         ),
     )
     monkeypatch.setattr(
-        business_service.ETFSeedService,
+        scanners.ETFSeedService,
         "seed_us_etf_universe_for_session",
         _fake_seed,
     )
@@ -765,13 +765,13 @@ def test_rotation_refresh_scans_only_successfully_refreshed_symbols(
     session,
     monkeypatch,
 ) -> None:
-    from backend.app.services import business_service
+    from backend.app.services.business import scanners
 
     principal = _principal("user_a", "acct_a")
     captured_symbols: list[str] = []
 
     monkeypatch.setattr(
-        business_service.DataSourceService,
+        scanners.DataSourceService,
         "polygon_client_for_tenant",
         lambda db_session, request_principal: (
             object(),
@@ -818,12 +818,12 @@ def test_rotation_refresh_scans_only_successfully_refreshed_symbols(
         )
 
     monkeypatch.setattr(
-        business_service.ETFSeedService,
+        scanners.ETFSeedService,
         "seed_us_etf_universe_for_session",
         _fake_seed,
     )
     monkeypatch.setattr(
-        business_service.ETFScannerService,
+        scanners.ETFScannerService,
         "run_us_etf_rotation_for_session",
         _fake_rotation_scan,
     )
@@ -847,14 +847,14 @@ def test_rotation_refresh_seeds_benchmark_without_scanning_it(
     session,
     monkeypatch,
 ) -> None:
-    from backend.app.services import business_service
+    from backend.app.services.business import scanners
 
     principal = _principal("user_a", "acct_a")
     seeded_symbols: list[str] = []
     scanned_symbols: list[str] = []
 
     monkeypatch.setattr(
-        business_service.DataSourceService,
+        scanners.DataSourceService,
         "polygon_client_for_tenant",
         lambda db_session, request_principal: (
             object(),
@@ -896,12 +896,12 @@ def test_rotation_refresh_seeds_benchmark_without_scanning_it(
         )
 
     monkeypatch.setattr(
-        business_service.ETFSeedService,
+        scanners.ETFSeedService,
         "seed_us_etf_universe_for_session",
         _fake_seed,
     )
     monkeypatch.setattr(
-        business_service.ETFScannerService,
+        scanners.ETFScannerService,
         "run_us_etf_rotation_for_session",
         _fake_rotation_scan,
     )
