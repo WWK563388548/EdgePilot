@@ -34,6 +34,14 @@ def _principal() -> AuthPrincipal:
     )
 
 
+class CommitTrackingSession:
+    def __init__(self) -> None:
+        self.committed = False
+
+    def commit(self) -> None:
+        self.committed = True
+
+
 def test_tenant_routes_delegate_to_service(monkeypatch) -> None:
     from backend.app.api.routes import tenant as tenant_route
 
@@ -138,12 +146,14 @@ def test_tenant_routes_delegate_to_service(monkeypatch) -> None:
     )
 
     principal = _principal()
+    capability_session = CommitTrackingSession()
 
     assert get_current_tenant(session=None, principal=principal).tenant_id == "tenant_1"
     assert list_current_tenant_members(session=None, principal=principal)[0].role == "owner"
     assert list_legal_acknowledgements(session=None, principal=principal)[0].document_key
     assert list_data_credentials(session=None, principal=principal)[0].provider == "polygon"
-    assert list_data_capabilities(session=None, principal=principal)[0].status == "available"
+    assert list_data_capabilities(session=capability_session, principal=principal)[0].status == "available"
+    assert capability_session.committed is True
     assert (
         check_data_capability(
             "market_data.us_etf_daily",
