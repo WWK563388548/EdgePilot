@@ -587,7 +587,7 @@ class ExecutionImportService:
                 "Target position symbol mismatch: "
                 f"{target_position.symbol_id} cannot receive {fill.symbol_id}"
             )
-        if target_position.status in ("closed", "cancelled", "review_needed"):
+        if target_position.status not in ("planned", "open", "reduce"):
             raise ValueError("Target position must be planned, open, or reduced")
 
         ExecutionImportService._apply_fill_to_position(

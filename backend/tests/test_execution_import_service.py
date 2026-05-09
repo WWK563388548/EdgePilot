@@ -712,3 +712,45 @@ def test_reconcile_fill_rejects_binding_to_mismatched_symbol(session) -> None:
                 target_position_id="pos_qqq",
             ),
         )
+
+
+def test_reconcile_fill_rejects_binding_to_non_active_target_status(session) -> None:
+    principal = _principal()
+    session.add(
+        db.Position(
+            position_id="pos_smh_exit_pending",
+            account_id=principal.account_id,
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=149,
+            quantity=2,
+            initial_stop=140,
+            current_stop=140,
+            status="exit_pending",
+        )
+    )
+    session.commit()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_exit_pending_bind",
+                ]
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Target position must be planned, open, or reduced"):
+        ExecutionImportService.reconcile_fill(
+            session,
+            principal,
+            result.fills[0].fill_id,
+            ExecutionFillReconcileRequest(
+                action="bind_position",
+                target_position_id="pos_smh_exit_pending",
+            ),
+        )
