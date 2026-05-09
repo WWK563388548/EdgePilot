@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { formatPercent } from "@/components/workspace/organisms/evidence/chart-format";
 import type { ScannerDecision } from "@/lib/api";
 import { formatNumber, numberFromRecord, stringFromRecord } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
@@ -35,6 +36,7 @@ export function ScannerDecisionBlock({
   const initialStop = numberFromRecord(record, "initial_stop");
   const validationStatus = stringFromRecord(record, "validation_status");
   const metrics = recordFromRecord(record, "metrics");
+  const max20dWarning = metrics ? recordFromRecord(metrics, "max20d_warning") : null;
   const entryMode = metrics ? stringFromRecord(metrics, "entry_mode") : null;
   const passedRules = recordListFromRecord(record, "passed_rules");
   const failedRules = recordListFromRecord(record, "failed_rules");
@@ -93,6 +95,9 @@ export function ScannerDecisionBlock({
 
       {stratConfirmation ? (
         <StratDecisionCard data={stratConfirmation} locale={locale} />
+      ) : null}
+      {max20dWarning ? (
+        <Max20dWarningCard data={max20dWarning} locale={locale} />
       ) : null}
 
       <div className="grid gap-3 xl:grid-cols-[1.1fr_0.9fr]">
@@ -174,6 +179,43 @@ function StratDecisionCard({
           </span>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function Max20dWarningCard({
+  data,
+  locale
+}: {
+  data: Record<string, unknown>;
+  locale: Locale;
+}) {
+  const { labelFor, t } = useAppI18n();
+  const maxReturn = numberFromRecord(data, "max_20d_return");
+  const lotteryRisk = stringFromRecord(data, "lottery_risk") ?? "unknown";
+  const suggestedAction = stringFromRecord(data, "suggested_action") ?? "unknown";
+  const tone =
+    lotteryRisk === "high"
+      ? "border-rose-200 bg-rose-50"
+      : lotteryRisk === "medium"
+        ? "border-amber-200 bg-amber-50"
+        : "border-line bg-panel/70";
+
+  return (
+    <div className={`mb-3 rounded-md border px-3 py-2 ${tone}`}>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
+        <CircleAlert size={16} className={lotteryRisk === "high" ? "text-rose-700" : "text-amber-700"} />
+        {t("max20dWarning")}
+        <span className="rounded-md border border-white/70 bg-white px-2 py-0.5 text-xs text-slate-700">
+          {labelFor("plan", `max20d_${lotteryRisk}`)}
+        </span>
+      </div>
+      <p className="text-sm leading-6 text-slate-700">
+        {t("max20dWarningCopy", {
+          max20d: formatPercent(maxReturn, locale),
+          action: labelFor("plan", `max20d_action_${suggestedAction}`)
+        })}
+      </p>
     </div>
   );
 }
@@ -294,6 +336,8 @@ const SCANNER_DECISION_TEXT_KEYS: Record<string, string> = {
   market_context_caution: "ruleMarketContextCaution",
   market_context_green: "conditionMarketContextGreen",
   market_support: "ruleMarketSupport",
+  max20d_lottery_risk_high: "riskMax20dLotteryRiskHigh",
+  max20d_lottery_risk_medium: "riskMax20dLotteryRiskMedium",
   needs_trigger_confirmation: "reasonNeedsTriggerConfirmation",
   pullback_near_20ma: "rulePullbackNear20ma",
   pullback_volume_heavy: "rulePullbackVolumeHeavy",

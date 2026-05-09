@@ -146,6 +146,22 @@ export function CandidateTradePlanCard({
               }
             />
             <Field
+              label={t("max20dReturn")}
+              value={
+                planPreview.data?.max_20d_return === null || planPreview.data?.max_20d_return === undefined
+                  ? "-"
+                  : formatPercent(planPreview.data.max_20d_return, locale)
+              }
+            />
+            <Field
+              label={t("max20dLotteryRisk")}
+              value={
+                planPreview.data?.max_20d_lottery_risk
+                  ? labelFor("plan", `max20d_${planPreview.data.max_20d_lottery_risk}`)
+                  : "-"
+              }
+            />
+            <Field
               label={t("exitProfile")}
               value={planPreview.data?.exit_profile ? labelFor("plan", planPreview.data.exit_profile) : "-"}
             />

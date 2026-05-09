@@ -82,6 +82,11 @@ def test_us_etf_oneil_core_scanner_generates_pa_setup_and_candidate(session) -> 
     assert "breakout_volume_missing" in failed_keys
     assert scanner_decision["metrics"]["rs_percentile_3m"] == 100
     assert scanner_decision["metrics"]["rs_percentile_6m"] == 100
+    max20d_warning = scanner_decision["metrics"]["max20d_warning"]
+    assert max20d_warning["production_status"] == "analytics_warning"
+    assert max20d_warning["lottery_risk"] == "low"
+    assert max20d_warning["suggested_action"] == "allow"
+    assert max20d_warning["influenced_decision"] is False
     assert all(rule["passed"] for rule in scanner_decision["passed_rules"])
     assert candidate is not None
     assert candidate.ai_review_json is not None
@@ -129,6 +134,10 @@ def test_us_etf_rotation_scanner_generates_separate_candidate(session) -> None:
     assert scanner_decision["strategy"] == "etf_rotation_us_etf"
     assert scanner_decision["metrics"]["entry_mode"] == "breakout_allowed"
     assert scanner_decision["metrics"]["benchmark_relative_strength"]["benchmark_symbol"] == "SPY"
+    max20d_warning = scanner_decision["metrics"]["max20d_warning"]
+    assert max20d_warning["production_status"] == "analytics_warning"
+    assert max20d_warning["lottery_risk"] == "low"
+    assert max20d_warning["influenced_decision"] is False
     assert candidate is not None
     assert json.loads(candidate.ai_review_json)["strategy_name"] == "etf_rotation_us_etf"
 
@@ -329,6 +338,46 @@ def test_scanner_decision_blocks_no_chase_strat_plan() -> None:
     assert decision["strat_confirmation"]["final_decision"] == "candidate"
     assert "strat_no_chase_blocked" in decision["watch_reasons"]
     assert any(rule["key"] == "strat_risk_too_wide" for rule in decision["failed_rules"])
+
+
+def test_scanner_decision_surfaces_max20d_warning_without_changing_decision() -> None:
+    decision = _scanner_decision(
+        base_score=12,
+        base_depth=0.18,
+        close_position=0.8,
+        decision="candidate",
+        distance_to_sma_20=0.03,
+        initial_stop=95,
+        market_score=8,
+        quality_failed_rules=[],
+        quality_passed_rules=["setup_location"],
+        rank_3m=0.9,
+        rank_6m=0.9,
+        relative_volume=1.2,
+        risk_stop_score=8,
+        rs_score=22,
+        setup_grade="A",
+        setup_type="breakout",
+        total_score=84,
+        trend_score=24,
+        trigger_price=105,
+        volume_score=10,
+        strat_signal=None,
+        strat_plan=None,
+        max20d_warning={
+            "version": "max20d_warning_v1",
+            "production_status": "analytics_warning",
+            "max_20d_return": 0.09,
+            "lottery_risk": "high",
+            "suggested_action": "avoid_chase",
+            "influenced_decision": False,
+        },
+    )
+
+    assert decision["decision"] == "candidate"
+    assert decision["metrics"]["max20d_warning"]["lottery_risk"] == "high"
+    assert decision["metrics"]["max20d_warning"]["influenced_decision"] is False
+    assert "max20d_lottery_risk_high" in decision["risk_notes"]
 
 
 def test_us_etf_oneil_core_scanner_is_idempotent_for_same_scan_date(session) -> None:

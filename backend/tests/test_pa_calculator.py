@@ -37,3 +37,8 @@ def test_daily_pa_facts_calculator_adds_trend_and_range_facts() -> None:
     assert latest["atr_pct"] > 0
     assert 0 <= latest["vol_rank"] <= 1
     assert facts[120].facts["vol_rank"] is None
+    assert latest["max_20d_return"] > 0
+    assert latest["max_20d_lottery_risk"] == "low"
+    assert latest["max_20d_suggested_action"] == "allow"
+    assert facts[10].facts["max_20d_return"] is None
+    assert facts[10].facts["max_20d_lottery_risk"] == "unknown"

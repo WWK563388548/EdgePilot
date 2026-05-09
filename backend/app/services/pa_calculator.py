@@ -20,6 +20,10 @@ class DailyPAFactsCalculator:
         highs = [_as_float(bar.high) for bar in ordered_bars]
         lows = [_as_float(bar.low) for bar in ordered_bars]
         volumes = [_as_float(bar.volume) for bar in ordered_bars]
+        daily_returns = [
+            _return(closes, index, 1) if index > 0 else None
+            for index, _bar in enumerate(ordered_bars)
+        ]
         true_ranges = [
             _true_range(
                 high=_as_float(bar.high),
@@ -54,6 +58,8 @@ class DailyPAFactsCalculator:
             volume_sma_20 = _average(volumes, index, 20)
             range_pct_5d_avg = _average(range_pcts, index, 5)
             range_pct_20d_avg = _average(range_pcts, index, 20)
+            max_20d_return = _rolling_max_complete(daily_returns, index, 20)
+            max_20d_lottery_risk = _max20d_lottery_risk(max_20d_return)
             atr_14 = _average(true_ranges, index, 14)
             atr_pct = _safe_div(atr_14, close)
             atr_pcts.append(atr_pct)
@@ -101,6 +107,9 @@ class DailyPAFactsCalculator:
                 "return_3m": _rounded(_return(closes, index, 63)),
                 "return_6m": _rounded(_return(closes, index, 126)),
                 "return_12m": _rounded(_return(closes, index, 252)),
+                "max_20d_return": _rounded(max_20d_return),
+                "max_20d_lottery_risk": max_20d_lottery_risk,
+                "max_20d_suggested_action": _max20d_suggested_action(max_20d_lottery_risk),
                 "high_60d": _rounded(high_60d),
                 "low_60d": _rounded(low_60d),
                 "base_depth_60d": _rounded(_safe_div(high_60d - low_60d, high_60d))
@@ -189,6 +198,15 @@ def _rolling_min(values: Sequence[float | None], index: int, window: int) -> flo
     return min(sample) if sample else None
 
 
+def _rolling_max_complete(values: Sequence[float | None], index: int, window: int) -> float | None:
+    if index < window - 1:
+        return None
+    sample = values[index - window + 1 : index + 1]
+    if any(value is None for value in sample):
+        return None
+    return max(value for value in sample if value is not None)
+
+
 def _rolling_percentile_rank(values: Sequence[float | None], index: int, window: int) -> float | None:
     current = values[index] if index >= 0 else None
     if current is None:
@@ -227,3 +245,23 @@ def _return(values: Sequence[float | None], index: int, lookback: int) -> float 
     if index < lookback:
         return None
     return _pct_diff(values[index], values[index - lookback])
+
+
+def _max20d_lottery_risk(max_20d_return: float | None) -> str:
+    if max_20d_return is None:
+        return "unknown"
+    if max_20d_return >= 0.08:
+        return "high"
+    if max_20d_return >= 0.05:
+        return "medium"
+    return "low"
+
+
+def _max20d_suggested_action(lottery_risk: str) -> str:
+    if lottery_risk == "high":
+        return "avoid_chase"
+    if lottery_risk == "medium":
+        return "watch"
+    if lottery_risk == "low":
+        return "allow"
+    return "unknown"

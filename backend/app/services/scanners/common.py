@@ -10,6 +10,7 @@ ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
 ONEIL_CORE_US_ETF_VERSION = "oneil_core_us_etf_v2"
 ETF_ROTATION_US_ETF_STRATEGY = "etf_rotation_us_etf"
 ETF_ROTATION_US_ETF_VERSION = "etf_rotation_us_etf_v1"
+MAX20D_WARNING_VERSION = "max20d_warning_v1"
 
 
 @dataclass(frozen=True)
@@ -252,6 +253,29 @@ def _dedupe(values: list[str]) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
+
+
+def _max20d_warning(facts: dict[str, Any]) -> dict[str, Any]:
+    max_20d_return = _number(facts.get("max_20d_return"))
+    lottery_risk = str(facts.get("max_20d_lottery_risk") or "unknown")
+    suggested_action = str(facts.get("max_20d_suggested_action") or "unknown")
+    if lottery_risk not in {"low", "medium", "high", "unknown"}:
+        lottery_risk = "unknown"
+    if suggested_action not in {"allow", "watch", "avoid_chase", "unknown"}:
+        suggested_action = "unknown"
+    return {
+        "version": MAX20D_WARNING_VERSION,
+        "production_status": "analytics_warning",
+        "max_20d_return": round(max_20d_return, 6) if max_20d_return is not None else None,
+        "lottery_risk": lottery_risk,
+        "suggested_action": suggested_action,
+        "influenced_decision": False,
+        "thresholds": {
+            "medium": 0.05,
+            "high": 0.08,
+        },
+    }
+
 
 def _number(value: object) -> float | None:
     if value is None:

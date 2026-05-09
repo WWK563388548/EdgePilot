@@ -232,6 +232,9 @@ class CandidatePlanPreview(BaseModel):
     volatility_multiplier: float | None = None
     atr_pct: float | None = None
     vol_rank: float | None = None
+    max_20d_return: float | None = None
+    max_20d_lottery_risk: str | None = None
+    max_20d_suggested_action: str | None = None
     exit_profile: str | None = None
     suggested_quantity: int | None = None
     planned_quantity: float | None = None
