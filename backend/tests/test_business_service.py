@@ -843,6 +843,79 @@ def test_rotation_refresh_scans_only_successfully_refreshed_symbols(
     assert notifications[0].metadata_json["symbols_failed"] == 1
 
 
+def test_rotation_refresh_seeds_benchmark_without_scanning_it(
+    session,
+    monkeypatch,
+) -> None:
+    from backend.app.services import business_service
+
+    principal = _principal("user_a", "acct_a")
+    seeded_symbols: list[str] = []
+    scanned_symbols: list[str] = []
+
+    monkeypatch.setattr(
+        business_service.DataSourceService,
+        "polygon_client_for_tenant",
+        lambda db_session, request_principal: (
+            object(),
+            DataSourceResolution(
+                provider="polygon",
+                capability_key="market_data.us_etf_daily",
+                source="env",
+                api_key="secret",
+            ),
+        ),
+    )
+
+    def _fake_seed(*, session, client, request):
+        seeded_symbols.extend(request.symbols or [])
+        return ETFUniverseSeedResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            from_date=request.from_date,
+            to_date=request.to_date,
+            symbols_requested=request.symbols or [],
+            bars_written=520,
+            facts_written=520,
+            symbol_results=[
+                ETFUniverseSeedSymbolResult(symbol="QQQ", status="success", bars_written=260),
+                ETFUniverseSeedSymbolResult(symbol="SPY", status="success", bars_written=260),
+            ],
+        )
+
+    def _fake_rotation_scan(db_session, request):
+        scanned_symbols.extend(request.symbols or [])
+        return ETFOneilScannerResponse(
+            account_id=request.account_id,
+            timeframe=request.timeframe,
+            symbols_scanned=request.symbols or [],
+            facts_written=0,
+            setups_written=1,
+            candidates_written=1,
+            decision_counts={"candidate": 1},
+        )
+
+    monkeypatch.setattr(
+        business_service.ETFSeedService,
+        "seed_us_etf_universe_for_session",
+        _fake_seed,
+    )
+    monkeypatch.setattr(
+        business_service.ETFScannerService,
+        "run_us_etf_rotation_for_session",
+        _fake_rotation_scan,
+    )
+
+    BusinessService.refresh_account_etf_rotation_universe(
+        session,
+        principal,
+        AccountETFUniverseRefreshRequest(symbols=["qqq"]),
+    )
+
+    assert seeded_symbols == ["QQQ", "SPY"]
+    assert scanned_symbols == ["QQQ"]
+
+
 def test_account_refresh_blocks_before_deleting_when_data_source_missing(
     session,
     monkeypatch,

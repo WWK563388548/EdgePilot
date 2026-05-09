@@ -57,7 +57,8 @@ export function ScoreBreakdownBlock({
             const meta = scoreMeta(key);
             const score = typeof value === "number" ? value : null;
             const maxScore = maxScoreByKey[key] ?? 100;
-            const barWidth = Math.max(0, Math.min(100, ((score ?? 0) / maxScore) * 100));
+            const barWidth = Math.max(0, Math.min(100, (Math.abs(score ?? 0) / maxScore) * 100));
+            const barColor = score !== null && score < 0 ? "bg-rose-500" : "bg-teal";
             return (
               <div key={key} className="grid grid-cols-[minmax(0,1fr)_3.5rem] gap-3">
                 <div className="min-w-0">
@@ -65,7 +66,7 @@ export function ScoreBreakdownBlock({
                   {meta.description ? <div className="mt-0.5 text-xs leading-5 text-slate-500">{meta.description}</div> : null}
                   <div className="mt-2 h-1.5 overflow-hidden rounded bg-slate-100">
                     <div
-                      className="h-full rounded bg-teal"
+                      className={`h-full rounded ${barColor}`}
                       style={{ width: `${barWidth}%` }}
                     />
                   </div>

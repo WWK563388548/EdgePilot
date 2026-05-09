@@ -86,6 +86,7 @@ from backend.app.services.strat_service import StratService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
 ETF_ROTATION_US_ETF_STRATEGY = "etf_rotation_us_etf"
+ETF_ROTATION_DEFAULT_BENCHMARK_SYMBOL = "SPY"
 
 
 def _average(values) -> float | None:
@@ -537,11 +538,14 @@ class BusinessService:
             principal,
             ETF_ROTATION_US_ETF_STRATEGY,
         )
+        seed_symbols = request.symbols
+        if seed_symbols is not None and ETF_ROTATION_DEFAULT_BENCHMARK_SYMBOL not in seed_symbols:
+            seed_symbols = [*seed_symbols, ETF_ROTATION_DEFAULT_BENCHMARK_SYMBOL]
         seed_response = ETFSeedService.seed_us_etf_universe_for_session(
             session=session,
             client=client,
             request=ETFUniverseSeedRequest(
-                symbols=request.symbols,
+                symbols=seed_symbols,
                 from_date=request.from_date,
                 to_date=request.to_date,
                 timeframe=request.timeframe,
@@ -553,8 +557,12 @@ class BusinessService:
                 max_candidates=request.max_candidates,
             ),
         )
+        requested_symbol_set = set(request.symbols) if request.symbols is not None else None
         successful_symbols = [
-            row.symbol for row in seed_response.symbol_results if row.status == "success"
+            row.symbol
+            for row in seed_response.symbol_results
+            if row.status == "success"
+            and (requested_symbol_set is None or row.symbol in requested_symbol_set)
         ]
         scanner_response = ETFScannerService.run_us_etf_rotation_for_session(
             session,
