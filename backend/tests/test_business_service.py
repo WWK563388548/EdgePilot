@@ -1423,6 +1423,60 @@ def test_create_candidate_plan_backfills_missing_legacy_plan_quantity(session) -
     assert BusinessService.get_portfolio_risk(session, principal).total_risk_amount == 46.65
 
 
+def test_create_candidate_plan_keeps_unknown_strategy_plan_without_exit_profile(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_unknown_strategy_plan",
+            symbol_id="ABC",
+            scan_date=date(2026, 4, 26),
+            strategy_name="custom_research_strategy",
+            setup_type="custom_breakout",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=90,
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="plan_cand_unknown_strategy_plan",
+            symbol_id="ABC",
+            asset_type="etf",
+            strategy_name="custom_research_strategy",
+            status="planned",
+            entry_price=100,
+            quantity=20,
+            initial_stop=90,
+            current_stop=90,
+        ),
+    )
+    session.add(
+        db.PAFact(
+            fact_id="pafact_abc_1d_2026-04-26",
+            symbol_id="ABC",
+            timeframe="1d",
+            ts=datetime(2026, 4, 26, tzinfo=UTC),
+            facts={"atr_pct": 0.04, "vol_rank": 0.95},
+        )
+    )
+    session.commit()
+
+    position = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_unknown_strategy_plan",
+        CandidatePlanCreate(quantity=20),
+    )
+
+    assert position.position_id == "plan_cand_unknown_strategy_plan"
+    assert position.quantity == 20
+    assert position.exit_profile is None
+
+
 def test_candidate_plan_preview_sizes_quantity_and_guardrails(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.update_account_risk_settings(

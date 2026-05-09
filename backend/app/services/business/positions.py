@@ -143,7 +143,10 @@ class BusinessPositionsMixin:
                 db.Position.account_id == principal.account_id,
             )
         )
-        if existing is not None and not cls._candidate_plan_needs_fill(existing):
+        if existing is not None and not cls._candidate_plan_needs_fill(
+            existing,
+            expected_exit_profile=exit_profile,
+        ):
             return cls._position_response(session, principal, existing)
 
         preview = cls.preview_candidate_plan(
@@ -234,7 +237,11 @@ class BusinessPositionsMixin:
         return cls._position_response(session, principal, position)
 
     @staticmethod
-    def _candidate_plan_needs_fill(position: db.Position) -> bool:
+    def _candidate_plan_needs_fill(
+        position: db.Position,
+        *,
+        expected_exit_profile: str | None = None,
+    ) -> bool:
         return (
             position.status == "planned"
             and (
@@ -242,7 +249,7 @@ class BusinessPositionsMixin:
                 or position.initial_stop is None
                 or position.current_stop is None
                 or position.quantity is None
-                or position.exit_profile is None
+                or (expected_exit_profile is not None and position.exit_profile is None)
             )
         )
 
