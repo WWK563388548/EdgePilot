@@ -52,11 +52,15 @@ import type {
   JournalTrade,
   PositionCloseResponse,
   ExecutionImportStatus,
+  ExecutionFillStatus,
+  ExecutionFillReconciliationStatus,
+  ExecutionFillReconcileRequest,
   ExecutionCSVImportRequest,
   ExecutionImport,
   ExecutionFill,
   ExecutionImportError,
   ExecutionImportResult,
+  ExecutionFillReconciliationResult,
   AuthMe,
   Tenant,
   TenantMember,
@@ -249,6 +253,8 @@ export const api = {
       limit?: number;
       offset?: number;
       positionId?: string;
+      reconciliationStatus?: ExecutionFillReconciliationStatus;
+      status?: ExecutionFillStatus;
       symbolId?: string;
     } = {}
   ) =>
@@ -257,15 +263,31 @@ export const api = {
         limit: filters.limit ?? 100,
         offset: filters.offset,
         position_id: filters.positionId,
+        reconciliation_status: filters.reconciliationStatus,
+        status: filters.status,
         symbol_id: filters.symbolId
       })}`
     ),
-  executionFillsCount: (filters: { positionId?: string; symbolId?: string } = {}) =>
+  executionFillsCount: (
+    filters: {
+      positionId?: string;
+      reconciliationStatus?: ExecutionFillReconciliationStatus;
+      status?: ExecutionFillStatus;
+      symbolId?: string;
+    } = {}
+  ) =>
     getJson<CountResponse>(
       `/api/execution/fills/count${queryString({
         position_id: filters.positionId,
+        reconciliation_status: filters.reconciliationStatus,
+        status: filters.status,
         symbol_id: filters.symbolId
       })}`
+    ),
+  reconcileExecutionFill: (fillId: string, request: ExecutionFillReconcileRequest) =>
+    postJson<ExecutionFillReconciliationResult>(
+      `/api/execution/fills/${encodeURIComponent(fillId)}/reconcile`,
+      request
     ),
   alerts: (pagination: { limit?: number; offset?: number } = {}) =>
     getJson<ExitAlert[]>(

@@ -259,6 +259,10 @@ CREATE TABLE IF NOT EXISTS execution_fills (
     net_amount DOUBLE PRECISION,
     currency TEXT,
     executed_at TIMESTAMPTZ NOT NULL,
+    status TEXT DEFAULT 'active',
+    reconciliation_status TEXT DEFAULT 'matched',
+    reconciliation_note TEXT,
+    reconciled_at TIMESTAMPTZ,
     raw_row_json JSONB,
     created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -268,6 +272,8 @@ CREATE INDEX IF NOT EXISTS idx_execution_fills_account_symbol
 ON execution_fills (account_id, symbol_id, executed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_execution_fills_position
 ON execution_fills (position_id, executed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_fills_reconciliation
+ON execution_fills (account_id, status, reconciliation_status, executed_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_fills_idempotency
 ON execution_fills (idempotency_key);
 

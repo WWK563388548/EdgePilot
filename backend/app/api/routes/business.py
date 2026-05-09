@@ -15,6 +15,8 @@ from backend.app.schemas.business import (
     DashboardSummary,
     ExecutionCSVImportRequest,
     ExecutionFill,
+    ExecutionFillReconcileRequest,
+    ExecutionFillReconciliationResult,
     ExecutionImport,
     ExecutionImportResult,
     ExitAlert,
@@ -201,6 +203,8 @@ def list_execution_fills(
     principal: VerifiedPrincipal,
     symbol_id: str | None = None,
     position_id: str | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    reconciliation_status: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[ExecutionFill]:
@@ -209,6 +213,8 @@ def list_execution_fills(
         principal=principal,
         symbol_id=symbol_id,
         position_id=position_id,
+        status=status_filter,
+        reconciliation_status=reconciliation_status,
         limit=limit,
         offset=offset,
     )
@@ -220,6 +226,8 @@ def count_execution_fills(
     principal: VerifiedPrincipal,
     symbol_id: str | None = None,
     position_id: str | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    reconciliation_status: str | None = None,
 ) -> CountResponse:
     return CountResponse(
         total=ExecutionImportService.count_fills(
@@ -227,8 +235,29 @@ def count_execution_fills(
             principal=principal,
             symbol_id=symbol_id,
             position_id=position_id,
+            status=status_filter,
+            reconciliation_status=reconciliation_status,
         )
     )
+
+
+@router.post("/execution/fills/{fill_id}/reconcile", response_model=ExecutionFillReconciliationResult)
+def reconcile_execution_fill(
+    fill_id: str,
+    request: ExecutionFillReconcileRequest,
+    session: DbSession,
+    principal: TraderPrincipal,
+) -> ExecutionFillReconciliationResult:
+    try:
+        return ExecutionImportService.reconcile_fill(
+            session=session,
+            principal=principal,
+            fill_id=fill_id,
+            request=request,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc).startswith(("Execution fill not found", "Target position not found")) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.post("/candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)

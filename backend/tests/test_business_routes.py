@@ -28,6 +28,7 @@ from backend.app.api.routes.business import (
     get_portfolio_risk,
     preview_candidate_plan,
     get_candidate_outcome,
+    reconcile_execution_fill,
     get_scanner_outcome_summary,
     get_candidate_detail,
     list_job_runs,
@@ -71,6 +72,8 @@ from backend.app.schemas.business import (
     DataFreshnessSummary,
     ExecutionCSVImportRequest,
     ExecutionFill,
+    ExecutionFillReconcileRequest,
+    ExecutionFillReconciliationResult,
     ExecutionImport,
     ExecutionImportResult,
     ExitAlert,
@@ -537,12 +540,20 @@ def test_execution_import_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.ExecutionImportService,
         "list_fills",
-        lambda session, principal, symbol_id, position_id, limit, offset: [_execution_fill()],
+        lambda session, principal, symbol_id, position_id, status, reconciliation_status, limit, offset: [_execution_fill()],
     )
     monkeypatch.setattr(
         business_route.ExecutionImportService,
         "count_fills",
-        lambda session, principal, symbol_id, position_id: 1,
+        lambda session, principal, symbol_id, position_id, status, reconciliation_status: 1,
+    )
+    monkeypatch.setattr(
+        business_route.ExecutionImportService,
+        "reconcile_fill",
+        lambda session, principal, fill_id, request: ExecutionFillReconciliationResult(
+            fill=_execution_fill(),
+            message=f"{fill_id}:{request.action}",
+        ),
     )
 
     result = import_execution_csv(
@@ -560,6 +571,13 @@ def test_execution_import_routes(monkeypatch) -> None:
     assert count_execution_imports(session=None, principal=_principal()).total == 1
     assert list_execution_fills(session=None, principal=_principal())[0].fill_id == "exec_fill_1"
     assert count_execution_fills(session=None, principal=_principal()).total == 1
+    reconciled = reconcile_execution_fill(
+        fill_id="exec_fill_1",
+        session=None,
+        principal=_principal(),
+        request=ExecutionFillReconcileRequest(action="confirm_position"),
+    )
+    assert reconciled.message == "exec_fill_1:confirm_position"
 
 
 def test_create_candidate_route_maps_validation_error(monkeypatch) -> None:

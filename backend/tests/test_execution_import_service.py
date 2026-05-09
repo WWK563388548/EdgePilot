@@ -10,7 +10,7 @@ import pytest
 from backend.app import models as db
 from backend.app.core.auth import AuthPrincipal
 from backend.app.core.database import Base
-from backend.app.schemas.business import ExecutionCSVImportRequest
+from backend.app.schemas.business import ExecutionCSVImportRequest, ExecutionFillReconcileRequest
 from backend.app.services.execution_import_service import ExecutionImportService
 
 
@@ -548,3 +548,251 @@ def test_import_csv_rejects_position_symbol_mismatch(session) -> None:
     assert position is not None
     assert position.status == "planned"
     assert position.quantity == 3
+
+
+def test_reconcile_fill_confirms_review_needed_buy_as_standalone_position(session) -> None:
+    principal = _principal()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_confirm",
+                ]
+            )
+        ),
+    )
+    fill = result.fills[0]
+
+    reconciled = ExecutionImportService.reconcile_fill(
+        session,
+        principal,
+        fill.fill_id,
+        ExecutionFillReconcileRequest(action="confirm_position", note="verified broker fill"),
+    )
+    position = session.get(db.Position, fill.position_id)
+
+    assert reconciled.fill.reconciliation_status == "confirmed"
+    assert reconciled.fill.status == "active"
+    assert reconciled.fill.reconciliation_note == "verified broker fill"
+    assert reconciled.target_position is not None
+    assert reconciled.target_position.position_id == fill.position_id
+    assert position is not None
+    assert position.status == "open"
+    assert position.quantity == 2
+    assert position.entry_price == 150.25
+
+
+def test_reconcile_fill_locks_fill_row_before_updates(session, monkeypatch) -> None:
+    principal = _principal()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_lock",
+                ]
+            )
+        ),
+    )
+    original_get_fill_model = ExecutionImportService._get_fill_model
+    lock_flags: list[bool] = []
+
+    def _spy_get_fill_model(db_session, db_principal, fill_id, *, for_update=False):
+        lock_flags.append(for_update)
+        return original_get_fill_model(
+            db_session,
+            db_principal,
+            fill_id,
+            for_update=for_update,
+        )
+
+    monkeypatch.setattr(
+        ExecutionImportService,
+        "_get_fill_model",
+        staticmethod(_spy_get_fill_model),
+    )
+
+    ExecutionImportService.reconcile_fill(
+        session,
+        principal,
+        result.fills[0].fill_id,
+        ExecutionFillReconcileRequest(action="confirm_position"),
+    )
+
+    assert lock_flags == [True]
+
+
+def test_reconcile_fill_binds_review_needed_buy_to_planned_position(session) -> None:
+    principal = _principal()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_bind",
+                ]
+            )
+        ),
+    )
+    fill = result.fills[0]
+    review_position_id = fill.position_id
+    session.add(
+        db.Position(
+            position_id="pos_smh_plan",
+            account_id=principal.account_id,
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=149,
+            quantity=3,
+            initial_stop=140,
+            current_stop=140,
+            status="planned",
+        )
+    )
+    session.commit()
+
+    reconciled = ExecutionImportService.reconcile_fill(
+        session,
+        principal,
+        fill.fill_id,
+        ExecutionFillReconcileRequest(
+            action="bind_position",
+            target_position_id="pos_smh_plan",
+        ),
+    )
+    target = session.get(db.Position, "pos_smh_plan")
+    review_position = session.get(db.Position, review_position_id)
+
+    assert reconciled.fill.position_id == "pos_smh_plan"
+    assert reconciled.fill.reconciliation_status == "bound"
+    assert target is not None
+    assert target.status == "open"
+    assert target.quantity == 2
+    assert target.entry_price == 150.25
+    assert review_position is not None
+    assert review_position.status == "cancelled"
+    assert review_position.quantity == 0
+
+
+def test_reconcile_fill_ignores_review_needed_fill(session) -> None:
+    principal = _principal()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_ignore",
+                ]
+            )
+        ),
+    )
+    fill = result.fills[0]
+
+    reconciled = ExecutionImportService.reconcile_fill(
+        session,
+        principal,
+        fill.fill_id,
+        ExecutionFillReconcileRequest(action="ignore_fill", note="duplicate broker export"),
+    )
+    position = session.get(db.Position, fill.position_id)
+
+    assert reconciled.fill.status == "ignored"
+    assert reconciled.fill.reconciliation_status == "ignored"
+    assert reconciled.fill.reconciliation_note == "duplicate broker export"
+    assert position is not None
+    assert position.status == "cancelled"
+    assert position.quantity == 0
+
+
+def test_reconcile_fill_rejects_binding_to_mismatched_symbol(session) -> None:
+    principal = _principal()
+    session.add(
+        db.Position(
+            position_id="pos_qqq",
+            account_id=principal.account_id,
+            symbol_id="QQQ",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=420,
+            quantity=1,
+            initial_stop=400,
+            current_stop=400,
+            status="open",
+        )
+    )
+    session.commit()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_wrong_bind",
+                ]
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Target position symbol mismatch"):
+        ExecutionImportService.reconcile_fill(
+            session,
+            principal,
+            result.fills[0].fill_id,
+            ExecutionFillReconcileRequest(
+                action="bind_position",
+                target_position_id="pos_qqq",
+            ),
+        )
+
+
+def test_reconcile_fill_rejects_binding_to_non_active_target_status(session) -> None:
+    principal = _principal()
+    session.add(
+        db.Position(
+            position_id="pos_smh_exit_pending",
+            account_id=principal.account_id,
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=149,
+            quantity=2,
+            initial_stop=140,
+            current_stop=140,
+            status="exit_pending",
+        )
+    )
+    session.commit()
+    result = ExecutionImportService.import_csv(
+        session,
+        principal,
+        ExecutionCSVImportRequest(
+            csv_text="\n".join(
+                [
+                    "executed_at,symbol,side,quantity,price,execution_id",
+                    "2026-05-08T14:30:00+00:00,SMH,buy,2,150.25,exec_exit_pending_bind",
+                ]
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Target position must be planned, open, or reduced"):
+        ExecutionImportService.reconcile_fill(
+            session,
+            principal,
+            result.fills[0].fill_id,
+            ExecutionFillReconcileRequest(
+                action="bind_position",
+                target_position_id="pos_smh_exit_pending",
+            ),
+        )

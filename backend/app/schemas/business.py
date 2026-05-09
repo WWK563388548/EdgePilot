@@ -22,6 +22,9 @@ AutomationJobType = Literal["market_refresh_scan"]
 JobRunStatus = Literal["running", "succeeded", "failed"]
 ExecutionImportStatus = Literal["completed", "partial", "failed"]
 ExecutionFillSide = Literal["buy", "sell"]
+ExecutionFillStatus = Literal["active", "ignored"]
+ExecutionFillReconciliationStatus = Literal["matched", "review_needed", "bound", "confirmed", "ignored"]
+ExecutionFillReconcileAction = Literal["bind_position", "confirm_position", "ignore_fill"]
 
 
 class AccountRiskSettingsBase(BaseModel):
@@ -493,6 +496,10 @@ class ExecutionFill(BaseModel):
     net_amount: float | None = None
     currency: str | None = None
     executed_at: datetime
+    status: ExecutionFillStatus | None = "active"
+    reconciliation_status: ExecutionFillReconciliationStatus | None = "matched"
+    reconciliation_note: str | None = None
+    reconciled_at: datetime | None = None
     raw_row_json: dict[str, Any] | None = None
     created_at: datetime | None = None
 
@@ -513,6 +520,29 @@ class ExecutionImportResult(BaseModel):
     import_record: ExecutionImport
     fills: list[ExecutionFill] = Field(default_factory=list)
     errors: list[ExecutionImportError] = Field(default_factory=list)
+
+
+class ExecutionFillReconcileRequest(BaseModel):
+    action: ExecutionFillReconcileAction
+    target_position_id: str | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_action_payload(self) -> "ExecutionFillReconcileRequest":
+        if self.action == "bind_position" and not (self.target_position_id or "").strip():
+            raise ValueError("target_position_id is required when binding a fill")
+        if self.target_position_id is not None:
+            self.target_position_id = self.target_position_id.strip()
+        if self.note is not None:
+            self.note = self.note.strip() or None
+        return self
+
+
+class ExecutionFillReconciliationResult(BaseModel):
+    fill: ExecutionFill
+    source_position: Position | None = None
+    target_position: Position | None = None
+    message: str
 
 
 class PositionCloseResponse(BaseModel):

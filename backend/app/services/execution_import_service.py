@@ -15,9 +15,12 @@ from backend.app.core.auth import AuthPrincipal
 from backend.app.schemas.business import (
     ExecutionCSVImportRequest,
     ExecutionFill,
+    ExecutionFillReconcileRequest,
+    ExecutionFillReconciliationResult,
     ExecutionImport,
     ExecutionImportError,
     ExecutionImportResult,
+    Position,
 )
 from backend.app.services.audit_service import AuditService
 
@@ -192,6 +195,8 @@ class ExecutionImportService:
         *,
         symbol_id: str | None = None,
         position_id: str | None = None,
+        status: str | None = None,
+        reconciliation_status: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[ExecutionFill]:
@@ -199,6 +204,8 @@ class ExecutionImportService:
             principal=principal,
             symbol_id=symbol_id,
             position_id=position_id,
+            status=status,
+            reconciliation_status=reconciliation_status,
         )
         statement = statement.order_by(db.ExecutionFill.executed_at.desc()).limit(limit).offset(offset)
         return [ExecutionFill.model_validate(row) for row in session.scalars(statement).all()]
@@ -210,11 +217,15 @@ class ExecutionImportService:
         *,
         symbol_id: str | None = None,
         position_id: str | None = None,
+        status: str | None = None,
+        reconciliation_status: str | None = None,
     ) -> int:
         statement = ExecutionImportService.fills_statement(
             principal=principal,
             symbol_id=symbol_id,
             position_id=position_id,
+            status=status,
+            reconciliation_status=reconciliation_status,
         )
         return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
 
@@ -224,6 +235,8 @@ class ExecutionImportService:
         principal: AuthPrincipal,
         symbol_id: str | None = None,
         position_id: str | None = None,
+        status: str | None = None,
+        reconciliation_status: str | None = None,
     ):
         statement = select(db.ExecutionFill).where(
             db.ExecutionFill.account_id == principal.account_id
@@ -232,7 +245,78 @@ class ExecutionImportService:
             statement = statement.where(db.ExecutionFill.symbol_id == symbol_id.upper())
         if position_id:
             statement = statement.where(db.ExecutionFill.position_id == position_id)
+        if status:
+            statement = statement.where(db.ExecutionFill.status == status)
+        if reconciliation_status:
+            statement = statement.where(
+                db.ExecutionFill.reconciliation_status == reconciliation_status
+            )
         return statement
+
+    @staticmethod
+    def reconcile_fill(
+        session: Session,
+        principal: AuthPrincipal,
+        fill_id: str,
+        request: ExecutionFillReconcileRequest,
+    ) -> ExecutionFillReconciliationResult:
+        fill = ExecutionImportService._get_fill_model(
+            session,
+            principal,
+            fill_id,
+            for_update=True,
+        )
+        if fill.status == "ignored":
+            raise ValueError(f"Execution fill is already ignored: {fill_id}")
+
+        source_position = ExecutionImportService._fill_position(session, principal, fill)
+        target_position: db.Position | None = None
+
+        if request.action == "confirm_position":
+            target_position = ExecutionImportService._confirm_review_position(
+                source_position,
+                fill,
+            )
+            message = "Review-needed fill confirmed as a standalone open position."
+        elif request.action == "bind_position":
+            target_position = ExecutionImportService._bind_review_fill(
+                session,
+                principal,
+                fill,
+                source_position,
+                request.target_position_id or "",
+            )
+            message = "Review-needed fill bound to an existing position."
+        else:
+            ExecutionImportService._ignore_review_fill(fill, source_position)
+            message = "Review-needed fill ignored and removed from active risk."
+
+        fill.reconciliation_note = request.note
+        fill.reconciled_at = datetime.now(UTC)
+        AuditService.record(
+            session,
+            principal,
+            f"execution_fill.{request.action}",
+            "execution_fill",
+            fill.fill_id,
+        )
+        session.commit()
+        session.refresh(fill)
+        if source_position is not None:
+            session.refresh(source_position)
+        if target_position is not None and target_position is not source_position:
+            session.refresh(target_position)
+
+        return ExecutionFillReconciliationResult(
+            fill=ExecutionFill.model_validate(fill),
+            source_position=Position.model_validate(source_position)
+            if source_position is not None
+            else None,
+            target_position=Position.model_validate(target_position)
+            if target_position is not None
+            else None,
+            message=message,
+        )
 
     @staticmethod
     def _read_csv_rows(csv_text: str) -> list[tuple[int, dict[str, str]]]:
@@ -374,12 +458,14 @@ class ExecutionImportService:
                 "Position symbol mismatch: "
                 f"{position.position_id} is {position.symbol_id}, row symbol is {normalized.symbol_id}"
             )
+        review_needed = False
         if position is None:
             position = ExecutionImportService._create_review_needed_position(
                 session,
                 principal,
                 normalized,
             )
+            review_needed = True
         elif position.status in ("closed", "cancelled"):
             raise ValueError(f"Position is not active: {position.position_id}")
         else:
@@ -411,10 +497,159 @@ class ExecutionImportService:
             net_amount=net_amount,
             currency=normalized.currency,
             executed_at=normalized.executed_at,
+            status="active",
+            reconciliation_status="review_needed" if review_needed else "matched",
             raw_row_json=normalized.raw_row,
         )
         session.add(fill)
         return fill
+
+    @staticmethod
+    def _get_fill_model(
+        session: Session,
+        principal: AuthPrincipal,
+        fill_id: str,
+        *,
+        for_update: bool = False,
+    ) -> db.ExecutionFill:
+        statement = select(db.ExecutionFill).where(
+            db.ExecutionFill.fill_id == fill_id,
+            db.ExecutionFill.account_id == principal.account_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        fill = session.scalar(statement)
+        if fill is None:
+            raise ValueError(f"Execution fill not found: {fill_id}")
+        return fill
+
+    @staticmethod
+    def _fill_position(
+        session: Session,
+        principal: AuthPrincipal,
+        fill: db.ExecutionFill,
+    ) -> db.Position | None:
+        if not fill.position_id:
+            return None
+        return session.scalar(
+            select(db.Position).where(
+                db.Position.position_id == fill.position_id,
+                db.Position.account_id == principal.account_id,
+            )
+        )
+
+    @staticmethod
+    def _require_review_needed_source(
+        source_position: db.Position | None,
+        fill: db.ExecutionFill,
+    ) -> db.Position:
+        if (
+            source_position is None
+            or source_position.status != "review_needed"
+            or fill.reconciliation_status != "review_needed"
+        ):
+            raise ValueError("Only review-needed fills can be reconciled by this action")
+        return source_position
+
+    @staticmethod
+    def _confirm_review_position(
+        source_position: db.Position | None,
+        fill: db.ExecutionFill,
+    ) -> db.Position:
+        position = ExecutionImportService._require_review_needed_source(source_position, fill)
+        if fill.side != "buy":
+            raise ValueError("Only unmatched buy fills can be confirmed as standalone positions")
+        if position.entry_price is None or position.quantity is None or position.quantity <= 0:
+            raise ValueError(f"Review-needed position is missing entry data: {position.position_id}")
+
+        position.status = "open"
+        position.current_r = position.current_r or 0
+        position.realized_pnl = position.realized_pnl or 0
+        position.unrealized_pnl = position.unrealized_pnl or 0
+        position.updated_at = datetime.now(UTC)
+        fill.reconciliation_status = "confirmed"
+        fill.status = "active"
+        return position
+
+    @staticmethod
+    def _bind_review_fill(
+        session: Session,
+        principal: AuthPrincipal,
+        fill: db.ExecutionFill,
+        source_position: db.Position | None,
+        target_position_id: str,
+    ) -> db.Position:
+        review_position = ExecutionImportService._require_review_needed_source(source_position, fill)
+        target_position = session.scalar(
+            select(db.Position).where(
+                db.Position.position_id == target_position_id,
+                db.Position.account_id == principal.account_id,
+            )
+        )
+        if target_position is None:
+            raise ValueError(f"Target position not found: {target_position_id}")
+        if target_position.position_id == review_position.position_id:
+            raise ValueError("Use confirm_position to keep a review-needed fill as standalone")
+        if (target_position.symbol_id or "").upper() != (fill.symbol_id or "").upper():
+            raise ValueError(
+                "Target position symbol mismatch: "
+                f"{target_position.symbol_id} cannot receive {fill.symbol_id}"
+            )
+        if target_position.status not in ("planned", "open", "reduce"):
+            raise ValueError("Target position must be planned, open, or reduced")
+
+        ExecutionImportService._apply_fill_to_position(
+            target_position,
+            ExecutionImportService._normalized_row_from_fill(fill, target_position.position_id),
+        )
+        fill.position_id = target_position.position_id
+        fill.reconciliation_status = "bound"
+        fill.status = "active"
+        review_position.status = "cancelled"
+        review_position.quantity = 0
+        review_position.current_r = 0
+        review_position.realized_pnl = review_position.realized_pnl or 0
+        review_position.unrealized_pnl = 0
+        review_position.updated_at = datetime.now(UTC)
+        return target_position
+
+    @staticmethod
+    def _ignore_review_fill(
+        fill: db.ExecutionFill,
+        source_position: db.Position | None,
+    ) -> None:
+        review_position = ExecutionImportService._require_review_needed_source(source_position, fill)
+        fill.status = "ignored"
+        fill.reconciliation_status = "ignored"
+        review_position.status = "cancelled"
+        review_position.quantity = 0
+        review_position.current_r = 0
+        review_position.realized_pnl = review_position.realized_pnl or 0
+        review_position.unrealized_pnl = 0
+        review_position.updated_at = datetime.now(UTC)
+
+    @staticmethod
+    def _normalized_row_from_fill(
+        fill: db.ExecutionFill,
+        position_id: str,
+    ) -> NormalizedFillRow:
+        return NormalizedFillRow(
+            row_number=0,
+            symbol_id=fill.symbol_id,
+            side=fill.side,
+            quantity=fill.quantity,
+            price=fill.price,
+            executed_at=fill.executed_at,
+            asset_type=fill.asset_type,
+            fees=fill.fees or 0,
+            currency=fill.currency,
+            position_id=position_id,
+            broker_account_id=fill.broker_account_id,
+            broker_order_id=fill.broker_order_id,
+            broker_execution_id=fill.broker_execution_id,
+            idempotency_key=fill.idempotency_key,
+            raw_row=fill.raw_row_json or {},
+        )
 
     @staticmethod
     def _resolve_position(
