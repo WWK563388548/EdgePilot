@@ -148,6 +148,7 @@ class DataSourceService:
                 "Polygon market data capability is not registered",
             )
 
+        implicit_status_sync = status is None
         if status is None:
             resolution = DataSourceService.resolve_polygon_market_data(session, tenant_id)
             if resolution:
@@ -158,6 +159,15 @@ class DataSourceService:
                 status = "missing"
                 source = "env_or_tenant_credential"
                 reason = "POLYGON_API_KEY or tenant Polygon credential is not configured"
+
+        if implicit_status_sync and _should_preserve_runtime_capability_status(
+            capability,
+            incoming_status=status,
+            incoming_source=source,
+        ):
+            status = capability.status
+            source = capability.source
+            reason = capability.reason
 
         capability.provider = POLYGON_US_ETF_DAILY_PROFILE.provider
         capability.market = POLYGON_US_ETF_DAILY_PROFILE.market
@@ -397,3 +407,16 @@ def _looks_like_auth_error(message: str | None) -> bool:
         return False
     lowered = message.lower()
     return "401" in lowered or "403" in lowered or "unauthorized" in lowered or "forbidden" in lowered
+
+
+def _should_preserve_runtime_capability_status(
+    capability: db.TenantDataCapability,
+    *,
+    incoming_status: str | None,
+    incoming_source: str | None,
+) -> bool:
+    if capability.status not in {"stale", "invalid", "fallback_used"}:
+        return False
+    if incoming_status == "available":
+        return capability.source == incoming_source
+    return True

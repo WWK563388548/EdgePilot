@@ -130,6 +130,8 @@ class TenantService:
         principal: AuthPrincipal,
     ) -> list[db.TenantDataCapability]:
         TenantService.current_tenant(session, principal)
+        DataSourceService.sync_polygon_capability(session, principal.tenant_id)
+        session.commit()
         statement = (
             select(db.TenantDataCapability)
             .where(db.TenantDataCapability.tenant_id == principal.tenant_id)

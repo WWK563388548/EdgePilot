@@ -240,6 +240,42 @@ def test_data_capability_check_updates_last_checked(monkeypatch) -> None:
         assert capability.metadata_json["market_profile"]["trading_timezone"] == "America/New_York"
 
 
+def test_data_capability_list_backfills_provider_metadata(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "polygon_api_key", "env_key")
+
+    with _session() as session:
+        principal = AuthService.upsert_principal(
+            session=session,
+            user_id="user_1",
+            external_subject="auth0|user_1",
+            tenant_id="tenant_1",
+            account_id="acct_1",
+            role="owner",
+            email="user@example.com",
+            display_name="User",
+            email_verified=True,
+        )
+        capability = session.query(TenantDataCapability).filter_by(
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+        ).one()
+        capability.metadata_json = None
+        capability.status = "missing"
+        capability.source = "env_or_tenant_credential"
+        session.commit()
+
+        refreshed = [
+            row
+            for row in TenantService.list_data_capabilities(session, principal)
+            if row.capability_key == "market_data.us_etf_daily"
+        ][0]
+
+        assert refreshed.status == "available"
+        assert refreshed.source == "env"
+        assert refreshed.metadata_json["supports_daily_bars"] is True
+        assert refreshed.metadata_json["market_profile"]["calendar_key"] == "XNYS"
+
+
 def test_transient_polygon_check_failure_keeps_credential_resolvable(monkeypatch) -> None:
     monkeypatch.setattr(settings, "polygon_api_key", "")
 
