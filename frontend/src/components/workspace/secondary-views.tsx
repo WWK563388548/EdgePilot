@@ -1,18 +1,29 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Database, KeyRound, Loader2, PlugZap, Save, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Field } from "@/components/workspace/atoms/field";
-import { StatusPill } from "@/components/workspace/atoms/status-pill";
-import { ApiError, api } from "@/lib/api";
+import {
+  ConnectionsCard,
+  DataCapabilityMatrix,
+  type CredentialFormState
+} from "@/components/workspace/secondary-views/data-source-cards";
+import {
+  NotificationSettingsCard,
+  type NotificationFormState
+} from "@/components/workspace/secondary-views/notification-settings-card";
+import {
+  RiskGuardrailsCard,
+  type RiskFormState
+} from "@/components/workspace/secondary-views/risk-guardrails-card";
+import { RuntimeCard, WorkspaceBoundaryCard } from "@/components/workspace/secondary-views/settings-info-cards";
+import { numberOrUndefined, percentOrUndefined } from "@/components/workspace/secondary-views/settings-helpers";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Locale } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
 export function SettingsPanel({ locale }: { locale: Locale }) {
-  const { t } = useAppI18n();
   const auth = useAuth();
   const queryClient = useQueryClient();
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -43,7 +54,7 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
     queryKey: ["notification-preferences"],
     queryFn: api.notificationPreferences
   });
-  const [riskForm, setRiskForm] = useState({
+  const [riskForm, setRiskForm] = useState<RiskFormState>({
     accountEquity: "",
     maxOpenPositions: "",
     maxRiskDistancePct: "",
@@ -51,17 +62,18 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
     maxTotalRiskPct: "",
     shadowOnlyRequiresPaper: true
   });
-  const [notificationForm, setNotificationForm] = useState({
+  const [notificationForm, setNotificationForm] = useState<NotificationFormState>({
     emailEnabled: false,
     emailTo: "",
     inAppEnabled: true,
     minSeverity: "info",
     smsEnabled: false
   });
-  const [credentialForm, setCredentialForm] = useState({
+  const [credentialForm, setCredentialForm] = useState<CredentialFormState>({
     apiKey: "",
     label: "Polygon"
   });
+
   useEffect(() => {
     if (!riskSettings.data) {
       return;
@@ -75,6 +87,7 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
       shadowOnlyRequiresPaper: riskSettings.data.shadow_only_requires_paper
     });
   }, [riskSettings.data]);
+
   useEffect(() => {
     if (!notificationPreferences.data) {
       return;
@@ -87,6 +100,7 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
       smsEnabled: notificationPreferences.data.sms_enabled
     });
   }, [notificationPreferences.data]);
+
   const updateRiskSettings = useMutation({
     mutationFn: () =>
       api.updateRiskSettings({
@@ -162,498 +176,75 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
 
   return (
     <section className="grid gap-4 lg:grid-cols-2">
-      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink">{t("riskGuardrails")}</h2>
-            <p className="mt-1 text-xs text-slate-600">{t("riskGuardrailsHelp")}</p>
-          </div>
-          <Settings size={18} className="text-teal" />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <NumberInput
-            label={t("accountEquity")}
-            onChange={(accountEquity) => setRiskForm((value) => ({ ...value, accountEquity }))}
-            suffix="USD"
-            value={riskForm.accountEquity}
-          />
-          <NumberInput
-            label={t("maxRiskPerTrade")}
-            onChange={(maxRiskPerTradePct) => setRiskForm((value) => ({ ...value, maxRiskPerTradePct }))}
-            suffix="%"
-            value={riskForm.maxRiskPerTradePct}
-          />
-          <NumberInput
-            label={t("maxPortfolioRisk")}
-            onChange={(maxTotalRiskPct) => setRiskForm((value) => ({ ...value, maxTotalRiskPct }))}
-            suffix="%"
-            value={riskForm.maxTotalRiskPct}
-          />
-          <NumberInput
-            label={t("maxOpenPositions")}
-            onChange={(maxOpenPositions) => setRiskForm((value) => ({ ...value, maxOpenPositions }))}
-            value={riskForm.maxOpenPositions}
-          />
-          <NumberInput
-            label={t("maxRiskDistance")}
-            onChange={(maxRiskDistancePct) => setRiskForm((value) => ({ ...value, maxRiskDistancePct }))}
-            suffix="%"
-            value={riskForm.maxRiskDistancePct}
-          />
-        </div>
-        <label className="mt-4 flex items-center gap-2 text-sm font-medium text-ink">
-          <input
-            checked={riskForm.shadowOnlyRequiresPaper}
-            className="h-4 w-4 accent-teal"
-            onChange={(event) =>
-              setRiskForm((value) => ({
-                ...value,
-                shadowOnlyRequiresPaper: event.target.checked
-              }))
-            }
-            type="checkbox"
-          />
-          {t("shadowOnlyRequiresPaper")}
-        </label>
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            className="focus-ring inline-flex h-9 items-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={riskSettings.isLoading || updateRiskSettings.isPending}
-            onClick={() => updateRiskSettings.mutate()}
-            type="button"
-          >
-            {updateRiskSettings.isPending ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-            {updateRiskSettings.isPending ? t("saving") : t("saveRiskSettings")}
-          </button>
-          {updateRiskSettings.isError ? (
-            <span className="text-sm font-medium text-rose-700">{t("riskSettingsSaveFailed")}</span>
-          ) : null}
-          {updateRiskSettings.isSuccess ? (
-            <span className="text-sm font-medium text-teal-700">{t("riskSettingsSaved")}</span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink">{t("notificationSettings")}</h2>
-            <p className="mt-1 text-xs text-slate-600">{t("notificationSettingsHelp")}</p>
-          </div>
-          <Settings size={18} className="text-teal" />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm font-medium text-ink">
-            <input
-              checked={notificationForm.inAppEnabled}
-              className="h-4 w-4 accent-teal"
-              onChange={(event) =>
-                setNotificationForm((value) => ({
-                  ...value,
-                  inAppEnabled: event.target.checked
-                }))
-              }
-              type="checkbox"
-            />
-            {t("inAppNotifications")}
-          </label>
-          <label className="flex items-center gap-2 text-sm font-medium text-ink">
-            <input
-              checked={notificationForm.emailEnabled}
-              className="h-4 w-4 accent-teal"
-              onChange={(event) =>
-                setNotificationForm((value) => ({
-                  ...value,
-                  emailEnabled: event.target.checked
-                }))
-              }
-              type="checkbox"
-            />
-            {t("emailNotifications")}
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-600">
-            {t("minSeverity")}
-            <select
-              className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
-              onChange={(event) =>
-                setNotificationForm((value) => ({
-                  ...value,
-                  minSeverity: event.target.value
-                }))
-              }
-              value={notificationForm.minSeverity}
-            >
-              <option value="info">{t("severityInfo")}</option>
-              <option value="warning">{t("severityWarning")}</option>
-              <option value="action_required">{t("severityActionRequired")}</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-600">
-            {t("emailTo")}
-            <input
-              className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
-              onChange={(event) =>
-                setNotificationForm((value) => ({
-                  ...value,
-                  emailTo: event.target.value
-                }))
-              }
-              placeholder="alerts@example.com"
-              type="email"
-              value={notificationForm.emailTo}
-            />
-          </label>
-        </div>
-        <p className="mt-3 text-xs leading-5 text-slate-600">{t("externalDeliveryNotLive")}</p>
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            className="focus-ring inline-flex h-9 items-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={notificationPreferences.isLoading || updateNotificationPreferences.isPending}
-            onClick={() => updateNotificationPreferences.mutate()}
-            type="button"
-          >
-            {updateNotificationPreferences.isPending ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-            {updateNotificationPreferences.isPending ? t("saving") : t("saveNotificationSettings")}
-          </button>
-          {updateNotificationPreferences.isError ? (
-            <span className="text-sm font-medium text-rose-700">{t("notificationSettingsSaveFailed")}</span>
-          ) : null}
-          {updateNotificationPreferences.isSuccess ? (
-            <span className="text-sm font-medium text-teal-700">{t("notificationSettingsSaved")}</span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink">{t("workspaceBoundary")}</h2>
-            <p className="mt-1 text-xs text-slate-600">{t("workspaceBoundaryHelp")}</p>
-          </div>
-          <Building2 size={18} className="text-teal" />
-        </div>
-        <dl className="grid gap-3">
-          <Field label={t("tenantName")} value={currentTenant.data?.name ?? "-"} />
-          <Field label={t("tenantId")} value={currentTenant.data?.tenant_id ?? "-"} />
-          <Field label={t("account")} value={authMe.data?.account_id ?? "-"} />
-        </dl>
-      </div>
-
-      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink">{t("dataCapabilityMatrix")}</h2>
-            <p className="mt-1 text-xs text-slate-600">{t("dataCapabilityMatrixHelp")}</p>
-          </div>
-          <Database size={18} className="text-teal" />
-        </div>
-        <div className="grid gap-3">
-          {(dataCapabilities.data ?? []).map((capability) => (
-            <div
-              className="grid gap-2 rounded-md border border-line bg-panel p-3 sm:grid-cols-[1fr_auto]"
-              key={capability.capability_id}
-            >
-              <div>
-                <div className="text-sm font-semibold text-ink">{capability.capability_key}</div>
-                <div className="mt-1 text-xs text-slate-600">
-                  {[capability.provider, capability.market, capability.asset_type, capability.timeframe]
-                    .filter(Boolean)
-                    .join(" · ") || "-"}
-                </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
-                  <span>
-                    {t("dataSourceSource")}: {capability.source ?? "-"}
-                  </span>
-                  <span>
-                    {t("dataSourceLastChecked")}: {formatDateTime(capability.last_checked_at, locale)}
-                  </span>
-                </div>
-                {capability.reason ? (
-                  <div className="mt-2 text-xs leading-5 text-slate-600">{capability.reason}</div>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2 sm:justify-end">
-                <StatusPill
-                  label={labelCapabilityStatus(capability.status, locale)}
-                  tone={capabilityTone(capability.status)}
-                />
-                {capability.capability_key === "market_data.us_etf_daily" ? (
-                  <button
-                    className="focus-ring inline-flex h-8 items-center gap-2 rounded-md border border-line bg-white px-2 text-xs font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={checkDataCapability.isPending}
-                    onClick={() => checkDataCapability.mutate(capability.capability_key)}
-                    type="button"
-                  >
-                    {checkDataCapability.isPending &&
-                    checkDataCapability.variables === capability.capability_key ? (
-                      <Loader2 className="animate-spin" size={14} />
-                    ) : (
-                      <PlugZap size={14} />
-                    )}
-                    {t("checkConnection")}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))}
-          {dataCapabilities.isLoading ? (
-            <div className="text-sm font-medium text-slate-600">{t("loading")}</div>
-          ) : null}
-          {!dataCapabilities.isLoading && !dataCapabilities.data?.length ? (
-            <div className="text-sm font-medium text-slate-600">{t("noDataCapabilities")}</div>
-          ) : null}
-          {checkDataCapability.isError ? (
-            <div className="text-xs font-medium text-rose-700">
-              {t("capabilityCheckFailed")}: {errorText(checkDataCapability.error)}
-            </div>
-          ) : null}
-          {checkDataCapability.data ? (
-            <div className="text-xs font-medium text-teal-700">
-              {t("checkResult")}: {labelCapabilityStatus(checkDataCapability.data.status, locale)}
-              {checkDataCapability.data.message ? ` · ${checkDataCapability.data.message}` : ""}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">{t("runtime")}</h2>
-          <Settings size={18} className="text-teal" />
-        </div>
-        <dl className="grid gap-3">
-          <Field label={t("app")} value={appName} />
-          <Field label={t("apiBaseUrl")} value={apiBaseUrl} />
-          <Field label={t("sseUrl")} value={sseUrl} />
-          <Field label={t("auth")} value={t("authRequired")} />
-          <Field label={t("user")} value={auth.userLabel} />
-          <Field label={t("email")} value={auth.emailVerified ? t("emailVerified") : t("emailPending")} />
-        </dl>
-      </div>
-
-      <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink">{t("connections")}</h2>
-            <p className="mt-1 text-xs text-slate-600">{t("connectionsHelp")}</p>
-          </div>
-          <PlugZap size={18} className="text-teal" />
-        </div>
-        <div className="grid gap-3">
-          <div className="flex items-center justify-between border-b border-line pb-3">
-            <span className="text-sm font-medium text-ink">{t("backendApi")}</span>
-            <StatusPill label={apiBaseUrl ? t("configured") : t("missing")} tone={apiBaseUrl ? "good" : "bad"} />
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-ink">{t("realtimeStream")}</span>
-            <StatusPill label={sseUrl ? t("configured") : t("missing")} tone={sseUrl ? "good" : "bad"} />
-          </div>
-          <div className="flex items-center justify-between border-t border-line pt-3">
-            <span className="inline-flex items-center gap-2 text-sm font-medium text-ink">
-              <KeyRound size={15} />
-              {t("byokCredentials")}
-            </span>
-            <StatusPill
-              label={dataCredentials.data?.length ? t("configured") : t("notConfigured")}
-              tone={dataCredentials.data?.length ? "good" : "neutral"}
-            />
-          </div>
-          <div className="grid gap-2 rounded-md border border-line bg-panel p-3">
-            {polygonUsesEnv ? (
-              <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
-                {t(
-                  polygonCredentialCount > 0
-                    ? "envKeyOverridesSavedCredential"
-                    : "envKeyPriorityHelp"
-                )}
-              </div>
-            ) : null}
-            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-              <label className="grid gap-1 text-xs font-semibold text-slate-600">
-                {t("credentialLabel")}
-                <input
-                  className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
-                  onChange={(event) =>
-                    setCredentialForm((value) => ({ ...value, label: event.target.value }))
-                  }
-                  value={credentialForm.label}
-                />
-              </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-600">
-                {t("polygonApiKey")}
-                <input
-                  className="focus-ring h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none"
-                  onChange={(event) =>
-                    setCredentialForm((value) => ({ ...value, apiKey: event.target.value }))
-                  }
-                  placeholder="••••••••"
-                  type="password"
-                  value={credentialForm.apiKey}
-                />
-              </label>
-              <button
-                className="focus-ring mt-auto inline-flex h-9 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white transition-colors hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!credentialForm.apiKey || createDataCredential.isPending}
-                onClick={() => createDataCredential.mutate()}
-                type="button"
-              >
-                {createDataCredential.isPending ? (
-                  <Loader2 className="animate-spin" size={16} />
-                ) : (
-                  <Save size={16} />
-                )}
-                {t("saveCredential")}
-              </button>
-            </div>
-            {createDataCredential.isError ? (
-              <div className="text-xs font-medium text-rose-700">
-                {t("credentialSaveFailed")}: {errorText(createDataCredential.error)}
-              </div>
-            ) : null}
-            {createDataCredential.isSuccess ? (
-              <div className="text-xs font-medium text-teal-700">{t("credentialSaved")}</div>
-            ) : null}
-            <div className="grid gap-2">
-              {(dataCredentials.data ?? []).map((credential) => (
-                <div
-                  className="flex flex-col gap-2 rounded-md border border-line bg-white p-2 sm:flex-row sm:items-center sm:justify-between"
-                  key={credential.credential_id}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-ink">
-                      {credential.label ?? credential.provider}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {credential.provider} · {credential.key_fingerprint ?? "-"} ·{" "}
-                      {t("dataSourceLastChecked")}:{" "}
-                      {formatDateTime(credential.last_verified_at, locale)}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusPill
-                      label={credential.status ?? t("unknown")}
-                      tone={credential.status === "configured" ? "good" : "neutral"}
-                    />
-                    <button
-                      className="focus-ring inline-flex h-8 items-center gap-2 rounded-md border border-line bg-white px-2 text-xs font-semibold text-ink transition-colors hover:border-teal hover:text-teal disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={checkDataCredential.isPending}
-                      onClick={() => checkDataCredential.mutate(credential.credential_id)}
-                      type="button"
-                    >
-                      {checkDataCredential.isPending &&
-                      checkDataCredential.variables === credential.credential_id ? (
-                        <Loader2 className="animate-spin" size={14} />
-                      ) : (
-                        <PlugZap size={14} />
-                      )}
-                      {t("testCredential")}
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {!dataCredentials.isLoading && !dataCredentials.data?.length ? (
-                <div className="text-xs font-medium text-slate-600">{t("noCredentials")}</div>
-              ) : null}
-              {checkDataCredential.isError ? (
-                <div className="text-xs font-medium text-rose-700">
-                  {t("credentialCheckFailed")}: {errorText(checkDataCredential.error)}
-                </div>
-              ) : null}
-              {checkDataCredential.data ? (
-                <div className="text-xs font-medium text-teal-700">
-                  {t("checkResult")}: {labelCapabilityStatus(checkDataCredential.data.status, locale)}
-                  {checkDataCredential.data.message ? ` · ${checkDataCredential.data.message}` : ""}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </div>
+      <RiskGuardrailsCard
+        form={riskForm}
+        isError={updateRiskSettings.isError}
+        isLoading={riskSettings.isLoading}
+        isPending={updateRiskSettings.isPending}
+        isSuccess={updateRiskSettings.isSuccess}
+        onChange={(patch) => setRiskForm((value) => ({ ...value, ...patch }))}
+        onSave={() => updateRiskSettings.mutate()}
+      />
+      <NotificationSettingsCard
+        form={notificationForm}
+        isError={updateNotificationPreferences.isError}
+        isLoading={notificationPreferences.isLoading}
+        isPending={updateNotificationPreferences.isPending}
+        isSuccess={updateNotificationPreferences.isSuccess}
+        onChange={(patch) => setNotificationForm((value) => ({ ...value, ...patch }))}
+        onSave={() => updateNotificationPreferences.mutate()}
+      />
+      <WorkspaceBoundaryCard
+        accountId={authMe.data?.account_id ?? "-"}
+        tenantId={currentTenant.data?.tenant_id ?? "-"}
+        tenantName={currentTenant.data?.name ?? "-"}
+      />
+      <DataCapabilityMatrix
+        capabilities={dataCapabilities.data ?? []}
+        checkState={{
+          data: checkDataCapability.data,
+          error: checkDataCapability.error,
+          isError: checkDataCapability.isError,
+          isPending: checkDataCapability.isPending,
+          variables: checkDataCapability.variables
+        }}
+        isLoading={dataCapabilities.isLoading}
+        locale={locale}
+        onCheckCapability={(capabilityKey) => checkDataCapability.mutate(capabilityKey)}
+      />
+      <RuntimeCard
+        apiBaseUrl={apiBaseUrl}
+        appName={appName}
+        emailVerified={auth.emailVerified}
+        sseUrl={sseUrl}
+        userLabel={auth.userLabel}
+      />
+      <ConnectionsCard
+        apiBaseUrl={apiBaseUrl}
+        checkCredentialState={{
+          data: checkDataCredential.data,
+          error: checkDataCredential.error,
+          isError: checkDataCredential.isError,
+          isPending: checkDataCredential.isPending,
+          variables: checkDataCredential.variables
+        }}
+        credentialForm={credentialForm}
+        credentials={dataCredentials.data ?? []}
+        isCredentialsLoading={dataCredentials.isLoading}
+        locale={locale}
+        onCheckCredential={(credentialId) => checkDataCredential.mutate(credentialId)}
+        onCredentialChange={(patch) => setCredentialForm((value) => ({ ...value, ...patch }))}
+        onSaveCredential={() => createDataCredential.mutate()}
+        polygonCredentialCount={polygonCredentialCount}
+        polygonUsesEnv={Boolean(polygonUsesEnv)}
+        saveCredentialState={{
+          error: createDataCredential.error,
+          isError: createDataCredential.isError,
+          isPending: createDataCredential.isPending,
+          isSuccess: createDataCredential.isSuccess
+        }}
+        sseUrl={sseUrl}
+      />
     </section>
   );
-}
-
-function NumberInput({
-  label,
-  onChange,
-  suffix,
-  value
-}: {
-  label: string;
-  onChange: (value: string) => void;
-  suffix?: string;
-  value: string;
-}) {
-  return (
-    <label className="grid gap-1 text-xs font-semibold text-slate-600">
-      {label}
-      <div className="flex overflow-hidden rounded-md border border-line bg-white">
-        <input
-          className="focus-ring h-9 min-w-0 flex-1 border-0 px-2 text-sm font-medium text-ink outline-none"
-          min="0"
-          onChange={(event) => onChange(event.target.value)}
-          step="0.01"
-          type="number"
-          value={value}
-        />
-        {suffix ? (
-          <span className="flex items-center border-l border-line bg-panel px-2 text-xs text-slate-500">
-            {suffix}
-          </span>
-        ) : null}
-      </div>
-    </label>
-  );
-}
-
-function numberOrUndefined(value: string) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
-}
-
-function percentOrUndefined(value: string) {
-  const numeric = numberOrUndefined(value);
-  return numeric === undefined ? undefined : numeric / 100;
-}
-
-function capabilityTone(status: string): "good" | "warn" | "bad" | "neutral" {
-  if (status === "available") {
-    return "good";
-  }
-  if (status === "stale" || status === "fallback_used") {
-    return "warn";
-  }
-  if (status === "missing" || status === "invalid") {
-    return "bad";
-  }
-  return "neutral";
-}
-
-function labelCapabilityStatus(status: string, locale: Locale) {
-  const labels: Record<string, Record<Locale, string>> = {
-    available: { zh: "可用", en: "Available", ja: "利用可" },
-    disabled: { zh: "未启用", en: "Disabled", ja: "無効" },
-    fallback_used: { zh: "使用回退", en: "Fallback used", ja: "代替使用" },
-    invalid: { zh: "无效", en: "Invalid", ja: "無効" },
-    missing: { zh: "缺失", en: "Missing", ja: "不足" },
-    stale: { zh: "过期", en: "Stale", ja: "古い" }
-  };
-  return labels[status]?.[locale] ?? status;
-}
-
-function formatDateTime(value: string | null | undefined, locale: Locale) {
-  if (!value) {
-    return "-";
-  }
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
-}
-
-function errorText(error: unknown) {
-  if (error instanceof ApiError) {
-    return error.detail ?? error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
 }

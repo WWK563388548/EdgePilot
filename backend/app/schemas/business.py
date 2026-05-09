@@ -6,12 +6,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from backend.app.schemas.scanner import ScannerDecision
 
 CandidateDecision = Literal["candidate", "watch", "avoid"]
-PositionStatus = Literal["planned", "open", "reduce", "exit_pending", "closed", "cancelled"]
+PositionStatus = Literal[
+    "planned",
+    "open",
+    "reduce",
+    "exit_pending",
+    "closed",
+    "cancelled",
+    "review_needed",
+]
 GuardrailLevel = Literal["block", "warning", "info"]
 NotificationSeverity = Literal["info", "warning", "action_required"]
 NotificationChannel = Literal["in_app", "email", "sms"]
 AutomationJobType = Literal["market_refresh_scan"]
 JobRunStatus = Literal["running", "succeeded", "failed"]
+ExecutionImportStatus = Literal["completed", "partial", "failed"]
+ExecutionFillSide = Literal["buy", "sell"]
 
 
 class AccountRiskSettingsBase(BaseModel):
@@ -441,6 +451,68 @@ class JournalTrade(JournalTradeBase):
     model_config = ConfigDict(from_attributes=True)
 
     trade_id: str
+
+
+class ExecutionImport(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    import_id: str
+    account_id: str
+    broker: str
+    source_filename: str | None = None
+    status: ExecutionImportStatus
+    rows_total: int = 0
+    rows_imported: int = 0
+    rows_skipped: int = 0
+    rows_failed: int = 0
+    error_message: str | None = None
+    metadata_json: dict[str, Any] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ExecutionFill(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    fill_id: str
+    import_id: str
+    account_id: str
+    position_id: str | None = None
+    idempotency_key: str
+    broker: str
+    broker_account_id: str | None = None
+    broker_order_id: str | None = None
+    broker_execution_id: str | None = None
+    symbol_id: str
+    asset_type: str
+    side: ExecutionFillSide
+    quantity: float
+    price: float
+    gross_amount: float | None = None
+    fees: float | None = None
+    net_amount: float | None = None
+    currency: str | None = None
+    executed_at: datetime
+    raw_row_json: dict[str, Any] | None = None
+    created_at: datetime | None = None
+
+
+class ExecutionCSVImportRequest(BaseModel):
+    broker: str = Field(default="edgepilot_generic_csv", min_length=1)
+    source_filename: str | None = None
+    csv_text: str = Field(..., min_length=1)
+
+
+class ExecutionImportError(BaseModel):
+    row_number: int
+    message: str
+    raw_row: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExecutionImportResult(BaseModel):
+    import_record: ExecutionImport
+    fills: list[ExecutionFill] = Field(default_factory=list)
+    errors: list[ExecutionImportError] = Field(default_factory=list)
 
 
 class PositionCloseResponse(BaseModel):

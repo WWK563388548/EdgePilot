@@ -7,6 +7,7 @@ import {
   BarChart3,
   BookOpen,
   BriefcaseBusiness,
+  FileUp,
   ListChecks,
   Settings,
   ShieldCheck,
@@ -18,6 +19,7 @@ import { AuthScreen } from "@/components/workspace/auth-screen";
 import { AutomationView } from "@/components/workspace/automation-view";
 import { CandidatesView, type CandidateDecisionFilter } from "@/components/workspace/candidates-view";
 import { DataState } from "@/components/workspace/atoms/data-state";
+import { ExecutionImportView } from "@/components/workspace/organisms/execution-import-view";
 import { OverviewView } from "@/components/workspace/overview-view";
 import { OutcomesView } from "@/components/workspace/outcomes-view";
 import { PALabView } from "@/components/workspace/pa-lab-view";
@@ -39,6 +41,7 @@ const views: WorkspaceNavItem[] = [
   { id: "positions", labelKey: "positions", icon: BriefcaseBusiness },
   { id: "alerts", labelKey: "alerts", icon: AlertTriangle },
   { id: "automation", labelKey: "automation", icon: Workflow },
+  { id: "execution", labelKey: "executionImport", icon: FileUp },
   { id: "journal", labelKey: "journal", icon: BookOpen },
   { id: "settings", labelKey: "settings", icon: Settings }
 ];
@@ -303,6 +306,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
           />
         )}
         {view === "automation" && <AutomationView locale={locale} />}
+        {view === "execution" && <ExecutionImportView locale={locale} />}
         {view === "journal" && (
           <JournalTable
             data={journalRows}

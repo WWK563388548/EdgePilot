@@ -290,9 +290,9 @@ class AuthService:
                 "market": "multi",
                 "asset_type": "multi",
                 "timeframe": None,
-                "status": "disabled",
-                "source": "planned",
-                "reason": "CSV execution import is planned for the next implementation phase",
+                "status": "available",
+                "source": "app",
+                "reason": None,
             },
             {
                 "capability_key": "notifications.in_app",

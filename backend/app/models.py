@@ -668,6 +668,66 @@ class TradeJournal(Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
 
+class ExecutionImport(Base):
+    __tablename__ = "execution_imports"
+    __table_args__ = (
+        Index("idx_execution_imports_account_created", "account_id", "created_at"),
+        Index("idx_execution_imports_account_status", "account_id", "status", "created_at"),
+    )
+
+    import_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    broker: Mapped[str] = mapped_column(Text)
+    source_filename: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    rows_total: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    rows_imported: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    rows_skipped: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    rows_failed: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class ExecutionFill(Base):
+    __tablename__ = "execution_fills"
+    __table_args__ = (
+        Index("idx_execution_fills_account_executed", "account_id", "executed_at"),
+        Index("idx_execution_fills_account_symbol", "account_id", "symbol_id", "executed_at"),
+        Index("idx_execution_fills_position", "position_id", "executed_at"),
+        Index("idx_execution_fills_idempotency", "idempotency_key", unique=True),
+    )
+
+    fill_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    import_id: Mapped[str] = mapped_column(ForeignKey("execution_imports.import_id"))
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    position_id: Mapped[str | None] = mapped_column(Text)
+    idempotency_key: Mapped[str] = mapped_column(Text)
+    broker: Mapped[str] = mapped_column(Text)
+    broker_account_id: Mapped[str | None] = mapped_column(Text)
+    broker_order_id: Mapped[str | None] = mapped_column(Text)
+    broker_execution_id: Mapped[str | None] = mapped_column(Text)
+    symbol_id: Mapped[str] = mapped_column(Text)
+    asset_type: Mapped[str] = mapped_column(Text)
+    side: Mapped[str] = mapped_column(Text)
+    quantity: Mapped[float] = mapped_column(Float)
+    price: Mapped[float] = mapped_column(Float)
+    gross_amount: Mapped[float | None] = mapped_column(Float)
+    fees: Mapped[float | None] = mapped_column(Float)
+    net_amount: Mapped[float | None] = mapped_column(Float)
+    currency: Mapped[str | None] = mapped_column(Text)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    raw_row_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class PortfolioSnapshot(Base):
     __tablename__ = "portfolio_snapshots"
     __table_args__ = (PrimaryKeyConstraint("account_id", "ts"),)

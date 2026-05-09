@@ -219,6 +219,58 @@ ON trades_journal (account_id, entry_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_journal_account_symbol
 ON trades_journal (account_id, symbol_id);
 
+CREATE TABLE IF NOT EXISTS execution_imports (
+    import_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
+    broker TEXT NOT NULL,
+    source_filename TEXT,
+    status TEXT NOT NULL,
+    rows_total INTEGER DEFAULT 0,
+    rows_imported INTEGER DEFAULT 0,
+    rows_skipped INTEGER DEFAULT 0,
+    rows_failed INTEGER DEFAULT 0,
+    error_message TEXT,
+    metadata_json JSONB,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_execution_imports_account_created
+ON execution_imports (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_imports_account_status
+ON execution_imports (account_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS execution_fills (
+    fill_id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL REFERENCES execution_imports(import_id),
+    account_id TEXT NOT NULL REFERENCES accounts(account_id),
+    position_id TEXT,
+    idempotency_key TEXT NOT NULL,
+    broker TEXT NOT NULL,
+    broker_account_id TEXT,
+    broker_order_id TEXT,
+    broker_execution_id TEXT,
+    symbol_id TEXT NOT NULL,
+    asset_type TEXT NOT NULL,
+    side TEXT NOT NULL,
+    quantity DOUBLE PRECISION NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    gross_amount DOUBLE PRECISION,
+    fees DOUBLE PRECISION,
+    net_amount DOUBLE PRECISION,
+    currency TEXT,
+    executed_at TIMESTAMPTZ NOT NULL,
+    raw_row_json JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_execution_fills_account_executed
+ON execution_fills (account_id, executed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_fills_account_symbol
+ON execution_fills (account_id, symbol_id, executed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_fills_position
+ON execution_fills (position_id, executed_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_fills_idempotency
+ON execution_fills (idempotency_key);
+
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
     ts TIMESTAMPTZ NOT NULL,
     account_id TEXT NOT NULL,
