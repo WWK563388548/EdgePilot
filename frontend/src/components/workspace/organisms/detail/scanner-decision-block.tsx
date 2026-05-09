@@ -34,6 +34,8 @@ export function ScannerDecisionBlock({
   const triggerPrice = numberFromRecord(record, "trigger_price");
   const initialStop = numberFromRecord(record, "initial_stop");
   const validationStatus = stringFromRecord(record, "validation_status");
+  const metrics = recordFromRecord(record, "metrics");
+  const entryMode = metrics ? stringFromRecord(metrics, "entry_mode") : null;
   const passedRules = recordListFromRecord(record, "passed_rules");
   const failedRules = recordListFromRecord(record, "failed_rules");
   const watchReasons = stringListFromRecord(record, "watch_reasons");
@@ -59,7 +61,7 @@ export function ScannerDecisionBlock({
           : t("scannerDecisionWatch", { score: formatNumber(totalScore, 1, locale) })}
       </p>
 
-      <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         <DecisionMetric
           icon={<BadgeCheck size={16} />}
           label={t("decision")}
@@ -80,6 +82,13 @@ export function ScannerDecisionBlock({
           label={t("stop")}
           value={`${formatNumber(initialStop, 2, locale)} · ${labelFor("status", validationStatus)}`}
         />
+        {entryMode ? (
+          <DecisionMetric
+            icon={<GitBranch size={16} />}
+            label={t("entryMode")}
+            value={labelFor("plan", entryMode)}
+          />
+        ) : null}
       </div>
 
       {stratConfirmation ? (
@@ -291,6 +300,7 @@ const SCANNER_DECISION_TEXT_KEYS: Record<string, string> = {
   pullback_volume_quiet: "rulePullbackVolumeQuiet",
   reclaim_50ma: "ruleReclaim50ma",
   reclaim_volume_confirmed: "ruleReclaimVolumeConfirmed",
+  reclaim_after_pullback: "conditionReclaimAfterPullback",
   relative_strength_lagging: "ruleRelativeStrengthLagging",
   relative_strength_leader: "ruleRelativeStrengthLeader",
   risk_contained: "ruleRiskContained",
@@ -298,6 +308,23 @@ const SCANNER_DECISION_TEXT_KEYS: Record<string, string> = {
   rs_not_leading: "ruleRsNotLeading",
   rs_top_quartile: "ruleRsTopQuartile",
   score_below_candidate: "reasonScoreBelowCandidate",
+  do_not_chase_overextended_rotation: "riskDoNotChaseOverextendedRotation",
+  medium_momentum_reasserts: "conditionMediumMomentumReasserts",
+  one_month_overextension: "riskOneMonthOverextension",
+  pullback_to_20ma_or_reclaim: "conditionPullbackTo20maOrReclaim",
+  respect_strategy_entry_mode: "conditionRespectStrategyEntryMode",
+  rotation_12m_lagging: "ruleRotation12mLagging",
+  rotation_12m_support: "ruleRotation12mSupport",
+  rotation_benchmark_rs_lagging: "ruleRotationBenchmarkRsLagging",
+  rotation_benchmark_rs_leader: "ruleRotationBenchmarkRsLeader",
+  rotation_breakout_allowed: "ruleRotationBreakoutAllowed",
+  rotation_healthy_pullback: "ruleRotationHealthyPullback",
+  rotation_medium_momentum_leader: "ruleRotationMediumMomentumLeader",
+  rotation_medium_momentum_weak: "ruleRotationMediumMomentumWeak",
+  rotation_one_month_overextended: "ruleRotationOneMonthOverextended",
+  rotation_pullback_required: "reasonRotationPullbackRequired",
+  rotation_retest_required: "reasonRotationRetestRequired",
+  rotation_watch_only: "reasonRotationWatchOnly",
   setup_location: "ruleSetupLocation",
   setup_location_unclear: "ruleSetupLocationUnclear",
   shadow_only: "reasonShadowOnly",

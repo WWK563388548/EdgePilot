@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from backend.app.api.dependencies import DbSession, require_ingestion_admin
 from backend.app.schemas.common import CountResponse
 from backend.app.schemas.pa import (
+    ETFRotationScannerRequest,
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
     ETFUniverseFactsRequest,
@@ -191,5 +192,16 @@ def run_us_etf_oneil_core_scanner(
 ) -> ETFOneilScannerResponse:
     try:
         return ETFScannerService.run_us_etf_oneil_core(request or ETFOneilScannerRequest())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/scanners/us-etf/rotation", response_model=ETFOneilScannerResponse)
+def run_us_etf_rotation_scanner(
+    request: ETFRotationScannerRequest | None = None,
+    _admin: IngestionAdmin = None,
+) -> ETFOneilScannerResponse:
+    try:
+        return ETFScannerService.run_us_etf_rotation(request or ETFRotationScannerRequest())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

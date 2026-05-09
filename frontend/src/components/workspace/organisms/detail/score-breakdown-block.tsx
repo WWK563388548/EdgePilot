@@ -12,10 +12,28 @@ export function ScoreBreakdownBlock({
   locale: Locale;
 }) {
   const { scoreMeta, t } = useAppI18n();
-  const order = ["total", "trend", "relative_strength", "volume_liquidity", "base_setup", "market_context", "fundamental_lite"];
+  const order = [
+    "total",
+    "momentum_6m",
+    "momentum_3m",
+    "momentum_12m",
+    "trend",
+    "benchmark_relative_strength",
+    "overextension_penalty",
+    "relative_strength",
+    "volume_liquidity",
+    "base_setup",
+    "market_context",
+    "fundamental_lite"
+  ];
   const maxScoreByKey: Record<string, number> = {
     total: 100,
     trend: 25,
+    momentum_6m: 30,
+    momentum_3m: 30,
+    momentum_12m: 15,
+    benchmark_relative_strength: 10,
+    overextension_penalty: 20,
     relative_strength: 25,
     volume_liquidity: 15,
     base_setup: 15,

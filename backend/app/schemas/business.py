@@ -552,6 +552,7 @@ class PositionCloseResponse(BaseModel):
 
 class AutomationJobRunRequest(BaseModel):
     symbols: list[str] | None = None
+    strategy_name: str = "oneil_core_us_etf"
     min_score: float = Field(default=60.0, ge=0, le=100)
     max_candidates: int = Field(default=25, ge=1, le=200)
     refresh_market_data: bool = True
@@ -564,6 +565,7 @@ class AutomationJobRunRequest(BaseModel):
     def normalize_symbols(self) -> "AutomationJobRunRequest":
         if self.symbols is not None:
             self.symbols = [symbol.strip().upper() for symbol in self.symbols if symbol.strip()]
+        self.strategy_name = self.strategy_name.strip() or "oneil_core_us_etf"
         return self
 
 

@@ -57,7 +57,9 @@ from backend.app.schemas.ingestion import (
     ETFUniverseSeedResponse,
 )
 from backend.app.schemas.pa import (
+    AccountETFRotationScannerRequest,
     AccountETFOneilScannerRequest,
+    ETFRotationScannerRequest,
     ETFOneilScannerRequest,
     ETFOneilScannerResponse,
 )
@@ -83,6 +85,7 @@ from backend.app.services.scanner_service import ETFScannerService
 from backend.app.services.strat_service import StratService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
+ETF_ROTATION_US_ETF_STRATEGY = "etf_rotation_us_etf"
 
 
 def _average(values) -> float | None:
@@ -290,10 +293,15 @@ class BusinessService:
         session: Session,
         principal: AuthPrincipal,
         decision: str | None = None,
+        strategy_name: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Candidate]:
-        statement = BusinessService._candidate_list_statement(principal=principal, decision=decision)
+        statement = BusinessService._candidate_list_statement(
+            principal=principal,
+            decision=decision,
+            strategy_name=strategy_name,
+        )
         rows = session.scalars(
             statement.order_by(db.Candidate.scan_date.desc(), db.Candidate.created_at.desc())
             .offset(offset)
@@ -306,8 +314,13 @@ class BusinessService:
         session: Session,
         principal: AuthPrincipal,
         decision: str | None = None,
+        strategy_name: str | None = None,
     ) -> int:
-        statement = BusinessService._candidate_list_statement(principal=principal, decision=decision)
+        statement = BusinessService._candidate_list_statement(
+            principal=principal,
+            decision=decision,
+            strategy_name=strategy_name,
+        )
         return session.scalar(select(func.count()).select_from(statement.subquery())) or 0
 
     @staticmethod
@@ -315,10 +328,13 @@ class BusinessService:
         *,
         principal: AuthPrincipal,
         decision: str | None = None,
+        strategy_name: str | None = None,
     ):
         statement = select(db.Candidate).where(db.Candidate.account_id == principal.account_id)
         if decision:
             statement = statement.where(db.Candidate.decision == decision)
+        if strategy_name:
+            statement = statement.where(db.Candidate.strategy_name == strategy_name.strip())
         return statement
 
     @staticmethod
@@ -327,7 +343,11 @@ class BusinessService:
         principal: AuthPrincipal,
         request: AccountETFOneilScannerRequest,
     ) -> ETFOneilScannerResponse:
-        BusinessService._delete_account_oneil_candidates_and_outcomes(session, principal)
+        BusinessService._delete_account_strategy_candidates_and_outcomes(
+            session,
+            principal,
+            ONEIL_CORE_US_ETF_STRATEGY,
+        )
         response = ETFScannerService.run_us_etf_oneil_core_for_session(
             session,
             ETFOneilScannerRequest(
@@ -371,13 +391,72 @@ class BusinessService:
         return response
 
     @staticmethod
+    def run_account_etf_rotation_scanner(
+        session: Session,
+        principal: AuthPrincipal,
+        request: AccountETFRotationScannerRequest,
+    ) -> ETFOneilScannerResponse:
+        BusinessService._delete_account_strategy_candidates_and_outcomes(
+            session,
+            principal,
+            ETF_ROTATION_US_ETF_STRATEGY,
+        )
+        response = ETFScannerService.run_us_etf_rotation_for_session(
+            session,
+            ETFRotationScannerRequest(
+                symbols=request.symbols,
+                timeframe=request.timeframe,
+                account_id=principal.account_id,
+                min_score=request.min_score,
+                max_candidates=request.max_candidates,
+                recalculate_facts=request.recalculate_facts,
+                benchmark_symbol=request.benchmark_symbol,
+            ),
+        )
+        BusinessService._create_notification_event(
+            session,
+            principal,
+            event_type="scanner_candidates_updated",
+            severity="info",
+            source_type="scanner",
+            source_id=None,
+            title="ETF rotation candidates updated",
+            body=f"{response.candidates_written} ETF rotation candidates were generated.",
+            target_view="candidates",
+            target_id=None,
+            metadata_json={
+                "strategy_name": ETF_ROTATION_US_ETF_STRATEGY,
+                "candidates_written": response.candidates_written,
+                "decision_counts": response.decision_counts,
+                "latest_scan_date": response.latest_scan_date.isoformat()
+                if response.latest_scan_date
+                else None,
+                "source": "manual_scan",
+                "benchmark_symbol": request.benchmark_symbol,
+            },
+        )
+        BusinessService._audit(
+            session,
+            principal,
+            "candidate.scan",
+            "scanner",
+            ETF_ROTATION_US_ETF_STRATEGY,
+        )
+        session.commit()
+        return response
+
+    @staticmethod
     def refresh_account_oneil_core_universe(
         session: Session,
         principal: AuthPrincipal,
         request: AccountETFUniverseRefreshRequest,
     ) -> ETFUniverseSeedResponse:
         client, data_source = DataSourceService.polygon_client_for_tenant(session, principal)
-        BusinessService._delete_account_oneil_candidates_and_outcomes(session, principal)
+        BusinessService._delete_account_strategy_candidates_and_outcomes(
+            session,
+            principal,
+            ONEIL_CORE_US_ETF_STRATEGY,
+        )
         response = ETFSeedService.seed_us_etf_universe_for_session(
             session=session,
             client=client,
@@ -442,6 +521,109 @@ class BusinessService:
             "candidate.refresh_scan",
             "scanner",
             ONEIL_CORE_US_ETF_STRATEGY,
+        )
+        session.commit()
+        return response
+
+    @staticmethod
+    def refresh_account_etf_rotation_universe(
+        session: Session,
+        principal: AuthPrincipal,
+        request: AccountETFUniverseRefreshRequest,
+    ) -> ETFUniverseSeedResponse:
+        client, data_source = DataSourceService.polygon_client_for_tenant(session, principal)
+        BusinessService._delete_account_strategy_candidates_and_outcomes(
+            session,
+            principal,
+            ETF_ROTATION_US_ETF_STRATEGY,
+        )
+        seed_response = ETFSeedService.seed_us_etf_universe_for_session(
+            session=session,
+            client=client,
+            request=ETFUniverseSeedRequest(
+                symbols=request.symbols,
+                from_date=request.from_date,
+                to_date=request.to_date,
+                timeframe=request.timeframe,
+                lookback_days=request.lookback_days,
+                account_id=principal.account_id,
+                run_pa_facts=True,
+                run_scanner=False,
+                min_score=request.min_score,
+                max_candidates=request.max_candidates,
+            ),
+        )
+        scanner_response = ETFScannerService.run_us_etf_rotation_for_session(
+            session,
+            ETFRotationScannerRequest(
+                symbols=seed_response.symbols_requested,
+                timeframe=request.timeframe,
+                account_id=principal.account_id,
+                min_score=request.min_score,
+                max_candidates=request.max_candidates,
+                recalculate_facts=False,
+            ),
+        )
+        success_count = sum(1 for row in seed_response.symbol_results if row.status == "success")
+        failure_messages = [
+            f"{row.symbol}: {row.error_message}"
+            for row in seed_response.symbol_results
+            if row.status != "success" and row.error_message
+        ]
+        DataSourceService.record_polygon_refresh_result(
+            session,
+            principal.tenant_id,
+            success_count=success_count,
+            failure_count=len(seed_response.symbol_results) - success_count,
+            error_summary="; ".join(failure_messages[:3]) or None,
+        )
+        response = seed_response.model_copy(
+            update={
+                "facts_written": seed_response.facts_written + scanner_response.facts_written,
+                "setups_written": scanner_response.setups_written,
+                "candidates_written": scanner_response.candidates_written,
+                "decision_counts": scanner_response.decision_counts,
+                "latest_scan_date": scanner_response.latest_scan_date,
+                "latest_bar_date": scanner_response.latest_bar_date or seed_response.latest_bar_date,
+                "skipped_symbols": scanner_response.skipped_symbols,
+                "candidates": scanner_response.candidates,
+            }
+        )
+        BusinessService._create_notification_event(
+            session,
+            principal,
+            event_type="scanner_candidates_updated",
+            severity="info",
+            source_type="scanner",
+            source_id=None,
+            title="ETF rotation candidates updated",
+            body=f"{response.candidates_written} ETF rotation candidates were generated after market refresh.",
+            target_view="candidates",
+            target_id=None,
+            metadata_json={
+                "strategy_name": ETF_ROTATION_US_ETF_STRATEGY,
+                "candidates_written": response.candidates_written,
+                "decision_counts": response.decision_counts,
+                "latest_scan_date": response.latest_scan_date.isoformat()
+                if response.latest_scan_date
+                else None,
+                "latest_bar_date": response.latest_bar_date.isoformat()
+                if response.latest_bar_date
+                else None,
+                "source": "market_refresh_scan",
+                "data_source": data_source.metadata(),
+                "symbols_requested": response.symbols_requested,
+                "symbols_succeeded": success_count,
+                "symbols_failed": len(seed_response.symbol_results) - success_count,
+                "error_summary": "; ".join(failure_messages[:3]) or None,
+            },
+        )
+        BusinessService._audit(
+            session,
+            principal,
+            "candidate.refresh_scan",
+            "scanner",
+            ETF_ROTATION_US_ETF_STRATEGY,
         )
         session.commit()
         return response
@@ -1054,9 +1236,21 @@ class BusinessService:
         session: Session,
         principal: AuthPrincipal,
     ) -> None:
+        BusinessService._delete_account_strategy_candidates_and_outcomes(
+            session,
+            principal,
+            ONEIL_CORE_US_ETF_STRATEGY,
+        )
+
+    @staticmethod
+    def _delete_account_strategy_candidates_and_outcomes(
+        session: Session,
+        principal: AuthPrincipal,
+        strategy_name: str,
+    ) -> None:
         candidate_ids = select(db.Candidate.candidate_id).where(
             db.Candidate.account_id == principal.account_id,
-            db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
+            db.Candidate.strategy_name == strategy_name,
         )
         session.execute(
             delete(db.ScannerOutcome).where(db.ScannerOutcome.candidate_id.in_(candidate_ids))
@@ -1064,7 +1258,7 @@ class BusinessService:
         session.execute(
             delete(db.Candidate).where(
                 db.Candidate.account_id == principal.account_id,
-                db.Candidate.strategy_name == ONEIL_CORE_US_ETF_STRATEGY,
+                db.Candidate.strategy_name == strategy_name,
             )
         )
 

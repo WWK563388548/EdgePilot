@@ -14,11 +14,12 @@ from backend.app.schemas.business import (
 )
 from backend.app.schemas.ingestion import AccountETFUniverseRefreshRequest
 from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest
-from backend.app.schemas.pa import AccountETFOneilScannerRequest
+from backend.app.schemas.pa import AccountETFRotationScannerRequest, AccountETFOneilScannerRequest
 from backend.app.services.audit_service import AuditService
 from backend.app.services.data_source_service import DataSourceService
 
 ONEIL_CORE_US_ETF_STRATEGY = "oneil_core_us_etf"
+ETF_ROTATION_US_ETF_STRATEGY = "etf_rotation_us_etf"
 
 
 class JobRunService:
@@ -47,17 +48,30 @@ class JobRunService:
 
         steps: list[dict[str, Any]] = []
         records_written = 0
+        strategy_name = request.strategy_name or ETF_ROTATION_US_ETF_STRATEGY
+        if strategy_name not in {ETF_ROTATION_US_ETF_STRATEGY, ONEIL_CORE_US_ETF_STRATEGY}:
+            strategy_name = ONEIL_CORE_US_ETF_STRATEGY
         try:
             if request.refresh_market_data:
-                refresh_response = BusinessService.refresh_account_oneil_core_universe(
-                    session,
-                    principal,
-                    AccountETFUniverseRefreshRequest(
-                        symbols=request.symbols,
-                        min_score=request.min_score,
-                        max_candidates=request.max_candidates,
-                    ),
+                refresh_request = AccountETFUniverseRefreshRequest(
+                    symbols=request.symbols,
+                    min_score=request.min_score,
+                    max_candidates=request.max_candidates,
                 )
+                if strategy_name == ETF_ROTATION_US_ETF_STRATEGY:
+                    refresh_response = BusinessService.refresh_account_etf_rotation_universe(
+                        session,
+                        principal,
+                        refresh_request,
+                    )
+                    step_name = "etf_rotation_refresh_scan"
+                else:
+                    refresh_response = BusinessService.refresh_account_oneil_core_universe(
+                        session,
+                        principal,
+                        refresh_request,
+                    )
+                    step_name = "market_refresh_scan"
                 records_written += (
                     refresh_response.bars_written
                     + refresh_response.facts_written
@@ -82,9 +96,10 @@ class JobRunService:
                 )
                 steps.append(
                     {
-                        "name": "market_refresh_scan",
+                        "name": step_name,
                         "status": "succeeded",
                         "summary": {
+                            "strategy_name": strategy_name,
                             "bars_written": refresh_response.bars_written,
                             "facts_written": refresh_response.facts_written,
                             "setups_written": refresh_response.setups_written,
@@ -110,16 +125,30 @@ class JobRunService:
                     }
                 )
             else:
-                scanner_response = BusinessService.run_account_oneil_core_scanner(
-                    session,
-                    principal,
-                    AccountETFOneilScannerRequest(
-                        symbols=request.symbols,
-                        min_score=request.min_score,
-                        max_candidates=request.max_candidates,
-                        recalculate_facts=True,
-                    ),
-                )
+                if strategy_name == ETF_ROTATION_US_ETF_STRATEGY:
+                    scanner_response = BusinessService.run_account_etf_rotation_scanner(
+                        session,
+                        principal,
+                        AccountETFRotationScannerRequest(
+                            symbols=request.symbols,
+                            min_score=request.min_score,
+                            max_candidates=request.max_candidates,
+                            recalculate_facts=True,
+                        ),
+                    )
+                    step_name = "etf_rotation_scan"
+                else:
+                    scanner_response = BusinessService.run_account_oneil_core_scanner(
+                        session,
+                        principal,
+                        AccountETFOneilScannerRequest(
+                            symbols=request.symbols,
+                            min_score=request.min_score,
+                            max_candidates=request.max_candidates,
+                            recalculate_facts=True,
+                        ),
+                    )
+                    step_name = "oneil_core_scan"
                 records_written += (
                     scanner_response.facts_written
                     + scanner_response.setups_written
@@ -127,9 +156,10 @@ class JobRunService:
                 )
                 steps.append(
                     {
-                        "name": "oneil_core_scan",
+                        "name": step_name,
                         "status": "succeeded",
                         "summary": {
+                            "strategy_name": strategy_name,
                             "facts_written": scanner_response.facts_written,
                             "setups_written": scanner_response.setups_written,
                             "candidates_written": scanner_response.candidates_written,
@@ -149,7 +179,7 @@ class JobRunService:
                     session,
                     principal,
                     ScannerOutcomeRecalculateRequest(
-                        strategy_name=ONEIL_CORE_US_ETF_STRATEGY,
+                        strategy_name=strategy_name,
                         limit=request.outcome_limit,
                     ),
                 )
@@ -204,7 +234,7 @@ class JobRunService:
                     {
                         "name": "market_refresh_scan"
                         if request.refresh_market_data
-                        else "oneil_core_scan",
+                        else strategy_name,
                         "status": "failed",
                         "summary": {
                             "error": str(exc),

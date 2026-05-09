@@ -49,7 +49,11 @@ from backend.app.schemas.outcome import (
     ScannerOutcomeRecalculateResponse,
     ScannerOutcomeSummary,
 )
-from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
+from backend.app.schemas.pa import (
+    AccountETFRotationScannerRequest,
+    AccountETFOneilScannerRequest,
+    ETFOneilScannerResponse,
+)
 from backend.app.services.business_service import BusinessService
 from backend.app.services.execution_import_service import ExecutionImportService
 
@@ -277,6 +281,7 @@ def list_candidates(
     session: DbSession,
     principal: VerifiedPrincipal,
     decision: str | None = None,
+    strategy_name: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[Candidate]:
@@ -284,6 +289,7 @@ def list_candidates(
         session=session,
         principal=principal,
         decision=decision,
+        strategy_name=strategy_name,
         limit=limit,
         offset=offset,
     )
@@ -294,12 +300,14 @@ def count_candidates(
     session: DbSession,
     principal: VerifiedPrincipal,
     decision: str | None = None,
+    strategy_name: str | None = None,
 ) -> CountResponse:
     return CountResponse(
         total=BusinessService.count_candidates(
             session=session,
             principal=principal,
             decision=decision,
+            strategy_name=strategy_name,
         )
     )
 
@@ -334,6 +342,44 @@ def refresh_account_us_etf_oneil_core_scanner(
 ) -> ETFUniverseSeedResponse:
     try:
         return BusinessService.refresh_account_oneil_core_universe(
+            session=session,
+            principal=principal,
+            request=request or AccountETFUniverseRefreshRequest(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/candidates/scanners/us-etf/rotation",
+    response_model=ETFOneilScannerResponse,
+)
+def run_account_us_etf_rotation_scanner(
+    session: DbSession,
+    principal: TraderPrincipal,
+    request: AccountETFRotationScannerRequest | None = None,
+) -> ETFOneilScannerResponse:
+    try:
+        return BusinessService.run_account_etf_rotation_scanner(
+            session=session,
+            principal=principal,
+            request=request or AccountETFRotationScannerRequest(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/candidates/scanners/us-etf/rotation/refresh",
+    response_model=ETFUniverseSeedResponse,
+)
+def refresh_account_us_etf_rotation_scanner(
+    session: DbSession,
+    principal: TraderPrincipal,
+    request: AccountETFUniverseRefreshRequest | None = None,
+) -> ETFUniverseSeedResponse:
+    try:
+        return BusinessService.refresh_account_etf_rotation_universe(
             session=session,
             principal=principal,
             request=request or AccountETFUniverseRefreshRequest(),

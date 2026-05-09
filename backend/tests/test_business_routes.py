@@ -252,12 +252,12 @@ def test_candidate_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.BusinessService,
         "list_candidates",
-        lambda session, principal, decision, limit, offset: [_candidate()],
+        lambda session, principal, decision, strategy_name, limit, offset: [_candidate()],
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "count_candidates",
-        lambda session, principal, decision: 1,
+        lambda session, principal, decision, strategy_name: 1,
     )
     monkeypatch.setattr(
         business_route.BusinessService,

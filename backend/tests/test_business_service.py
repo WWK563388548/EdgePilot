@@ -156,6 +156,50 @@ def test_candidate_queries_can_filter_by_decision(session) -> None:
     assert BusinessService.count_candidates(session, principal, decision="candidate") == 1
 
 
+def test_candidate_queries_can_filter_by_strategy(session) -> None:
+    principal = _principal("user_a", "acct_a")
+
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_rotation",
+            symbol_id="SPY",
+            scan_date=date(2026, 4, 26),
+            strategy_name="etf_rotation_us_etf",
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_oneil",
+            symbol_id="QQQ",
+            scan_date=date(2026, 4, 26),
+            strategy_name="oneil_core_us_etf",
+            decision="candidate",
+        ),
+    )
+
+    assert [
+        row.candidate_id
+        for row in BusinessService.list_candidates(
+            session,
+            principal,
+            strategy_name="etf_rotation_us_etf",
+        )
+    ] == ["cand_rotation"]
+    assert (
+        BusinessService.count_candidates(
+            session,
+            principal,
+            strategy_name="oneil_core_us_etf",
+        )
+        == 1
+    )
+
+
 def test_candidate_queries_support_offset_pagination(session) -> None:
     principal = _principal("user_a", "acct_a")
     for index, symbol in enumerate(("AAA", "BBB", "CCC")):
