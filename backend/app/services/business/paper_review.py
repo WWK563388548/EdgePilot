@@ -92,17 +92,17 @@ class BusinessPaperReviewMixin:
             (db.Position.status == "reduce", 4),
             else_=5,
         )
-        positions = session.scalars(
+        all_positions = session.scalars(
             select(db.Position)
             .where(
                 db.Position.account_id == principal.account_id,
                 db.Position.status.in_(ACTIVE_REVIEW_STATUSES),
             )
             .order_by(status_rank, db.Position.updated_at.desc())
-            .limit(limit)
         ).all()
+        visible_positions = all_positions[:limit]
 
-        position_ids = [position.position_id for position in positions]
+        position_ids = [position.position_id for position in all_positions]
         alerts_by_position: dict[str, list[db.ExitAlert]] = defaultdict(list)
         if position_ids:
             now = datetime.now(UTC)
@@ -122,7 +122,7 @@ class BusinessPaperReviewMixin:
         candidate_ids = {
             candidate_id
             for candidate_id in (
-                _candidate_id_from_position(position.position_id) for position in positions
+                _candidate_id_from_position(position.position_id) for position in visible_positions
             )
             if candidate_id is not None
         }
@@ -151,7 +151,8 @@ class BusinessPaperReviewMixin:
         action_counts: Counter[str] = Counter()
         open_alert_count = 0
         high_priority_alert_count = 0
-        for position in positions:
+        next_action_by_position: dict[str, tuple[str, str]] = {}
+        for position in all_positions:
             position_alerts = alerts_by_position.get(position.position_id, [])
             latest_alert = position_alerts[0] if position_alerts else None
             open_alert_count += len(position_alerts)
@@ -159,7 +160,13 @@ class BusinessPaperReviewMixin:
                 1 for alert in position_alerts if (alert.level or 0) >= 3
             )
             action, reason = _next_action(position, latest_alert)
+            next_action_by_position[position.position_id] = (action, reason)
             action_counts[action] += 1
+
+        for position in visible_positions:
+            position_alerts = alerts_by_position.get(position.position_id, [])
+            latest_alert = position_alerts[0] if position_alerts else None
+            action, reason = next_action_by_position[position.position_id]
 
             candidate_id = _candidate_id_from_position(position.position_id)
             candidate = candidates_by_id.get(candidate_id or "")
@@ -198,12 +205,14 @@ class BusinessPaperReviewMixin:
         return PaperReviewSummary(
             account_id=principal.account_id,
             generated_at=datetime.now(UTC),
-            total_positions=len(positions),
-            planned_count=sum(1 for position in positions if position.status == "planned"),
-            open_count=sum(1 for position in positions if position.status == "open"),
-            reduced_count=sum(1 for position in positions if position.status == "reduce"),
+            total_positions=len(all_positions),
+            planned_count=sum(1 for position in all_positions if position.status == "planned"),
+            open_count=sum(1 for position in all_positions if position.status == "open"),
+            reduced_count=sum(1 for position in all_positions if position.status == "reduce"),
             review_needed_count=sum(
-                1 for position in positions if position.status in {"review_needed", "exit_pending"}
+                1
+                for position in all_positions
+                if position.status in {"review_needed", "exit_pending"}
             ),
             open_alert_count=open_alert_count,
             high_priority_alert_count=high_priority_alert_count,

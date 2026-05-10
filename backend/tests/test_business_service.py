@@ -2819,3 +2819,49 @@ def test_paper_review_summary_prioritizes_operator_next_actions(session) -> None
     assert rotation_row.max_20d_lottery_risk == "high"
     assert rotation_row.latest_alert is not None
     assert open_row.next_action == "evaluate_alerts"
+
+
+def test_paper_review_summary_counts_all_positions_before_limit(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    for index, status in enumerate(("planned", "open", "reduce"), start=1):
+        BusinessService.create_position(
+            session,
+            principal,
+            PositionCreate(
+                position_id=f"pos_review_limit_{index}",
+                symbol_id=f"ETF{index}",
+                asset_type="etf",
+                strategy_name="etf_rotation_us_etf",
+                entry_price=100 + index,
+                quantity=1,
+                initial_stop=95,
+                current_stop=96,
+                status=status,
+            ),
+        )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_review_limit_open",
+            position_id="pos_review_limit_2",
+            level=4,
+            action="exit",
+            reason="daily_close_below_current_stop",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal, limit=1)
+
+    assert len(summary.positions) == 1
+    assert summary.total_positions == 3
+    assert summary.planned_count == 1
+    assert summary.open_count == 1
+    assert summary.reduced_count == 1
+    assert summary.open_alert_count == 1
+    assert summary.high_priority_alert_count == 1
+    assert summary.action_counts == {
+        "wait_for_entry": 1,
+        "review_alert": 1,
+        "review_reduced_position": 1,
+    }
