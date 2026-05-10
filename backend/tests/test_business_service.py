@@ -1661,6 +1661,58 @@ def test_candidate_plan_blocks_manual_quantity_above_volatility_adjusted_size(se
     }
 
 
+def test_candidate_plan_preview_surfaces_max20d_warning_without_blocking(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_xle_max20d",
+            symbol_id="XLE",
+            scan_date=date(2026, 4, 26),
+            strategy_name="etf_rotation_us_etf",
+            setup_type="etf_rotation_leader",
+            decision="candidate",
+            entry_trigger=100,
+            initial_stop=92,
+        ),
+    )
+    session.add(
+        db.PAFact(
+            fact_id="pafact_xle_1d_2026-04-26",
+            symbol_id="XLE",
+            timeframe="1d",
+            ts=datetime(2026, 4, 26, tzinfo=UTC),
+            facts={
+                "max_20d_return": 0.095,
+                "max_20d_lottery_risk": "high",
+                "max_20d_suggested_action": "avoid_chase",
+            },
+        )
+    )
+    session.commit()
+
+    preview = BusinessService.preview_candidate_plan(session, principal, "cand_xle_max20d")
+    position = BusinessService.create_candidate_plan(
+        session,
+        principal,
+        "cand_xle_max20d",
+        CandidatePlanCreate(),
+    )
+
+    assert preview.max_20d_return == 0.095
+    assert preview.max_20d_lottery_risk == "high"
+    assert preview.max_20d_suggested_action == "avoid_chase"
+    assert preview.planned_quantity > 0
+    assert position.position_id == "plan_cand_xle_max20d"
+    assert "max20d_lottery_risk_warning" in {
+        notice.code for notice in preview.guardrails if notice.level == "warning"
+    }
+    assert "max20d_lottery_risk_warning" not in {
+        notice.code for notice in preview.guardrails if notice.level == "block"
+    }
+
+
 def test_portfolio_risk_summary_and_candidate_preview_after_plan(session) -> None:
     principal = _principal("user_a", "acct_a")
     BusinessService.update_account_risk_settings(

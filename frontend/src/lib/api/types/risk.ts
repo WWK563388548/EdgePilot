@@ -117,6 +117,9 @@ export type CandidatePlanPreview = {
   volatility_multiplier: number | null;
   atr_pct: number | null;
   vol_rank: number | null;
+  max_20d_return: number | null;
+  max_20d_lottery_risk: string | null;
+  max_20d_suggested_action: string | null;
   exit_profile: string | null;
   suggested_quantity: number | null;
   planned_quantity: number | null;

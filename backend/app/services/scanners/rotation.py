@@ -14,6 +14,7 @@ from backend.app.services.scanners.common import (
     _apply_strat_confirmation,
     _dedupe,
     _initial_stop,
+    _max20d_warning,
     _number,
     _risk_stop_score,
     _setup_grade,
@@ -47,6 +48,7 @@ def _score_etf_rotation_setup(
     return_6m = _number(facts.get("return_6m"))
     return_12m = _number(facts.get("return_12m"))
     distance_to_sma_20 = _number(facts.get("distance_to_sma_20_pct"))
+    max20d_warning = _max20d_warning(facts)
 
     if close is None or high is None:
         return None
@@ -143,6 +145,7 @@ def _score_etf_rotation_setup(
         total_score=total_score,
         trend_score=trend_score,
         trigger_price=trigger_price,
+        max20d_warning=max20d_warning,
     )
     decision = scanner_decision.get("decision", decision)
 
@@ -176,6 +179,9 @@ def _score_etf_rotation_setup(
                 "return_3m": return_3m,
                 "return_6m": return_6m,
                 "return_12m": return_12m,
+                "max_20d_return": max20d_warning.get("max_20d_return"),
+                "max_20d_lottery_risk": max20d_warning.get("lottery_risk"),
+                "max_20d_suggested_action": max20d_warning.get("suggested_action"),
                 "rank_3m": round(rank_3m * 100, 1),
                 "rank_6m": round(rank_6m * 100, 1),
                 "rank_12m": round(rank_12m * 100, 1),
@@ -200,6 +206,7 @@ def _score_etf_rotation_setup(
             "momentum_horizon": score_breakdown,
             "entry_mode": entry_mode,
             "benchmark_relative_strength": benchmark_metrics,
+            "max20d_warning": max20d_warning,
         },
         scanner_decision=scanner_decision,
         strategy_name=ETF_ROTATION_US_ETF_STRATEGY,
@@ -229,6 +236,7 @@ def _rotation_scanner_decision(
     total_score: float,
     trend_score: float,
     trigger_price: float,
+    max20d_warning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     passed_rules: list[dict[str, Any]] = []
     failed_rules: list[dict[str, Any]] = []
@@ -298,6 +306,11 @@ def _rotation_scanner_decision(
         risk_notes.append("one_month_overextension")
     if distance_to_sma_20 is not None and distance_to_sma_20 > 0.12:
         risk_notes.append("extended_from_20ma")
+    max20d_risk = max20d_warning.get("lottery_risk") if max20d_warning else None
+    if max20d_risk == "high":
+        risk_notes.append("max20d_lottery_risk_high")
+    elif max20d_risk == "medium":
+        risk_notes.append("max20d_lottery_risk_medium")
     if market_score < 8:
         watch_reasons.append("market_context_caution")
         risk_notes.append("market_context_caution")
@@ -330,6 +343,7 @@ def _rotation_scanner_decision(
             "rank_12m": round(rank_12m * 100, 1),
             "score_breakdown": score_breakdown,
             "benchmark_relative_strength": benchmark_metrics,
+            "max20d_warning": max20d_warning,
             "strat_trigger_plan": strat_plan,
         },
         passed_rules=passed_rules,

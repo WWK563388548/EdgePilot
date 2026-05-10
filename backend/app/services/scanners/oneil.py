@@ -13,6 +13,7 @@ from backend.app.services.scanners.common import (
     _apply_strat_confirmation,
     _dedupe,
     _initial_stop,
+    _max20d_warning,
     _number,
     _risk_stop_score,
     _setup_grade,
@@ -45,6 +46,7 @@ def _score_oneil_core_setup(
     distance_to_sma_20 = _number(facts.get("distance_to_sma_20_pct"))
     sma_20_slope = _number(facts.get("sma_20_slope_pct"))
     volatility_contraction = bool(facts.get("volatility_contraction"))
+    max20d_warning = _max20d_warning(facts)
 
     if close is None or high is None or low is None:
         return None
@@ -125,6 +127,7 @@ def _score_oneil_core_setup(
         trend_score=trend_score,
         trigger_price=trigger_price,
         volume_score=volume_score,
+        max20d_warning=max20d_warning,
         strat_signal=strat_signal,
         strat_plan=strat_plan,
     )
@@ -180,8 +183,12 @@ def _score_oneil_core_setup(
                     "sma_20_slope_pct",
                     "return_3m",
                     "return_6m",
+                    "max_20d_return",
+                    "max_20d_lottery_risk",
+                    "max_20d_suggested_action",
                 )
             },
+            "max20d_warning": max20d_warning,
         },
         scanner_decision=scanner_decision,
     )
@@ -356,6 +363,7 @@ def _scanner_decision(
     volume_score: float,
     strat_signal: db.StratSignal | None,
     strat_plan: dict[str, Any] | None,
+    max20d_warning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     passed_rules: list[dict[str, Any]] = []
     failed_rules: list[dict[str, Any]] = []
@@ -456,6 +464,11 @@ def _scanner_decision(
         risk_notes.append("weak_close_position")
     if market_score < 8:
         risk_notes.append("market_context_caution")
+    max20d_risk = max20d_warning.get("lottery_risk") if max20d_warning else None
+    if max20d_risk == "high":
+        risk_notes.append("max20d_lottery_risk_high")
+    elif max20d_risk == "medium":
+        risk_notes.append("max20d_lottery_risk_medium")
 
     final_decision, strat_confirmation = _apply_strat_confirmation(
         decision=decision,
@@ -478,6 +491,7 @@ def _scanner_decision(
             "relative_volume": relative_volume,
             "rs_percentile_3m": round(rank_3m * 100, 1),
             "rs_percentile_6m": round(rank_6m * 100, 1),
+            "max20d_warning": max20d_warning,
             "strat_trigger_plan": strat_plan,
         },
         passed_rules=passed_rules,

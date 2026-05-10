@@ -33,6 +33,7 @@ from backend.app.services.business.positions import (
     _risk_amount,
     _risk_per_unit,
 )
+from backend.app.services.scanners.common import _max20d_warning
 from backend.app.services.strat_service import StratService
 
 
@@ -201,6 +202,7 @@ class BusinessCandidatesMixin:
         )
         atr_pct = _number_from_plan(facts, "atr_pct")
         vol_rank = _number_from_plan(facts, "vol_rank")
+        max20d_warning = _max20d_warning(facts or {})
         volatility_multiplier = _volatility_multiplier(vol_rank)
         exit_profile = _position_exit_profile(candidate.strategy_name, exit_plan)
         request = request or CandidatePlanCreate()
@@ -270,6 +272,7 @@ class BusinessCandidatesMixin:
             suggested_quantity=suggested_quantity,
             volatility_adjusted_quantity=volatility_adjusted_quantity,
             volatility_multiplier=volatility_multiplier,
+            max20d_warning=max20d_warning,
             active_position_count=portfolio_before.active_position_count,
             portfolio_after_plan=portfolio_after_plan,
             validation_status=validation_status,
@@ -290,6 +293,9 @@ class BusinessCandidatesMixin:
             volatility_multiplier=round(volatility_multiplier, 6),
             atr_pct=atr_pct,
             vol_rank=vol_rank,
+            max_20d_return=max20d_warning.get("max_20d_return"),
+            max_20d_lottery_risk=max20d_warning.get("lottery_risk"),
+            max_20d_suggested_action=max20d_warning.get("suggested_action"),
             exit_profile=exit_profile,
             suggested_quantity=suggested_quantity,
             planned_quantity=planned_quantity,
@@ -317,6 +323,7 @@ class BusinessCandidatesMixin:
         suggested_quantity: int | None,
         volatility_adjusted_quantity: int | None,
         volatility_multiplier: float | None,
+        max20d_warning: dict[str, Any] | None,
         active_position_count: int,
         portfolio_after_plan: PortfolioRiskSummary,
         validation_status: str | None,
@@ -339,6 +346,9 @@ class BusinessCandidatesMixin:
             guardrails.append(GuardrailNotice(level="info", code="shadow_only_paper_only"))
         if suggested_quantity is not None and suggested_quantity <= 0:
             guardrails.append(GuardrailNotice(level="warning", code="no_suggested_quantity"))
+        max20d_risk = max20d_warning.get("lottery_risk") if max20d_warning else None
+        if max20d_risk in {"medium", "high"}:
+            guardrails.append(GuardrailNotice(level="warning", code="max20d_lottery_risk_warning"))
         if (
             volatility_multiplier is not None
             and volatility_multiplier < 1
