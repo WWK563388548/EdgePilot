@@ -23,7 +23,9 @@ JobRunStatus = Literal["running", "succeeded", "failed"]
 ExecutionImportStatus = Literal["completed", "partial", "failed"]
 ExecutionFillSide = Literal["buy", "sell"]
 ExecutionFillStatus = Literal["active", "ignored"]
-ExecutionFillReconciliationStatus = Literal["matched", "review_needed", "bound", "confirmed", "ignored"]
+ExecutionFillReconciliationStatus = Literal[
+    "matched", "review_needed", "bound", "confirmed", "ignored"
+]
 ExecutionFillReconcileAction = Literal["bind_position", "confirm_position", "ignore_fill"]
 
 
@@ -367,6 +369,48 @@ class ExitAlertEvaluationResponse(BaseModel):
     duplicate_alerts: int = 0
     symbols_processed: list[str] = Field(default_factory=list)
     alerts: list[ExitAlert] = Field(default_factory=list)
+
+
+PaperReviewNextAction = Literal[
+    "fix_plan",
+    "confirm_entry",
+    "review_alert",
+    "wait_for_entry",
+    "evaluate_alerts",
+    "monitor_position",
+    "review_reduced_position",
+    "review_position",
+]
+
+
+class PaperReviewPosition(BaseModel):
+    position: Position
+    next_action: PaperReviewNextAction
+    next_action_reason: str
+    candidate_id: str | None = None
+    candidate_role: str | None = None
+    scanner_decision: str | None = None
+    entry_mode: str | None = None
+    max_20d_return: float | None = None
+    max_20d_lottery_risk: str | None = None
+    max_20d_suggested_action: str | None = None
+    latest_alert: ExitAlert | None = None
+    open_alert_count: int = 0
+    risk_notes: list[str] = Field(default_factory=list)
+
+
+class PaperReviewSummary(BaseModel):
+    account_id: str
+    generated_at: datetime
+    total_positions: int
+    planned_count: int
+    open_count: int
+    reduced_count: int
+    review_needed_count: int
+    open_alert_count: int
+    high_priority_alert_count: int
+    action_counts: dict[str, int] = Field(default_factory=dict)
+    positions: list[PaperReviewPosition] = Field(default_factory=list)
 
 
 class NotificationPreferencesBase(BaseModel):

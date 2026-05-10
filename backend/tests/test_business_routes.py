@@ -7,6 +7,7 @@ from backend.app.api.routes.business import (
     cancel_position,
     get_account_risk_settings,
     get_notification_preferences,
+    get_paper_review_summary,
     count_candidates,
     count_execution_fills,
     count_execution_imports,
@@ -89,6 +90,7 @@ from backend.app.schemas.business import (
     NotificationEventUpdate,
     NotificationPreferences,
     NotificationPreferencesUpdate,
+    PaperReviewSummary,
     Position,
     PositionActivate,
     PositionClose,
@@ -166,6 +168,22 @@ def _alert() -> ExitAlert:
         action="tighten_stop",
         acknowledged=False,
         alert_ts=datetime(2026, 4, 26, tzinfo=UTC),
+    )
+
+
+def _paper_review() -> PaperReviewSummary:
+    return PaperReviewSummary(
+        account_id="acct_local",
+        generated_at=datetime(2026, 4, 26, tzinfo=UTC),
+        total_positions=1,
+        planned_count=1,
+        open_count=0,
+        reduced_count=0,
+        review_needed_count=0,
+        open_alert_count=1,
+        high_priority_alert_count=0,
+        action_counts={"confirm_entry": 1},
+        positions=[],
     )
 
 
@@ -281,22 +299,28 @@ def test_candidate_routes(monkeypatch) -> None:
         ),
     )
 
-    assert create_candidate(
-        CandidateCreate(
-            symbol_id="SPY",
-            scan_date=date(2026, 4, 26),
-            strategy_name="breakout",
-        ),
-        session=None,
-        principal=_principal(),
-    ).candidate_id == "cand_1"
-    assert list_candidates(
-        session=None,
-        principal=_principal(),
-        decision="candidate",
-        limit=10,
-        offset=20,
-    )[0].symbol_id == "SPY"
+    assert (
+        create_candidate(
+            CandidateCreate(
+                symbol_id="SPY",
+                scan_date=date(2026, 4, 26),
+                strategy_name="breakout",
+            ),
+            session=None,
+            principal=_principal(),
+        ).candidate_id
+        == "cand_1"
+    )
+    assert (
+        list_candidates(
+            session=None,
+            principal=_principal(),
+            decision="candidate",
+            limit=10,
+            offset=20,
+        )[0].symbol_id
+        == "SPY"
+    )
     assert count_candidates(session=None, principal=_principal(), decision="candidate").total == 1
     assert (
         get_candidate_detail("cand_1", session=None, principal=_principal()).pa_setup.setup_id
@@ -399,14 +423,11 @@ def test_scanner_outcome_routes(monkeypatch) -> None:
         ).outcome_id
         == "outcome_1"
     )
-    assert (
-        recalculate_scanner_outcomes(
-            session=None,
-            principal=_principal(),
-            request=ScannerOutcomeRecalculateRequest(symbol="spy"),
-        ).status_counts
-        == {"matured_20d": 1}
-    )
+    assert recalculate_scanner_outcomes(
+        session=None,
+        principal=_principal(),
+        request=ScannerOutcomeRecalculateRequest(symbol="spy"),
+    ).status_counts == {"matured_20d": 1}
 
 
 def test_account_scanner_route_uses_principal_account(monkeypatch) -> None:
@@ -512,8 +533,13 @@ def test_automation_job_routes(monkeypatch) -> None:
 
     assert captured == {"account_id": "acct_local", "symbols": ["SPY"]}
     assert run.status == "succeeded"
-    assert list_job_runs(session=None, principal=_principal(), status_filter="succeeded")[0].run_id == "job_1"
-    assert count_job_runs(session=None, principal=_principal(), status_filter="succeeded").total == 1
+    assert (
+        list_job_runs(session=None, principal=_principal(), status_filter="succeeded")[0].run_id
+        == "job_1"
+    )
+    assert (
+        count_job_runs(session=None, principal=_principal(), status_filter="succeeded").total == 1
+    )
 
 
 def test_execution_import_routes(monkeypatch) -> None:
@@ -540,7 +566,9 @@ def test_execution_import_routes(monkeypatch) -> None:
     monkeypatch.setattr(
         business_route.ExecutionImportService,
         "list_fills",
-        lambda session, principal, symbol_id, position_id, status, reconciliation_status, limit, offset: [_execution_fill()],
+        lambda session, principal, symbol_id, position_id, status, reconciliation_status, limit, offset: [
+            _execution_fill()
+        ],
     )
     monkeypatch.setattr(
         business_route.ExecutionImportService,
@@ -567,7 +595,9 @@ def test_execution_import_routes(monkeypatch) -> None:
         "csv_text": "symbol,side,quantity,price,executed_at",
     }
     assert result.import_record.import_id == "exec_import_1"
-    assert list_execution_imports(session=None, principal=_principal())[0].import_id == "exec_import_1"
+    assert (
+        list_execution_imports(session=None, principal=_principal())[0].import_id == "exec_import_1"
+    )
     assert count_execution_imports(session=None, principal=_principal()).total == 1
     assert list_execution_fills(session=None, principal=_principal())[0].fill_id == "exec_fill_1"
     assert count_execution_fills(session=None, principal=_principal()).total == 1
@@ -651,7 +681,11 @@ def test_position_routes(monkeypatch) -> None:
         business_route.BusinessService,
         "activate_position",
         lambda session, principal, position_id, request: _position().model_copy(
-            update={"position_id": position_id, "status": "open", "entry_price": request.entry_price}
+            update={
+                "position_id": position_id,
+                "status": "open",
+                "entry_price": request.entry_price,
+            }
         ),
     )
     monkeypatch.setattr(
@@ -672,14 +706,20 @@ def test_position_routes(monkeypatch) -> None:
         business_route.BusinessService,
         "reduce_position",
         lambda session, principal, position_id, request: _position().model_copy(
-            update={"position_id": position_id, "status": "reduce", "current_stop": request.current_stop}
+            update={
+                "position_id": position_id,
+                "status": "reduce",
+                "current_stop": request.current_stop,
+            }
         ),
     )
     monkeypatch.setattr(
         business_route.BusinessService,
         "close_position",
         lambda session, principal, position_id, request: PositionCloseResponse(
-            position=_position().model_copy(update={"position_id": position_id, "status": "closed"}),
+            position=_position().model_copy(
+                update={"position_id": position_id, "status": "closed"}
+            ),
             journal_trade=_trade().model_copy(update={"position_id": position_id}),
         ),
     )
@@ -709,13 +749,16 @@ def test_position_routes(monkeypatch) -> None:
         ).position_id
         == "plan_cand_1"
     )
-    assert list_positions(
-        session=None,
-        principal=_principal(),
-        status_filter="open",
-        limit=10,
-        offset=20,
-    )[0].status == "open"
+    assert (
+        list_positions(
+            session=None,
+            principal=_principal(),
+            status_filter="open",
+            limit=10,
+            offset=20,
+        )[0].status
+        == "open"
+    )
     assert count_positions(session=None, principal=_principal(), status_filter="open").total == 1
     assert (
         update_position(
@@ -952,13 +995,16 @@ def test_exit_alert_routes(monkeypatch) -> None:
         ).alerts_created
         == 1
     )
-    assert list_exit_alerts(
-        session=None,
-        principal=_principal(),
-        acknowledged=False,
-        limit=10,
-        offset=20,
-    )[0].level == 2
+    assert (
+        list_exit_alerts(
+            session=None,
+            principal=_principal(),
+            acknowledged=False,
+            limit=10,
+            offset=20,
+        )[0].level
+        == 2
+    )
     assert count_exit_alerts(session=None, principal=_principal(), acknowledged=False).total == 1
     assert (
         update_exit_alert(
@@ -992,14 +1038,17 @@ def test_notification_routes(monkeypatch) -> None:
         lambda session, principal, notification_id, request: _notification(),
     )
 
-    assert list_notifications(
-        session=None,
-        principal=_principal(),
-        read=False,
-        acknowledged=False,
-        limit=10,
-        offset=20,
-    )[0].event_type == "position_entry_triggered"
+    assert (
+        list_notifications(
+            session=None,
+            principal=_principal(),
+            read=False,
+            acknowledged=False,
+            limit=10,
+            offset=20,
+        )[0].event_type
+        == "position_entry_triggered"
+    )
     assert (
         count_notifications(
             session=None,
@@ -1047,12 +1096,15 @@ def test_journal_routes(monkeypatch) -> None:
         ).trade_id
         == "trade_1"
     )
-    assert list_journal_trades(
-        session=None,
-        principal=_principal(),
-        limit=10,
-        offset=20,
-    )[0].net_pnl == 120.0
+    assert (
+        list_journal_trades(
+            session=None,
+            principal=_principal(),
+            limit=10,
+            offset=20,
+        )[0].net_pnl
+        == 120.0
+    )
     assert count_journal_trades(session=None, principal=_principal()).total == 1
 
 
@@ -1086,6 +1138,21 @@ def test_dashboard_summary_route(monkeypatch) -> None:
 
     assert response.risk_mode == "normal"
     assert response.candidate_count == 3
+
+
+def test_paper_review_route(monkeypatch) -> None:
+    from backend.app.api.routes import business as business_route
+
+    monkeypatch.setattr(
+        business_route.BusinessService,
+        "paper_review_summary",
+        lambda session, principal, limit: _paper_review(),
+    )
+
+    response = get_paper_review_summary(session=None, principal=_principal(), limit=50)
+
+    assert response.account_id == "acct_local"
+    assert response.action_counts == {"confirm_entry": 1}
 
 
 def test_business_routes_require_bearer_token() -> None:

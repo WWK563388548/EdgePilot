@@ -31,6 +31,7 @@ from backend.app.schemas.business import (
     NotificationEventUpdate,
     NotificationPreferences,
     NotificationPreferencesUpdate,
+    PaperReviewSummary,
     Position,
     PositionActivate,
     PositionClose,
@@ -113,6 +114,15 @@ def get_portfolio_risk(
     principal: VerifiedPrincipal,
 ) -> PortfolioRiskSummary:
     return BusinessService.get_portfolio_risk(session=session, principal=principal)
+
+
+@router.get("/paper-review", response_model=PaperReviewSummary)
+def get_paper_review_summary(
+    session: DbSession,
+    principal: VerifiedPrincipal,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> PaperReviewSummary:
+    return BusinessService.paper_review_summary(session=session, principal=principal, limit=limit)
 
 
 @router.post("/jobs/automation/run", response_model=JobRun)
@@ -245,7 +255,9 @@ def count_execution_fills(
     )
 
 
-@router.post("/execution/fills/{fill_id}/reconcile", response_model=ExecutionFillReconciliationResult)
+@router.post(
+    "/execution/fills/{fill_id}/reconcile", response_model=ExecutionFillReconciliationResult
+)
 def reconcile_execution_fill(
     fill_id: str,
     request: ExecutionFillReconcileRequest,
@@ -260,7 +272,11 @@ def reconcile_execution_fill(
             request=request,
         )
     except ValueError as exc:
-        status_code = 404 if str(exc).startswith(("Execution fill not found", "Target position not found")) else 400
+        status_code = (
+            404
+            if str(exc).startswith(("Execution fill not found", "Target position not found"))
+            else 400
+        )
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
@@ -271,7 +287,9 @@ def create_candidate(
     principal: TraderPrincipal,
 ) -> Candidate:
     try:
-        return BusinessService.create_candidate(session=session, principal=principal, request=request)
+        return BusinessService.create_candidate(
+            session=session, principal=principal, request=request
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -720,7 +738,9 @@ def create_exit_alert(
     principal: TraderPrincipal,
 ) -> ExitAlert:
     try:
-        return BusinessService.create_exit_alert(session=session, principal=principal, request=request)
+        return BusinessService.create_exit_alert(
+            session=session, principal=principal, request=request
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -860,7 +880,9 @@ def create_journal_trade(
     principal: TraderPrincipal,
 ) -> JournalTrade:
     try:
-        return BusinessService.create_journal_trade(session=session, principal=principal, request=request)
+        return BusinessService.create_journal_trade(
+            session=session, principal=principal, request=request
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
