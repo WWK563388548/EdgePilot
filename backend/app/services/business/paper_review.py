@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -13,6 +13,22 @@ from backend.app.schemas.business import ExitAlert, PaperReviewPosition, PaperRe
 
 
 ACTIVE_REVIEW_STATUSES = ("planned", "open", "reduce", "exit_pending", "review_needed")
+ACTION_PRIORITY = {
+    "fix_plan": 0,
+    "review_alert": 1,
+    "confirm_entry": 2,
+    "review_position": 3,
+    "evaluate_alerts": 4,
+    "review_reduced_position": 5,
+    "wait_for_entry": 6,
+}
+STATUS_PRIORITY = {
+    "review_needed": 0,
+    "exit_pending": 1,
+    "open": 2,
+    "reduce": 3,
+    "planned": 4,
+}
 
 
 def _candidate_id_from_position(position_id: str) -> str | None:
@@ -60,11 +76,22 @@ def _position_has_missing_plan_fields(position: db.Position) -> bool:
     )
 
 
+def _actionable_alerts(
+    position: db.Position,
+    alerts: list[db.ExitAlert],
+) -> list[db.ExitAlert]:
+    return [
+        alert
+        for alert in alerts
+        if alert.reason != "planned_entry_trigger_reached" or position.status == "planned"
+    ]
+
+
 def _next_action(position: db.Position, latest_alert: db.ExitAlert | None) -> tuple[str, str]:
     if _position_has_missing_plan_fields(position):
         return "fix_plan", "missing_plan_fields"
     if latest_alert is not None:
-        if latest_alert.reason == "planned_entry_trigger_reached":
+        if latest_alert.reason == "planned_entry_trigger_reached" and position.status == "planned":
             return "confirm_entry", "planned_entry_triggered"
         return "review_alert", latest_alert.reason or "active_exit_alert"
     if position.status == "planned":
@@ -84,23 +111,14 @@ class BusinessPaperReviewMixin:
         principal: AuthPrincipal,
         limit: int = 100,
     ) -> PaperReviewSummary:
-        status_rank = case(
-            (db.Position.status == "review_needed", 0),
-            (db.Position.status == "exit_pending", 1),
-            (db.Position.status == "planned", 2),
-            (db.Position.status == "open", 3),
-            (db.Position.status == "reduce", 4),
-            else_=5,
-        )
         all_positions = session.scalars(
             select(db.Position)
             .where(
                 db.Position.account_id == principal.account_id,
                 db.Position.status.in_(ACTIVE_REVIEW_STATUSES),
             )
-            .order_by(status_rank, db.Position.updated_at.desc())
+            .order_by(db.Position.updated_at.desc())
         ).all()
-        visible_positions = all_positions[:limit]
 
         position_ids = [position.position_id for position in all_positions]
         alerts_by_position: dict[str, list[db.ExitAlert]] = defaultdict(list)
@@ -118,6 +136,39 @@ class BusinessPaperReviewMixin:
             ).all()
             for alert in alerts:
                 alerts_by_position[alert.position_id].append(alert)
+
+        action_counts: Counter[str] = Counter()
+        open_alert_count = 0
+        high_priority_alert_count = 0
+        next_action_by_position: dict[str, tuple[str, str]] = {}
+        latest_alert_by_position: dict[str, db.ExitAlert | None] = {}
+        actionable_alerts_by_position: dict[str, list[db.ExitAlert]] = {}
+        for position in all_positions:
+            position_alerts = alerts_by_position.get(position.position_id, [])
+            actionable_alerts = _actionable_alerts(position, position_alerts)
+            latest_alert = actionable_alerts[0] if actionable_alerts else None
+            open_alert_count += len(actionable_alerts)
+            high_priority_alert_count += sum(
+                1 for alert in actionable_alerts if (alert.level or 0) >= 3
+            )
+            action, reason = _next_action(position, latest_alert)
+            next_action_by_position[position.position_id] = (action, reason)
+            latest_alert_by_position[position.position_id] = latest_alert
+            actionable_alerts_by_position[position.position_id] = actionable_alerts
+            action_counts[action] += 1
+
+        def _row_priority(position: db.Position) -> tuple[int, int, int, float]:
+            action, _ = next_action_by_position[position.position_id]
+            latest_alert = latest_alert_by_position.get(position.position_id)
+            return (
+                ACTION_PRIORITY.get(action, 99),
+                -(latest_alert.level or 0) if latest_alert is not None else 0,
+                STATUS_PRIORITY.get(position.status or "", 99),
+                -(position.updated_at.timestamp() if position.updated_at else 0.0),
+            )
+
+        ordered_positions = sorted(all_positions, key=_row_priority)
+        visible_positions = ordered_positions[:limit]
 
         candidate_ids = {
             candidate_id
@@ -148,24 +199,9 @@ class BusinessPaperReviewMixin:
                 setups_by_id = {setup.setup_id: setup for setup in setup_rows}
 
         rows: list[PaperReviewPosition] = []
-        action_counts: Counter[str] = Counter()
-        open_alert_count = 0
-        high_priority_alert_count = 0
-        next_action_by_position: dict[str, tuple[str, str]] = {}
-        for position in all_positions:
-            position_alerts = alerts_by_position.get(position.position_id, [])
-            latest_alert = position_alerts[0] if position_alerts else None
-            open_alert_count += len(position_alerts)
-            high_priority_alert_count += sum(
-                1 for alert in position_alerts if (alert.level or 0) >= 3
-            )
-            action, reason = _next_action(position, latest_alert)
-            next_action_by_position[position.position_id] = (action, reason)
-            action_counts[action] += 1
-
         for position in visible_positions:
-            position_alerts = alerts_by_position.get(position.position_id, [])
-            latest_alert = position_alerts[0] if position_alerts else None
+            position_alerts = actionable_alerts_by_position.get(position.position_id, [])
+            latest_alert = latest_alert_by_position.get(position.position_id)
             action, reason = next_action_by_position[position.position_id]
 
             candidate_id = _candidate_id_from_position(position.position_id)

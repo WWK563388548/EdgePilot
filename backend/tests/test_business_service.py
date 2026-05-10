@@ -2865,3 +2865,94 @@ def test_paper_review_summary_counts_all_positions_before_limit(session) -> None
         "review_alert": 1,
         "review_reduced_position": 1,
     }
+
+
+def test_paper_review_summary_orders_by_next_action_before_limit(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_priority_wait",
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=100,
+            quantity=1,
+            initial_stop=95,
+            current_stop=95,
+            status="planned",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_priority_alert",
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=120,
+            quantity=1,
+            initial_stop=112,
+            current_stop=115,
+            status="open",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_priority_exit",
+            position_id="pos_priority_alert",
+            level=4,
+            action="exit",
+            reason="daily_close_below_current_stop",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal, limit=1)
+
+    assert summary.total_positions == 2
+    assert summary.action_counts == {"wait_for_entry": 1, "review_alert": 1}
+    assert [row.position.position_id for row in summary.positions] == ["pos_priority_alert"]
+    assert summary.positions[0].next_action == "review_alert"
+
+
+def test_paper_review_summary_ignores_stale_entry_trigger_after_position_opens(
+    session,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_stale_entry_trigger",
+            symbol_id="IWM",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=210,
+            quantity=1,
+            initial_stop=200,
+            current_stop=205,
+            status="open",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_stale_entry_trigger",
+            position_id="pos_stale_entry_trigger",
+            level=2,
+            action="review_entry",
+            reason="planned_entry_trigger_reached",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal)
+
+    assert summary.open_alert_count == 0
+    assert summary.action_counts == {"evaluate_alerts": 1}
+    assert summary.positions[0].next_action == "evaluate_alerts"
+    assert summary.positions[0].latest_alert is None
