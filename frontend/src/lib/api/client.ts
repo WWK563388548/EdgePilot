@@ -33,6 +33,7 @@ import type {
   NotificationSeverity,
   NotificationPreferences,
   NotificationPreferencesUpdate,
+  AnalyticsOverview,
   GuardrailNotice,
   PortfolioRiskItem,
   PortfolioRiskBucket,
@@ -99,6 +100,7 @@ export const api = {
   updateNotificationPreferences: (request: NotificationPreferencesUpdate) =>
     patchJson<NotificationPreferences>("/api/settings/notifications", request),
   portfolioRisk: () => getJson<PortfolioRiskSummary>("/api/risk/portfolio"),
+  analyticsOverview: () => getJson<AnalyticsOverview>("/api/analytics/overview"),
   paperReview: () => getJson<PaperReviewSummary>("/api/paper-review"),
   runAutomationJob: (request: AutomationJobRunRequest = {}) =>
     postJson<JobRun>("/api/jobs/automation/run", request),

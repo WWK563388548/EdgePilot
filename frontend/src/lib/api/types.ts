@@ -3,6 +3,7 @@ export type * from "./types/pa";
 export type * from "./types/strat";
 export type * from "./types/scanner";
 export type * from "./types/automation";
+export type * from "./types/analytics";
 export type * from "./types/outcomes";
 export type * from "./types/risk";
 export type * from "./types/positions";
