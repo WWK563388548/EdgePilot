@@ -14,9 +14,9 @@ from backend.app.schemas.business import ExitAlert, PaperReviewPosition, PaperRe
 
 ACTIVE_REVIEW_STATUSES = ("planned", "open", "reduce", "exit_pending", "review_needed")
 ACTION_PRIORITY = {
-    "fix_plan": 0,
-    "review_alert": 1,
-    "confirm_entry": 2,
+    "review_alert": 0,
+    "confirm_entry": 1,
+    "fix_plan": 2,
     "review_position": 3,
     "evaluate_alerts": 4,
     "review_reduced_position": 5,
@@ -88,12 +88,12 @@ def _actionable_alerts(
 
 
 def _next_action(position: db.Position, latest_alert: db.ExitAlert | None) -> tuple[str, str]:
-    if _position_has_missing_plan_fields(position):
-        return "fix_plan", "missing_plan_fields"
     if latest_alert is not None:
         if latest_alert.reason == "planned_entry_trigger_reached" and position.status == "planned":
             return "confirm_entry", "planned_entry_triggered"
         return "review_alert", latest_alert.reason or "active_exit_alert"
+    if _position_has_missing_plan_fields(position):
+        return "fix_plan", "missing_plan_fields"
     if position.status == "planned":
         return "wait_for_entry", "planned_waiting_for_trigger"
     if position.status == "open":

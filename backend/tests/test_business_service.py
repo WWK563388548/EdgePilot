@@ -2956,3 +2956,91 @@ def test_paper_review_summary_ignores_stale_entry_trigger_after_position_opens(
     assert summary.action_counts == {"evaluate_alerts": 1}
     assert summary.positions[0].next_action == "evaluate_alerts"
     assert summary.positions[0].latest_alert is None
+
+
+def test_paper_review_summary_prioritizes_active_alerts_before_plan_repairs(
+    session,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_incomplete_exit_alert",
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=100,
+            initial_stop=95,
+            current_stop=96,
+            status="open",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_incomplete_entry_alert",
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_price=120,
+            initial_stop=112,
+            current_stop=112,
+            status="planned",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_incomplete_no_alert",
+            symbol_id="IWM",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=210,
+            initial_stop=200,
+            current_stop=205,
+            status="open",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_incomplete_exit",
+            position_id="pos_incomplete_exit_alert",
+            level=4,
+            action="exit",
+            reason="daily_close_below_current_stop",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_incomplete_entry",
+            position_id="pos_incomplete_entry_alert",
+            level=2,
+            action="review_entry",
+            reason="planned_entry_trigger_reached",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal)
+
+    assert summary.open_alert_count == 2
+    assert summary.high_priority_alert_count == 1
+    assert summary.action_counts == {
+        "review_alert": 1,
+        "confirm_entry": 1,
+        "fix_plan": 1,
+    }
+    assert [row.next_action for row in summary.positions] == [
+        "review_alert",
+        "confirm_entry",
+        "fix_plan",
+    ]
+    assert summary.positions[0].position.position_id == "pos_incomplete_exit_alert"
+    assert summary.positions[1].position.position_id == "pos_incomplete_entry_alert"
+    assert summary.positions[2].position.position_id == "pos_incomplete_no_alert"
