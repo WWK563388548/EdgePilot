@@ -7,6 +7,7 @@ import {
   BarChart3,
   BookOpen,
   BriefcaseBusiness,
+  ClipboardCheck,
   FileUp,
   ListChecks,
   Settings,
@@ -27,6 +28,7 @@ import { ExecutionImportView } from "@/components/workspace/organisms/execution-
 import { OverviewView } from "@/components/workspace/overview-view";
 import { OutcomesView } from "@/components/workspace/outcomes-view";
 import { PALabView } from "@/components/workspace/pa-lab-view";
+import { PaperReviewView } from "@/components/workspace/paper-review-view";
 import { AlertsTable, JournalTable, PositionsTable } from "@/components/workspace/organisms/account-tables";
 import { NotificationBell, NotificationModal } from "@/components/workspace/organisms/notification-center";
 import { SettingsPanel } from "@/components/workspace/secondary-views";
@@ -42,6 +44,7 @@ const views: WorkspaceNavItem[] = [
   { id: "candidates", labelKey: "candidates", icon: ListChecks },
   { id: "pa_lab", labelKey: "paLab", icon: ShieldCheck },
   { id: "outcomes", labelKey: "outcomes", icon: Activity },
+  { id: "paper_review", labelKey: "paperReview", icon: ClipboardCheck },
   { id: "positions", labelKey: "positions", icon: BriefcaseBusiness },
   { id: "alerts", labelKey: "alerts", icon: AlertTriangle },
   { id: "automation", labelKey: "automation", icon: Workflow },
@@ -87,6 +90,11 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
   const portfolioRisk = useQuery({
     queryKey: ["portfolio-risk"],
     queryFn: api.portfolioRisk,
+    enabled: queriesEnabled
+  });
+  const paperReview = useQuery({
+    queryKey: ["paper-review"],
+    queryFn: api.paperReview,
     enabled: queriesEnabled
   });
   const candidates = useQuery({
@@ -286,6 +294,14 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
         )}
         {view === "pa_lab" && <PALabView locale={locale} />}
         {view === "outcomes" && <OutcomesView locale={locale} />}
+        {view === "paper_review" && (
+          <PaperReviewView
+            data={paperReview.data}
+            error={paperReview.isError}
+            loading={paperReview.isLoading}
+            locale={locale}
+          />
+        )}
         {view === "positions" && (
           <PositionsTable
             data={positionRows}

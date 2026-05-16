@@ -85,6 +85,46 @@ export type ExitAlertEvaluationResponse = {
   alerts: ExitAlert[];
 };
 
+export type PaperReviewNextAction =
+  | "fix_plan"
+  | "confirm_entry"
+  | "review_alert"
+  | "wait_for_entry"
+  | "evaluate_alerts"
+  | "monitor_position"
+  | "review_reduced_position"
+  | "review_position";
+
+export type PaperReviewPosition = {
+  position: Position;
+  next_action: PaperReviewNextAction;
+  next_action_reason: string;
+  candidate_id: string | null;
+  candidate_role: string | null;
+  scanner_decision: string | null;
+  entry_mode: string | null;
+  max_20d_return: number | null;
+  max_20d_lottery_risk: string | null;
+  max_20d_suggested_action: string | null;
+  latest_alert: ExitAlert | null;
+  open_alert_count: number;
+  risk_notes: string[];
+};
+
+export type PaperReviewSummary = {
+  account_id: string;
+  generated_at: string;
+  total_positions: number;
+  planned_count: number;
+  open_count: number;
+  reduced_count: number;
+  review_needed_count: number;
+  open_alert_count: number;
+  high_priority_alert_count: number;
+  action_counts: Record<string, number>;
+  positions: PaperReviewPosition[];
+};
+
 export type NotificationEvent = {
   notification_id: string;
   account_id: string;

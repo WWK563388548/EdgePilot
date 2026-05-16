@@ -30,7 +30,10 @@ from backend.app.schemas.ingestion import (
     ETFUniverseSeedResponse,
     ETFUniverseSeedSymbolResult,
 )
-from backend.app.schemas.outcome import ScannerOutcomeRecalculateRequest, ScannerOutcomeRecalculateResponse
+from backend.app.schemas.outcome import (
+    ScannerOutcomeRecalculateRequest,
+    ScannerOutcomeRecalculateResponse,
+)
 from backend.app.schemas.pa import AccountETFOneilScannerRequest, ETFOneilScannerResponse
 from backend.app.services.business_service import BusinessService
 from backend.app.services.data_source_service import DataSourceResolution
@@ -597,7 +600,10 @@ def test_scanner_outcomes_are_account_scoped_and_summarized(session) -> None:
     assert [row.outcome_id for row in outcomes] == ["outcome_a2", "outcome_a1"]
     assert BusinessService.count_scanner_outcomes(session, principal_a) == 2
     assert BusinessService.count_scanner_outcomes(session, principal_a, symbol="spy") == 1
-    assert BusinessService.get_candidate_outcome(session, principal_a, "cand_a1").outcome_id == "outcome_a1"
+    assert (
+        BusinessService.get_candidate_outcome(session, principal_a, "cand_a1").outcome_id
+        == "outcome_a1"
+    )
     assert summary.total == 2
     assert summary.pending_count == 1
     assert summary.matured_count == 1
@@ -987,10 +993,14 @@ def test_account_refresh_blocks_when_runtime_capability_is_stale(session, monkey
             AccountETFUniverseRefreshRequest(symbols=["iwm"]),
         )
 
-    capability = session.query(db.TenantDataCapability).filter_by(
-        tenant_id=principal.tenant_id,
-        capability_key="market_data.us_etf_daily",
-    ).one()
+    capability = (
+        session.query(db.TenantDataCapability)
+        .filter_by(
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+        )
+        .one()
+    )
     assert capability.status == "stale"
 
 
@@ -1093,10 +1103,14 @@ def test_run_automation_job_preserves_refresh_failure_capability_status(
         ),
     )
     summary = run.metadata_json["steps"][0]["summary"]
-    capability = session.query(db.TenantDataCapability).filter_by(
-        tenant_id=principal.tenant_id,
-        capability_key="market_data.us_etf_daily",
-    ).one()
+    capability = (
+        session.query(db.TenantDataCapability)
+        .filter_by(
+            tenant_id=principal.tenant_id,
+            capability_key="market_data.us_etf_daily",
+        )
+        .one()
+    )
 
     assert run.status == "succeeded"
     assert summary["symbols_failed"] == 1
@@ -2457,7 +2471,14 @@ def test_evaluate_exit_alerts_for_open_position_stop_and_trim(session) -> None:
     assert response.alerts_created == 2
     assert reasons == {"daily_close_below_current_stop", "first_trim_target_reached_2r"}
     assert {alert.action for alert in response.alerts} == {"exit", "trim"}
-    assert max(alert.level for alert in response.alerts if alert.reason == "daily_close_below_current_stop") == 4
+    assert (
+        max(
+            alert.level
+            for alert in response.alerts
+            if alert.reason == "daily_close_below_current_stop"
+        )
+        == 4
+    )
 
 
 def test_evaluate_exit_alerts_uses_latest_pa_fact_for_ma_support(session) -> None:
@@ -2685,3 +2706,341 @@ def test_snoozed_exit_alerts_are_hidden_until_due(session) -> None:
     assert alert.snoozed_until.replace(tzinfo=UTC) == datetime(2099, 5, 1, tzinfo=UTC)
     assert visible == []
     assert [row.alert_id for row in included] == ["alert_snoozed"]
+
+
+def test_paper_review_summary_prioritizes_operator_next_actions(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    detected_ts = datetime(2026, 4, 26, tzinfo=UTC)
+    session.add(
+        db.PASetup(
+            setup_id="pasetup_rotation_review",
+            symbol_id="SMH",
+            timeframe="1d",
+            detected_ts=detected_ts,
+            setup_type="etf_rotation_leader",
+            entry_plan={
+                "entry_mode": "pullback_required",
+                "scanner_decision": {
+                    "version": "etf_rotation_us_etf_v1",
+                    "strategy": "etf_rotation_us_etf",
+                    "decision": "candidate",
+                    "score": 82,
+                    "metrics": {
+                        "entry_mode": "pullback_required",
+                        "max20d_warning": {
+                            "max_20d_return": 12.5,
+                            "lottery_risk": "high",
+                            "suggested_action": "avoid_chase",
+                        },
+                    },
+                    "risk_notes": ["max20d_lottery_risk_high"],
+                },
+            },
+            exit_plan={"initial_stop": 95.0},
+            validation_status="shadow_only",
+        )
+    )
+    session.flush()
+    BusinessService.create_candidate(
+        session,
+        principal,
+        CandidateCreate(
+            candidate_id="cand_rotation_review",
+            symbol_id="SMH",
+            scan_date=date(2026, 4, 26),
+            strategy_name="etf_rotation_us_etf",
+            setup_type="etf_rotation_leader",
+            pa_setup_id="pasetup_rotation_review",
+            score_total=82,
+            entry_trigger=105,
+            initial_stop=95,
+            decision="candidate",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="plan_cand_rotation_review",
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_price=105,
+            quantity=2,
+            initial_stop=95,
+            current_stop=95,
+            status="planned",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_open_review",
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=100,
+            quantity=1,
+            initial_stop=94,
+            current_stop=96,
+            status="open",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_rotation_entry",
+            position_id="plan_cand_rotation_review",
+            level=2,
+            action="review_entry",
+            reason="planned_entry_trigger_reached",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal)
+    rotation_row = next(
+        row for row in summary.positions if row.position.position_id == "plan_cand_rotation_review"
+    )
+    open_row = next(
+        row for row in summary.positions if row.position.position_id == "pos_open_review"
+    )
+
+    assert summary.total_positions == 2
+    assert summary.planned_count == 1
+    assert summary.open_count == 1
+    assert summary.open_alert_count == 1
+    assert summary.action_counts == {"confirm_entry": 1, "evaluate_alerts": 1}
+    assert rotation_row.next_action == "confirm_entry"
+    assert rotation_row.candidate_role == "primary_candidate"
+    assert rotation_row.entry_mode == "pullback_required"
+    assert rotation_row.max_20d_return == 12.5
+    assert rotation_row.max_20d_lottery_risk == "high"
+    assert rotation_row.latest_alert is not None
+    assert open_row.next_action == "evaluate_alerts"
+
+
+def test_paper_review_summary_counts_all_positions_before_limit(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    for index, status in enumerate(("planned", "open", "reduce"), start=1):
+        BusinessService.create_position(
+            session,
+            principal,
+            PositionCreate(
+                position_id=f"pos_review_limit_{index}",
+                symbol_id=f"ETF{index}",
+                asset_type="etf",
+                strategy_name="etf_rotation_us_etf",
+                entry_price=100 + index,
+                quantity=1,
+                initial_stop=95,
+                current_stop=96,
+                status=status,
+            ),
+        )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_review_limit_open",
+            position_id="pos_review_limit_2",
+            level=4,
+            action="exit",
+            reason="daily_close_below_current_stop",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal, limit=1)
+
+    assert len(summary.positions) == 1
+    assert summary.total_positions == 3
+    assert summary.planned_count == 1
+    assert summary.open_count == 1
+    assert summary.reduced_count == 1
+    assert summary.open_alert_count == 1
+    assert summary.high_priority_alert_count == 1
+    assert summary.action_counts == {
+        "wait_for_entry": 1,
+        "review_alert": 1,
+        "review_reduced_position": 1,
+    }
+
+
+def test_paper_review_summary_orders_by_next_action_before_limit(session) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_priority_wait",
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=100,
+            quantity=1,
+            initial_stop=95,
+            current_stop=95,
+            status="planned",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_priority_alert",
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=120,
+            quantity=1,
+            initial_stop=112,
+            current_stop=115,
+            status="open",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_priority_exit",
+            position_id="pos_priority_alert",
+            level=4,
+            action="exit",
+            reason="daily_close_below_current_stop",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal, limit=1)
+
+    assert summary.total_positions == 2
+    assert summary.action_counts == {"wait_for_entry": 1, "review_alert": 1}
+    assert [row.position.position_id for row in summary.positions] == ["pos_priority_alert"]
+    assert summary.positions[0].next_action == "review_alert"
+
+
+def test_paper_review_summary_ignores_stale_entry_trigger_after_position_opens(
+    session,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_stale_entry_trigger",
+            symbol_id="IWM",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=210,
+            quantity=1,
+            initial_stop=200,
+            current_stop=205,
+            status="open",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_stale_entry_trigger",
+            position_id="pos_stale_entry_trigger",
+            level=2,
+            action="review_entry",
+            reason="planned_entry_trigger_reached",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal)
+
+    assert summary.open_alert_count == 0
+    assert summary.action_counts == {"evaluate_alerts": 1}
+    assert summary.positions[0].next_action == "evaluate_alerts"
+    assert summary.positions[0].latest_alert is None
+
+
+def test_paper_review_summary_prioritizes_active_alerts_before_plan_repairs(
+    session,
+) -> None:
+    principal = _principal("user_a", "acct_a")
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_incomplete_exit_alert",
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=100,
+            initial_stop=95,
+            current_stop=96,
+            status="open",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_incomplete_entry_alert",
+            symbol_id="SMH",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_price=120,
+            initial_stop=112,
+            current_stop=112,
+            status="planned",
+        ),
+    )
+    BusinessService.create_position(
+        session,
+        principal,
+        PositionCreate(
+            position_id="pos_incomplete_no_alert",
+            symbol_id="IWM",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_price=210,
+            initial_stop=200,
+            current_stop=205,
+            status="open",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_incomplete_exit",
+            position_id="pos_incomplete_exit_alert",
+            level=4,
+            action="exit",
+            reason="daily_close_below_current_stop",
+        ),
+    )
+    BusinessService.create_exit_alert(
+        session,
+        principal,
+        ExitAlertCreate(
+            alert_id="alert_incomplete_entry",
+            position_id="pos_incomplete_entry_alert",
+            level=2,
+            action="review_entry",
+            reason="planned_entry_trigger_reached",
+        ),
+    )
+
+    summary = BusinessService.paper_review_summary(session, principal)
+
+    assert summary.open_alert_count == 2
+    assert summary.high_priority_alert_count == 1
+    assert summary.action_counts == {
+        "review_alert": 1,
+        "confirm_entry": 1,
+        "fix_plan": 1,
+    }
+    assert [row.next_action for row in summary.positions] == [
+        "review_alert",
+        "confirm_entry",
+        "fix_plan",
+    ]
+    assert summary.positions[0].position.position_id == "pos_incomplete_exit_alert"
+    assert summary.positions[1].position.position_id == "pos_incomplete_entry_alert"
+    assert summary.positions[2].position.position_id == "pos_incomplete_no_alert"

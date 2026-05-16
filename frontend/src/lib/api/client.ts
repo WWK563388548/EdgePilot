@@ -38,6 +38,7 @@ import type {
   PortfolioRiskBucket,
   PortfolioRiskSummary,
   CandidatePlanPreview,
+  PaperReviewSummary,
   PositionActivate,
   PositionStopUpdate,
   PositionReduce,
@@ -98,6 +99,7 @@ export const api = {
   updateNotificationPreferences: (request: NotificationPreferencesUpdate) =>
     patchJson<NotificationPreferences>("/api/settings/notifications", request),
   portfolioRisk: () => getJson<PortfolioRiskSummary>("/api/risk/portfolio"),
+  paperReview: () => getJson<PaperReviewSummary>("/api/paper-review"),
   runAutomationJob: (request: AutomationJobRunRequest = {}) =>
     postJson<JobRun>("/api/jobs/automation/run", request),
   jobRuns: (pagination: { limit?: number; offset?: number; status?: JobRunStatus } = {}) =>
