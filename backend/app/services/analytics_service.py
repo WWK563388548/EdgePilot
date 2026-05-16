@@ -68,9 +68,7 @@ class AnalyticsService:
             positions_by_id=positions_by_id,
         )
         realized_pnl = round(sum(event.pnl for event in realized_events), 6)
-        open_positions = [
-            position for position in positions if position.status in ACTIVE_POSITION_STATUSES
-        ]
+        open_positions = AnalyticsService._open_positions_as_of(positions, to_ts)
         unrealized_pnl = AnalyticsService._unrealized_pnl(
             session=session,
             positions=open_positions,
@@ -189,6 +187,22 @@ class AnalyticsService:
                 continue
             total += (mark - position.entry_price) * position.quantity
         return round(total, 6)
+
+    @staticmethod
+    def _open_positions_as_of(positions: list[db.Position], to_ts: datetime) -> list[db.Position]:
+        return [
+            position
+            for position in positions
+            if position.status in ACTIVE_POSITION_STATUSES
+            and AnalyticsService._position_start_ts(position) <= to_ts
+        ]
+
+    @staticmethod
+    def _position_start_ts(position: db.Position) -> datetime:
+        started_at = position.entry_date or position.created_at or datetime.min.replace(tzinfo=UTC)
+        if started_at.tzinfo is None:
+            return started_at.replace(tzinfo=UTC)
+        return started_at.astimezone(UTC)
 
     @staticmethod
     def _latest_close(session: Session, symbol_id: str, to_ts: datetime) -> float | None:

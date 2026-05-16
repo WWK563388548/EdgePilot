@@ -1,5 +1,8 @@
 from datetime import date
 
+import pytest
+from fastapi import HTTPException
+
 from backend.app.api.routes import analytics as analytics_route
 from backend.app.api.routes.analytics import get_overview
 from backend.app.core.auth import AuthPrincipal
@@ -56,3 +59,21 @@ def test_analytics_overview_route_is_account_scoped(monkeypatch) -> None:
         "to_date": date(2026, 5, 11),
     }
     assert response.realized_pnl == 80
+
+
+def test_analytics_overview_route_returns_client_error_for_invalid_range(monkeypatch) -> None:
+    def _fake_overview(session, principal, from_date, to_date):
+        raise ValueError("from date must be before or equal to to date")
+
+    monkeypatch.setattr(analytics_route.AnalyticsService, "overview", _fake_overview)
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_overview(
+            session=None,
+            principal=_principal(),
+            from_date=date(2026, 5, 11),
+            to_date=date(2026, 5, 1),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "from date must be before or equal to to date"

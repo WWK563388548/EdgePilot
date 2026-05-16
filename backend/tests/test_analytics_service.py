@@ -123,6 +123,21 @@ def test_analytics_overview_uses_ledger_fills_journal_and_open_marks(session) ->
                 current_stop=9,
                 status="open",
             ),
+            db.Position(
+                position_id="pos_future_open",
+                account_id=principal.account_id,
+                symbol_id="XLK",
+                asset_type="etf",
+                strategy_name="oneil_core_us_etf",
+                entry_date=datetime(2026, 5, 20, tzinfo=UTC),
+                entry_price=100,
+                quantity=10,
+                initial_stop=90,
+                current_stop=90,
+                status="open",
+                realized_pnl=0,
+                unrealized_pnl=999,
+            ),
         ]
     )
     session.add(

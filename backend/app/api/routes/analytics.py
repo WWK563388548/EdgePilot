@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.app.api.dependencies import DbSession, VerifiedPrincipal
 from backend.app.schemas.analytics import AnalyticsOverviewResponse
@@ -18,9 +18,12 @@ def get_overview(
 ) -> AnalyticsOverviewResponse:
     resolved_to_date = to_date or date.today()
     resolved_from_date = from_date or (resolved_to_date - timedelta(days=90))
-    return AnalyticsService.overview(
-        session=session,
-        principal=principal,
-        from_date=resolved_from_date,
-        to_date=resolved_to_date,
-    )
+    try:
+        return AnalyticsService.overview(
+            session=session,
+            principal=principal,
+            from_date=resolved_from_date,
+            to_date=resolved_to_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
