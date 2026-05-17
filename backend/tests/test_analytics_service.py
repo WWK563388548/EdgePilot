@@ -383,6 +383,113 @@ def test_analytics_overview_preserves_historical_open_state_from_fills(session) 
     assert overview.open_risk_pct == 0.002991
 
 
+def test_analytics_overview_batches_mark_price_lookups(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add_all(
+        [
+            db.Position(
+                position_id="pos_spy_open",
+                account_id=principal.account_id,
+                symbol_id="SPY",
+                asset_type="etf",
+                strategy_name="etf_rotation_us_etf",
+                entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+                entry_price=100,
+                quantity=2,
+                initial_stop=90,
+                current_stop=90,
+                status="open",
+            ),
+            db.Position(
+                position_id="pos_qqq_open",
+                account_id=principal.account_id,
+                symbol_id="QQQ",
+                asset_type="etf",
+                strategy_name="etf_rotation_us_etf",
+                entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+                entry_price=200,
+                quantity=1,
+                initial_stop=180,
+                current_stop=180,
+                status="open",
+            ),
+            db.Position(
+                position_id="pos_iwm_open",
+                account_id=principal.account_id,
+                symbol_id="IWM",
+                asset_type="etf",
+                strategy_name="etf_rotation_us_etf",
+                entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+                entry_price=50,
+                quantity=4,
+                initial_stop=45,
+                current_stop=45,
+                status="open",
+            ),
+        ]
+    )
+    for bar in [
+        db.Bar(
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=datetime(2026, 5, 9, tzinfo=UTC),
+            close=101,
+            source="test",
+        ),
+        db.Bar(
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=110,
+            source="test",
+        ),
+        db.Bar(
+            symbol_id="QQQ",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=210,
+            source="test",
+        ),
+        db.Bar(
+            symbol_id="IWM",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=55,
+            source="test",
+        ),
+    ]:
+        session.add(bar)
+        session.flush()
+    session.commit()
+    bar_queries = []
+
+    def _count_bar_queries(conn, cursor, statement, parameters, context, executemany):
+        if "from bars" in statement.lower() or "join bars" in statement.lower():
+            bar_queries.append(statement)
+
+    event.listen(session.bind, "before_cursor_execute", _count_bar_queries)
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+    event.remove(session.bind, "before_cursor_execute", _count_bar_queries)
+
+    assert overview.unrealized_pnl == 50
+    assert overview.open_positions_count == 3
+    assert len(bar_queries) == 1
+
+
 def test_analytics_overview_uses_journal_when_sell_fill_lacks_entry_price(session) -> None:
     principal = _principal()
     session.add(

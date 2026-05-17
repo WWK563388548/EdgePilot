@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from statistics import mean
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app import models as db
@@ -216,12 +216,17 @@ class AnalyticsService:
         positions: list[OpenPositionAsOf],
         to_ts: datetime,
     ) -> float:
+        latest_closes = AnalyticsService._latest_closes(
+            session=session,
+            symbol_ids={row.position.symbol_id for row in positions},
+            to_ts=to_ts,
+        )
         total = 0.0
         for open_position in positions:
             position = open_position.position
             if position.entry_price is None:
                 continue
-            mark = AnalyticsService._latest_close(session, position.symbol_id, to_ts)
+            mark = latest_closes.get(position.symbol_id)
             if mark is None:
                 if position.status in ACTIVE_POSITION_STATUSES:
                     total += float(position.unrealized_pnl or 0)
@@ -361,18 +366,34 @@ class AnalyticsService:
         return value.astimezone(UTC)
 
     @staticmethod
-    def _latest_close(session: Session, symbol_id: str, to_ts: datetime) -> float | None:
-        return session.scalar(
-            select(db.Bar.close)
+    def _latest_closes(
+        *,
+        session: Session,
+        symbol_ids: set[str],
+        to_ts: datetime,
+    ) -> dict[str, float]:
+        if not symbol_ids:
+            return {}
+        latest_ts = (
+            select(db.Bar.symbol_id, func.max(db.Bar.ts).label("ts"))
             .where(
-                db.Bar.symbol_id == symbol_id,
+                db.Bar.symbol_id.in_(symbol_ids),
                 db.Bar.timeframe == "1d",
                 db.Bar.ts <= to_ts,
                 db.Bar.close.is_not(None),
             )
-            .order_by(db.Bar.ts.desc())
-            .limit(1)
+            .group_by(db.Bar.symbol_id)
+            .subquery()
         )
+        rows = session.execute(
+            select(db.Bar.symbol_id, db.Bar.close)
+            .join(
+                latest_ts,
+                (db.Bar.symbol_id == latest_ts.c.symbol_id) & (db.Bar.ts == latest_ts.c.ts),
+            )
+            .where(db.Bar.timeframe == "1d")
+        ).all()
+        return {symbol_id: close for symbol_id, close in rows if close is not None}
 
     @staticmethod
     def _r_multiple(
