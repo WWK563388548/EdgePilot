@@ -168,25 +168,40 @@ class AnalyticsService:
     ) -> list[RealizedEvent]:
         events: list[RealizedEvent] = []
         sell_fill_position_ids: set[str] = set()
+        sell_fills_by_position_id: dict[str, list[db.ExecutionFill]] = {}
         for fill in fills:
             if fill.side != "sell" or fill.reconciliation_status == "ignored":
                 continue
             position = positions_by_id.get(fill.position_id or "")
             if position is None:
                 continue
+            sell_fills_by_position_id.setdefault(position.position_id, []).append(fill)
+
+        for position_id, sell_fills in sell_fills_by_position_id.items():
+            position = positions_by_id.get(position_id)
+            if position is None:
+                continue
             entry_price = position.entry_price
             if entry_price is None:
                 continue
-            pnl = round((fill.price - entry_price) * fill.quantity - (fill.fees or 0), 6)
+            pnl = round(
+                sum(
+                    (fill.price - entry_price) * fill.quantity - (fill.fees or 0)
+                    for fill in sell_fills
+                ),
+                6,
+            )
+            quantity = sum(fill.quantity for fill in sell_fills)
             sell_fill_position_ids.add(position.position_id)
             events.append(
                 RealizedEvent(
                     strategy_name=position.strategy_name or "unknown",
                     pnl=pnl,
-                    r_multiple=AnalyticsService._r_multiple(
+                    r_multiple=AnalyticsService._aggregate_r_multiple(
                         entry_price=entry_price,
                         stop=position.initial_stop or position.current_stop,
-                        exit_price=fill.price,
+                        fills=sell_fills,
+                        quantity=quantity,
                     ),
                 )
             )
@@ -396,18 +411,20 @@ class AnalyticsService:
         return {symbol_id: close for symbol_id, close in rows if close is not None}
 
     @staticmethod
-    def _r_multiple(
+    def _aggregate_r_multiple(
         *,
         entry_price: float | None,
         stop: float | None,
-        exit_price: float | None,
+        fills: list[db.ExecutionFill],
+        quantity: float,
     ) -> float | None:
-        if entry_price is None or stop is None or exit_price is None:
+        if entry_price is None or stop is None or quantity <= 0:
             return None
         risk = entry_price - stop
         if risk <= 0:
             return None
-        return round((exit_price - entry_price) / risk, 6)
+        gross_price_delta = sum((fill.price - entry_price) * fill.quantity for fill in fills)
+        return round(gross_price_delta / (risk * quantity), 6)
 
     @staticmethod
     def _open_risk_pct(positions: list[OpenPositionAsOf], equity: float) -> float:
