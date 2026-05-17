@@ -15,6 +15,7 @@ from backend.app.schemas.analytics import (
     AnalyticsOverviewResponse,
     AnalyticsStrategyBreakdown,
 )
+from backend.app.services.risk_settings_service import DEFAULT_ACCOUNT_EQUITY
 
 
 ACTIVE_FILL_STATUSES = {"matched", "bound", "confirmed"}
@@ -152,6 +153,7 @@ class AnalyticsService:
             strategy_breakdown=AnalyticsService._strategy_breakdown(realized_events),
             execution_quality=AnalyticsService._execution_quality(
                 session=session,
+                account_id=principal.account_id,
                 fills=fills,
                 positions_by_id=positions_by_id,
             ),
@@ -421,7 +423,11 @@ class AnalyticsService:
         if snapshot_equity is not None:
             return round(snapshot_equity, 6)
 
-        account_equity = float(risk_settings.account_equity or 0) if risk_settings else 0.0
+        account_equity = (
+            float(risk_settings.account_equity)
+            if risk_settings and risk_settings.account_equity
+            else DEFAULT_ACCOUNT_EQUITY
+        )
         realized_events = AnalyticsService._realized_events(
             fills=fills_until_to,
             journals=journals_until_to,
@@ -481,12 +487,14 @@ class AnalyticsService:
     def _execution_quality(
         *,
         session: Session,
+        account_id: str,
         fills: list[db.ExecutionFill],
         positions_by_id: dict[str, db.Position],
     ) -> AnalyticsExecutionQuality:
         active_fills = [fill for fill in fills if fill.status == "active"]
         candidates_by_position_id = AnalyticsService._candidates_by_position_id(
             session=session,
+            account_id=account_id,
             positions=positions_by_id.values(),
         )
         entry_drags: list[float] = []
@@ -541,6 +549,7 @@ class AnalyticsService:
     def _candidates_by_position_id(
         *,
         session: Session,
+        account_id: str,
         positions: Iterable[db.Position],
     ) -> dict[str, db.Candidate]:
         candidate_ids_by_position_id = {
@@ -554,6 +563,7 @@ class AnalyticsService:
         candidates = session.scalars(
             select(db.Candidate).where(
                 db.Candidate.candidate_id.in_(candidate_ids_by_position_id.values()),
+                db.Candidate.account_id == account_id,
             )
         ).all()
         candidates_by_id = {candidate.candidate_id: candidate for candidate in candidates}

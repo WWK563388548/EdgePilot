@@ -467,6 +467,125 @@ def test_analytics_overview_uses_journal_when_sell_fill_lacks_entry_price(sessio
     assert overview.closed_positions_count == 1
 
 
+def test_analytics_overview_falls_back_to_default_equity_without_settings(session) -> None:
+    principal = _principal()
+    session.add(
+        db.Position(
+            position_id="pos_no_settings",
+            account_id=principal.account_id,
+            symbol_id="QQQ",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=100,
+            quantity=2,
+            initial_stop=90,
+            current_stop=90,
+            status="open",
+            unrealized_pnl=0,
+        )
+    )
+    session.add(
+        db.Bar(
+            symbol_id="QQQ",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=105,
+            source="test",
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.unrealized_pnl == 10
+    assert overview.equity == 10_010
+    assert overview.open_risk_pct == 0.001998
+
+
+def test_analytics_execution_quality_ignores_foreign_candidate(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Candidate(
+            candidate_id="cand_foreign",
+            account_id="acct_b",
+            symbol_id="SPY",
+            scan_date=date(2026, 5, 1),
+            strategy_name="etf_rotation_us_etf",
+            entry_trigger=100,
+            initial_stop=90,
+            decision="candidate",
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="plan_cand_foreign",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=101,
+            quantity=1,
+            initial_stop=90,
+            current_stop=90,
+            status="open",
+        )
+    )
+    session.add(
+        db.ExecutionImport(
+            import_id="exec_import_foreign_candidate",
+            account_id=principal.account_id,
+            broker="edgepilot_generic_csv",
+            status="completed",
+        )
+    )
+    session.add(
+        db.ExecutionFill(
+            fill_id="exec_fill_foreign_candidate",
+            import_id="exec_import_foreign_candidate",
+            account_id=principal.account_id,
+            position_id="plan_cand_foreign",
+            idempotency_key="foreign_candidate",
+            broker="edgepilot_generic_csv",
+            symbol_id="SPY",
+            asset_type="etf",
+            side="buy",
+            quantity=1,
+            price=101,
+            fees=0,
+            executed_at=datetime(2026, 5, 1, tzinfo=UTC),
+            status="active",
+            reconciliation_status="matched",
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.execution_quality.planned_entry_count == 0
+    assert overview.execution_quality.average_entry_drag_r is None
+
+
 def test_analytics_overview_rejects_reversed_date_range(session) -> None:
     with pytest.raises(ValueError):
         AnalyticsService.overview(
