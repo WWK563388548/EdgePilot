@@ -112,6 +112,20 @@ def test_analytics_overview_uses_ledger_fills_journal_and_open_marks(session) ->
                 realized_pnl=-5,
             ),
             db.Position(
+                position_id="pos_old_closed",
+                account_id=principal.account_id,
+                symbol_id="DIA",
+                asset_type="etf",
+                strategy_name="oneil_core_us_etf",
+                entry_date=datetime(2026, 4, 1, tzinfo=UTC),
+                entry_price=300,
+                quantity=0,
+                initial_stop=280,
+                current_stop=280,
+                status="closed",
+                realized_pnl=100,
+            ),
+            db.Position(
                 position_id="pos_other_account",
                 account_id="acct_b",
                 symbol_id="SMH",
@@ -212,6 +226,23 @@ def test_analytics_overview_uses_ledger_fills_journal_and_open_marks(session) ->
             setup_type="oneil_core_us_etf",
         )
     )
+    session.add(
+        db.TradeJournal(
+            trade_id="trade_old",
+            account_id=principal.account_id,
+            position_id="pos_old_closed",
+            symbol_id="DIA",
+            entry_ts=datetime(2026, 4, 1, tzinfo=UTC),
+            exit_ts=datetime(2026, 4, 20, tzinfo=UTC),
+            entry_price=300,
+            exit_price=400,
+            quantity=1,
+            gross_pnl=100,
+            net_pnl=100,
+            r_multiple=5,
+            setup_type="oneil_core_us_etf",
+        )
+    )
     session.commit()
 
     overview = AnalyticsService.overview(
@@ -224,14 +255,14 @@ def test_analytics_overview_uses_ledger_fills_journal_and_open_marks(session) ->
     assert overview.realized_pnl == 16
     assert overview.unrealized_pnl == 20
     assert overview.total_pnl == 36
-    assert overview.equity == 10036
+    assert overview.equity == 10136
     assert overview.trades_count == 2
     assert overview.win_rate == 0.5
     assert overview.profit_factor == 4.2
     assert overview.average_r == 0.25
     assert overview.open_positions_count == 1
-    assert overview.closed_positions_count == 2
-    assert overview.open_risk_pct == 0.001594
+    assert overview.closed_positions_count == 3
+    assert overview.open_risk_pct == 0.001579
     assert [row.strategy_name for row in overview.strategy_breakdown] == [
         "etf_rotation_us_etf",
         "oneil_core_us_etf",
@@ -255,3 +286,51 @@ def test_analytics_overview_rejects_reversed_date_range(session) -> None:
             from_date=date(2026, 5, 11),
             to_date=date(2026, 5, 1),
         )
+
+
+def test_analytics_overview_prefers_latest_snapshot_equity(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.PortfolioSnapshot(
+            account_id=principal.account_id,
+            ts=datetime(2026, 5, 1, tzinfo=UTC),
+            equity=10_500,
+            cash=0,
+            gross_exposure=0,
+            net_exposure=0,
+            open_risk_amount=0,
+            open_risk_pct=0,
+        )
+    )
+    session.flush()
+    session.add(
+        db.PortfolioSnapshot(
+            account_id=principal.account_id,
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            equity=12_345,
+            cash=0,
+            gross_exposure=0,
+            net_exposure=0,
+            open_risk_amount=0,
+            open_risk_pct=0,
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.equity == 12_345

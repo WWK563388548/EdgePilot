@@ -83,8 +83,14 @@ class AnalyticsService:
         gross_profit = sum(wins)
         gross_loss = abs(sum(losses))
         risk_settings = session.get(db.AccountRiskSettings, principal.account_id)
-        account_equity = float(risk_settings.account_equity or 0) if risk_settings else 0.0
-        equity = round(account_equity + total_pnl, 6)
+        equity = AnalyticsService._equity_as_of(
+            session=session,
+            principal=principal,
+            positions_by_id=positions_by_id,
+            risk_settings=risk_settings,
+            to_ts=to_ts,
+            unrealized_pnl=unrealized_pnl,
+        )
 
         return AnalyticsOverviewResponse(
             from_date=from_date,
@@ -245,6 +251,66 @@ class AnalyticsService:
             if risk_per_unit > 0:
                 risk_amount += risk_per_unit * position.quantity
         return round(risk_amount / equity, 6)
+
+    @staticmethod
+    def _equity_as_of(
+        *,
+        session: Session,
+        principal: AuthPrincipal,
+        positions_by_id: dict[str, db.Position],
+        risk_settings: db.AccountRiskSettings | None,
+        to_ts: datetime,
+        unrealized_pnl: float,
+    ) -> float:
+        snapshot_equity = AnalyticsService._latest_snapshot_equity(
+            session=session,
+            principal=principal,
+            to_ts=to_ts,
+        )
+        if snapshot_equity is not None:
+            return round(snapshot_equity, 6)
+
+        account_equity = float(risk_settings.account_equity or 0) if risk_settings else 0.0
+        fills = session.scalars(
+            select(db.ExecutionFill)
+            .where(
+                db.ExecutionFill.account_id == principal.account_id,
+                db.ExecutionFill.executed_at <= to_ts,
+                db.ExecutionFill.status == "active",
+            )
+            .order_by(db.ExecutionFill.executed_at.asc())
+        ).all()
+        journals = session.scalars(
+            select(db.TradeJournal).where(
+                db.TradeJournal.account_id == principal.account_id,
+                db.TradeJournal.exit_ts <= to_ts,
+            )
+        ).all()
+        realized_events = AnalyticsService._realized_events(
+            fills=fills,
+            journals=journals,
+            positions_by_id=positions_by_id,
+        )
+        realized_pnl = sum(event.pnl for event in realized_events)
+        return round(account_equity + realized_pnl + unrealized_pnl, 6)
+
+    @staticmethod
+    def _latest_snapshot_equity(
+        *,
+        session: Session,
+        principal: AuthPrincipal,
+        to_ts: datetime,
+    ) -> float | None:
+        return session.scalar(
+            select(db.PortfolioSnapshot.equity)
+            .where(
+                db.PortfolioSnapshot.account_id == principal.account_id,
+                db.PortfolioSnapshot.ts <= to_ts,
+                db.PortfolioSnapshot.equity.is_not(None),
+            )
+            .order_by(db.PortfolioSnapshot.ts.desc())
+            .limit(1)
+        )
 
     @staticmethod
     def _strategy_breakdown(events: list[RealizedEvent]) -> list[AnalyticsStrategyBreakdown]:
