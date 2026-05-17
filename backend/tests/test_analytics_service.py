@@ -379,6 +379,7 @@ def test_analytics_overview_preserves_historical_open_state_from_fills(session) 
     assert overview.total_pnl == 30
     assert overview.equity == 10_030
     assert overview.open_positions_count == 1
+    assert overview.closed_positions_count == 0
     assert overview.open_risk_pct == 0.002991
 
 

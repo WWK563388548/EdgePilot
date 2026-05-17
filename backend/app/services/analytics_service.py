@@ -142,7 +142,13 @@ class AnalyticsService:
             trades_count=trades_count,
             open_risk_pct=AnalyticsService._open_risk_pct(open_positions, equity),
             open_positions_count=len(open_positions),
-            closed_positions_count=sum(1 for position in positions if position.status == "closed"),
+            closed_positions_count=AnalyticsService._closed_positions_count_as_of(
+                positions=positions,
+                open_positions=open_positions,
+                fills_until_to=fills_until_to,
+                all_journals=all_journals,
+                to_ts=to_ts,
+            ),
             strategy_breakdown=AnalyticsService._strategy_breakdown(realized_events),
             execution_quality=AnalyticsService._execution_quality(
                 session=session,
@@ -279,6 +285,67 @@ class AnalyticsService:
                     quantities.get(journal.position_id, 0.0) + journal.quantity
                 )
         return quantities
+
+    @staticmethod
+    def _closed_positions_count_as_of(
+        *,
+        positions: list[db.Position],
+        open_positions: list[OpenPositionAsOf],
+        fills_until_to: list[db.ExecutionFill],
+        all_journals: list[db.TradeJournal],
+        to_ts: datetime,
+    ) -> int:
+        open_position_ids = {row.position.position_id for row in open_positions}
+        fill_quantities = AnalyticsService._position_quantities_from_fills(fills_until_to)
+        position_ids_with_buy_fills = {
+            fill.position_id
+            for fill in fills_until_to
+            if fill.position_id
+            and fill.reconciliation_status != "ignored"
+            and fill.quantity is not None
+            and fill.side == "buy"
+        }
+        position_ids_with_journals = {
+            journal.position_id for journal in all_journals if journal.position_id
+        }
+        position_ids_closed_by_journal = {
+            journal.position_id
+            for journal in all_journals
+            if journal.position_id
+            and journal.exit_ts is not None
+            and AnalyticsService._as_utc(journal.exit_ts) <= to_ts
+        }
+
+        count = 0
+        for position in positions:
+            if position.position_id in open_position_ids:
+                continue
+            if AnalyticsService._position_start_ts(position) > to_ts:
+                continue
+            if position.position_id in position_ids_closed_by_journal:
+                count += 1
+                continue
+            if (
+                position.position_id in position_ids_with_buy_fills
+                and fill_quantities.get(position.position_id, 0.0) <= 0
+            ):
+                count += 1
+                continue
+            if (
+                position.status == "closed"
+                and position.position_id not in fill_quantities
+                and position.position_id not in position_ids_with_journals
+                and AnalyticsService._position_close_fallback_ts(position) <= to_ts
+            ):
+                count += 1
+        return count
+
+    @staticmethod
+    def _position_close_fallback_ts(position: db.Position) -> datetime:
+        closed_at = position.updated_at or position.created_at or position.entry_date
+        if closed_at is None:
+            return datetime.max.replace(tzinfo=UTC)
+        return AnalyticsService._as_utc(closed_at)
 
     @staticmethod
     def _position_start_ts(position: db.Position) -> datetime:

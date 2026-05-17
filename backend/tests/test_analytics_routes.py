@@ -61,6 +61,46 @@ def test_analytics_overview_route_is_account_scoped(monkeypatch) -> None:
     assert response.realized_pnl == 80
 
 
+def test_analytics_overview_route_defaults_to_utc_today(monkeypatch) -> None:
+    captured = {}
+
+    def _fake_overview(session, principal, from_date, to_date):
+        captured["from_date"] = from_date
+        captured["to_date"] = to_date
+        return AnalyticsOverviewResponse(
+            from_date=from_date,
+            to_date=to_date,
+            equity=10_000,
+            total_pnl=0,
+            realized_pnl=0,
+            unrealized_pnl=0,
+            win_rate=0,
+            profit_factor=0,
+            expectancy_r=0,
+            average_r=0,
+            max_drawdown_pct=0,
+            current_drawdown_pct=0,
+            trades_count=0,
+            open_risk_pct=0,
+        )
+
+    monkeypatch.setattr(analytics_route, "_utc_today", lambda: date(2026, 5, 18))
+    monkeypatch.setattr(analytics_route.AnalyticsService, "overview", _fake_overview)
+
+    response = get_overview(
+        session=None,
+        principal=_principal(),
+        from_date=None,
+        to_date=None,
+    )
+
+    assert captured == {
+        "from_date": date(2026, 2, 17),
+        "to_date": date(2026, 5, 18),
+    }
+    assert response.to_date == date(2026, 5, 18)
+
+
 def test_analytics_overview_route_returns_client_error_for_invalid_range(monkeypatch) -> None:
     def _fake_overview(session, principal, from_date, to_date):
         raise ValueError("from date must be before or equal to to date")
