@@ -245,12 +245,17 @@ def test_analytics_overview_uses_ledger_fills_journal_and_open_marks(session) ->
     )
     session.commit()
 
+    candidate_queries = []
+
+    def _count_candidate_queries(conn, cursor, statement, parameters, context, executemany):
+        if "from candidates" in statement.lower():
+            candidate_queries.append(statement)
+
+    event.listen(session.bind, "before_cursor_execute", _count_candidate_queries)
     overview = AnalyticsService.overview(
-        session=session,
-        principal=principal,
-        from_date=date(2026, 5, 1),
-        to_date=date(2026, 5, 11),
+        session=session, principal=principal, from_date=date(2026, 5, 1), to_date=date(2026, 5, 11)
     )
+    event.remove(session.bind, "before_cursor_execute", _count_candidate_queries)
 
     assert overview.realized_pnl == 16
     assert overview.unrealized_pnl == 20
@@ -276,6 +281,105 @@ def test_analytics_overview_uses_ledger_fills_journal_and_open_marks(session) ->
     assert overview.execution_quality.average_entry_slippage_pct == 0.01
     assert overview.execution_quality.planned_exit_count == 1
     assert overview.execution_quality.average_exit_drag_r == -1.545455
+    assert len(candidate_queries) == 1
+
+
+def test_analytics_overview_preserves_historical_open_state_from_fills(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_closed_now",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=100,
+            quantity=0,
+            initial_stop=90,
+            current_stop=90,
+            status="closed",
+        )
+    )
+    session.add(
+        db.Bar(
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=110,
+            source="test",
+        )
+    )
+    session.add(
+        db.ExecutionImport(
+            import_id="exec_import_historical_open",
+            account_id=principal.account_id,
+            broker="edgepilot_generic_csv",
+            status="completed",
+        )
+    )
+    session.add_all(
+        [
+            db.ExecutionFill(
+                fill_id="exec_fill_historical_buy",
+                import_id="exec_import_historical_open",
+                account_id=principal.account_id,
+                position_id="pos_closed_now",
+                idempotency_key="historical_buy",
+                broker="edgepilot_generic_csv",
+                symbol_id="SPY",
+                asset_type="etf",
+                side="buy",
+                quantity=3,
+                price=100,
+                fees=0,
+                executed_at=datetime(2026, 5, 1, tzinfo=UTC),
+                status="active",
+                reconciliation_status="matched",
+            ),
+            db.ExecutionFill(
+                fill_id="exec_fill_historical_sell",
+                import_id="exec_import_historical_open",
+                account_id=principal.account_id,
+                position_id="pos_closed_now",
+                idempotency_key="historical_sell",
+                broker="edgepilot_generic_csv",
+                symbol_id="SPY",
+                asset_type="etf",
+                side="sell",
+                quantity=3,
+                price=120,
+                fees=0,
+                executed_at=datetime(2026, 5, 20, tzinfo=UTC),
+                status="active",
+                reconciliation_status="matched",
+            ),
+        ]
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.realized_pnl == 0
+    assert overview.unrealized_pnl == 30
+    assert overview.total_pnl == 30
+    assert overview.equity == 10_030
+    assert overview.open_positions_count == 1
+    assert overview.open_risk_pct == 0.002991
 
 
 def test_analytics_overview_rejects_reversed_date_range(session) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from statistics import mean
@@ -27,6 +28,12 @@ class RealizedEvent:
     r_multiple: float | None
 
 
+@dataclass(frozen=True)
+class OpenPositionAsOf:
+    position: db.Position
+    quantity: float
+
+
 class AnalyticsService:
     @staticmethod
     def overview(
@@ -44,23 +51,34 @@ class AnalyticsService:
             select(db.Position).where(db.Position.account_id == principal.account_id)
         ).all()
         positions_by_id = {position.position_id: position for position in positions}
-        fills = session.scalars(
+        fills_until_to = session.scalars(
             select(db.ExecutionFill)
             .where(
                 db.ExecutionFill.account_id == principal.account_id,
-                db.ExecutionFill.executed_at >= from_ts,
                 db.ExecutionFill.executed_at <= to_ts,
                 db.ExecutionFill.status == "active",
             )
             .order_by(db.ExecutionFill.executed_at.asc())
         ).all()
-        journals = session.scalars(
-            select(db.TradeJournal).where(
-                db.TradeJournal.account_id == principal.account_id,
-                db.TradeJournal.exit_ts >= from_ts,
-                db.TradeJournal.exit_ts <= to_ts,
-            )
+        fills = [
+            fill
+            for fill in fills_until_to
+            if fill.executed_at is not None
+            and AnalyticsService._as_utc(fill.executed_at) >= from_ts
+        ]
+        all_journals = session.scalars(
+            select(db.TradeJournal).where(db.TradeJournal.account_id == principal.account_id)
         ).all()
+        journals_until_to = [
+            journal
+            for journal in all_journals
+            if journal.exit_ts and AnalyticsService._as_utc(journal.exit_ts) <= to_ts
+        ]
+        journals = [
+            journal
+            for journal in journals_until_to
+            if journal.exit_ts and AnalyticsService._as_utc(journal.exit_ts) >= from_ts
+        ]
 
         realized_events = AnalyticsService._realized_events(
             fills=fills,
@@ -68,7 +86,12 @@ class AnalyticsService:
             positions_by_id=positions_by_id,
         )
         realized_pnl = round(sum(event.pnl for event in realized_events), 6)
-        open_positions = AnalyticsService._open_positions_as_of(positions, to_ts)
+        open_positions = AnalyticsService._open_positions_as_of(
+            positions=positions,
+            fills_until_to=fills_until_to,
+            all_journals=all_journals,
+            to_ts=to_ts,
+        )
         unrealized_pnl = AnalyticsService._unrealized_pnl(
             session=session,
             positions=open_positions,
@@ -89,6 +112,8 @@ class AnalyticsService:
             positions_by_id=positions_by_id,
             risk_settings=risk_settings,
             to_ts=to_ts,
+            journals_until_to=journals_until_to,
+            fills_until_to=fills_until_to,
             unrealized_pnl=unrealized_pnl,
         )
 
@@ -180,35 +205,91 @@ class AnalyticsService:
     def _unrealized_pnl(
         *,
         session: Session,
-        positions: list[db.Position],
+        positions: list[OpenPositionAsOf],
         to_ts: datetime,
     ) -> float:
         total = 0.0
-        for position in positions:
-            if position.entry_price is None or position.quantity is None:
+        for open_position in positions:
+            position = open_position.position
+            if position.entry_price is None:
                 continue
             mark = AnalyticsService._latest_close(session, position.symbol_id, to_ts)
             if mark is None:
-                total += float(position.unrealized_pnl or 0)
+                if position.status in ACTIVE_POSITION_STATUSES:
+                    total += float(position.unrealized_pnl or 0)
                 continue
-            total += (mark - position.entry_price) * position.quantity
+            total += (mark - position.entry_price) * open_position.quantity
         return round(total, 6)
 
     @staticmethod
-    def _open_positions_as_of(positions: list[db.Position], to_ts: datetime) -> list[db.Position]:
-        return [
-            position
-            for position in positions
-            if position.status in ACTIVE_POSITION_STATUSES
-            and AnalyticsService._position_start_ts(position) <= to_ts
-        ]
+    def _open_positions_as_of(
+        *,
+        positions: list[db.Position],
+        fills_until_to: list[db.ExecutionFill],
+        all_journals: list[db.TradeJournal],
+        to_ts: datetime,
+    ) -> list[OpenPositionAsOf]:
+        fill_quantities = AnalyticsService._position_quantities_from_fills(fills_until_to)
+        journal_quantities = AnalyticsService._position_quantities_from_journals(
+            all_journals, to_ts
+        )
+        rows: list[OpenPositionAsOf] = []
+        for position in positions:
+            if AnalyticsService._position_start_ts(position) > to_ts:
+                continue
+
+            quantity = fill_quantities.get(position.position_id)
+            if quantity is None:
+                quantity = journal_quantities.get(position.position_id)
+            if quantity is None and position.status in ACTIVE_POSITION_STATUSES:
+                quantity = position.quantity
+            if quantity is not None and quantity > 0:
+                rows.append(OpenPositionAsOf(position=position, quantity=quantity))
+        return rows
+
+    @staticmethod
+    def _position_quantities_from_fills(fills: list[db.ExecutionFill]) -> dict[str, float]:
+        quantities: dict[str, float] = {}
+        for fill in fills:
+            if (
+                not fill.position_id
+                or fill.reconciliation_status == "ignored"
+                or fill.quantity is None
+            ):
+                continue
+            signed_quantity = fill.quantity if fill.side == "buy" else -fill.quantity
+            quantities[fill.position_id] = quantities.get(fill.position_id, 0.0) + signed_quantity
+        return quantities
+
+    @staticmethod
+    def _position_quantities_from_journals(
+        journals: list[db.TradeJournal], to_ts: datetime
+    ) -> dict[str, float]:
+        quantities: dict[str, float] = {}
+        for journal in journals:
+            if not journal.position_id or journal.quantity is None:
+                continue
+            entry_ts = journal.entry_ts or datetime.min.replace(tzinfo=UTC)
+            entry_ts = AnalyticsService._as_utc(entry_ts)
+            exit_ts = journal.exit_ts
+            if exit_ts is not None:
+                exit_ts = AnalyticsService._as_utc(exit_ts)
+            if entry_ts <= to_ts and (exit_ts is None or exit_ts > to_ts):
+                quantities[journal.position_id] = (
+                    quantities.get(journal.position_id, 0.0) + journal.quantity
+                )
+        return quantities
 
     @staticmethod
     def _position_start_ts(position: db.Position) -> datetime:
         started_at = position.entry_date or position.created_at or datetime.min.replace(tzinfo=UTC)
-        if started_at.tzinfo is None:
-            return started_at.replace(tzinfo=UTC)
-        return started_at.astimezone(UTC)
+        return AnalyticsService._as_utc(started_at)
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @staticmethod
     def _latest_close(session: Session, symbol_id: str, to_ts: datetime) -> float | None:
@@ -239,17 +320,18 @@ class AnalyticsService:
         return round((exit_price - entry_price) / risk, 6)
 
     @staticmethod
-    def _open_risk_pct(positions: list[db.Position], equity: float) -> float:
+    def _open_risk_pct(positions: list[OpenPositionAsOf], equity: float) -> float:
         if equity <= 0:
             return 0
         risk_amount = 0.0
-        for position in positions:
+        for open_position in positions:
+            position = open_position.position
             stop = position.current_stop or position.initial_stop
-            if position.entry_price is None or stop is None or position.quantity is None:
+            if position.entry_price is None or stop is None:
                 continue
             risk_per_unit = position.entry_price - stop
             if risk_per_unit > 0:
-                risk_amount += risk_per_unit * position.quantity
+                risk_amount += risk_per_unit * open_position.quantity
         return round(risk_amount / equity, 6)
 
     @staticmethod
@@ -260,6 +342,8 @@ class AnalyticsService:
         positions_by_id: dict[str, db.Position],
         risk_settings: db.AccountRiskSettings | None,
         to_ts: datetime,
+        journals_until_to: list[db.TradeJournal],
+        fills_until_to: list[db.ExecutionFill],
         unrealized_pnl: float,
     ) -> float:
         snapshot_equity = AnalyticsService._latest_snapshot_equity(
@@ -271,24 +355,9 @@ class AnalyticsService:
             return round(snapshot_equity, 6)
 
         account_equity = float(risk_settings.account_equity or 0) if risk_settings else 0.0
-        fills = session.scalars(
-            select(db.ExecutionFill)
-            .where(
-                db.ExecutionFill.account_id == principal.account_id,
-                db.ExecutionFill.executed_at <= to_ts,
-                db.ExecutionFill.status == "active",
-            )
-            .order_by(db.ExecutionFill.executed_at.asc())
-        ).all()
-        journals = session.scalars(
-            select(db.TradeJournal).where(
-                db.TradeJournal.account_id == principal.account_id,
-                db.TradeJournal.exit_ts <= to_ts,
-            )
-        ).all()
         realized_events = AnalyticsService._realized_events(
-            fills=fills,
-            journals=journals,
+            fills=fills_until_to,
+            journals=journals_until_to,
             positions_by_id=positions_by_id,
         )
         realized_pnl = sum(event.pnl for event in realized_events)
@@ -349,6 +418,10 @@ class AnalyticsService:
         positions_by_id: dict[str, db.Position],
     ) -> AnalyticsExecutionQuality:
         active_fills = [fill for fill in fills if fill.status == "active"]
+        candidates_by_position_id = AnalyticsService._candidates_by_position_id(
+            session=session,
+            positions=positions_by_id.values(),
+        )
         entry_drags: list[float] = []
         entry_slippage: list[float] = []
         exit_drags: list[float] = []
@@ -356,7 +429,7 @@ class AnalyticsService:
             position = positions_by_id.get(fill.position_id or "")
             if position is None:
                 continue
-            candidate = AnalyticsService._position_candidate(session, position)
+            candidate = candidates_by_position_id.get(position.position_id)
             planned_entry = candidate.entry_trigger if candidate else None
             planned_stop = (
                 candidate.initial_stop
@@ -398,18 +471,30 @@ class AnalyticsService:
         )
 
     @staticmethod
-    def _position_candidate(session: Session, position: db.Position) -> db.Candidate | None:
-        if not position.position_id.startswith("plan_"):
-            return None
-        candidate_id = position.position_id.removeprefix("plan_")
-        if not candidate_id:
-            return None
-        return session.scalar(
+    def _candidates_by_position_id(
+        *,
+        session: Session,
+        positions: Iterable[db.Position],
+    ) -> dict[str, db.Candidate]:
+        candidate_ids_by_position_id = {
+            position.position_id: position.position_id.removeprefix("plan_")
+            for position in positions
+            if position.position_id.startswith("plan_")
+            and position.position_id.removeprefix("plan_")
+        }
+        if not candidate_ids_by_position_id:
+            return {}
+        candidates = session.scalars(
             select(db.Candidate).where(
-                db.Candidate.candidate_id == candidate_id,
-                db.Candidate.account_id == position.account_id,
+                db.Candidate.candidate_id.in_(candidate_ids_by_position_id.values()),
             )
-        )
+        ).all()
+        candidates_by_id = {candidate.candidate_id: candidate for candidate in candidates}
+        return {
+            position_id: candidates_by_id[candidate_id]
+            for position_id, candidate_id in candidate_ids_by_position_id.items()
+            if candidate_id in candidates_by_id
+        }
 
     @staticmethod
     def _max_drawdown_pct(
