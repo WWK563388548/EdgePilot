@@ -383,6 +383,90 @@ def test_analytics_overview_preserves_historical_open_state_from_fills(session) 
     assert overview.open_risk_pct == 0.002991
 
 
+def test_analytics_overview_uses_journal_when_sell_fill_lacks_entry_price(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_sell_only",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=None,
+            quantity=0,
+            initial_stop=None,
+            current_stop=None,
+            status="closed",
+        )
+    )
+    session.add(
+        db.ExecutionImport(
+            import_id="exec_import_sell_only",
+            account_id=principal.account_id,
+            broker="edgepilot_generic_csv",
+            status="completed",
+        )
+    )
+    session.add(
+        db.ExecutionFill(
+            fill_id="exec_fill_sell_only",
+            import_id="exec_import_sell_only",
+            account_id=principal.account_id,
+            position_id="pos_sell_only",
+            idempotency_key="sell_only",
+            broker="edgepilot_generic_csv",
+            symbol_id="SPY",
+            asset_type="etf",
+            side="sell",
+            quantity=2,
+            price=120,
+            fees=0,
+            executed_at=datetime(2026, 5, 10, tzinfo=UTC),
+            status="active",
+            reconciliation_status="matched",
+        )
+    )
+    session.add(
+        db.TradeJournal(
+            trade_id="trade_sell_only",
+            account_id=principal.account_id,
+            position_id="pos_sell_only",
+            symbol_id="SPY",
+            entry_ts=datetime(2026, 5, 1, tzinfo=UTC),
+            exit_ts=datetime(2026, 5, 10, tzinfo=UTC),
+            entry_price=100,
+            exit_price=120,
+            quantity=2,
+            gross_pnl=40,
+            net_pnl=39,
+            r_multiple=2,
+            setup_type="etf_rotation_us_etf",
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.realized_pnl == 39
+    assert overview.trades_count == 1
+    assert overview.closed_positions_count == 1
+
+
 def test_analytics_overview_rejects_reversed_date_range(session) -> None:
     with pytest.raises(ValueError):
         AnalyticsService.overview(

@@ -172,11 +172,11 @@ class AnalyticsService:
             position = positions_by_id.get(fill.position_id or "")
             if position is None:
                 continue
-            sell_fill_position_ids.add(position.position_id)
             entry_price = position.entry_price
             if entry_price is None:
                 continue
             pnl = round((fill.price - entry_price) * fill.quantity - (fill.fees or 0), 6)
+            sell_fill_position_ids.add(position.position_id)
             events.append(
                 RealizedEvent(
                     strategy_name=position.strategy_name or "unknown",
@@ -297,13 +297,13 @@ class AnalyticsService:
     ) -> int:
         open_position_ids = {row.position.position_id for row in open_positions}
         fill_quantities = AnalyticsService._position_quantities_from_fills(fills_until_to)
-        position_ids_with_buy_fills = {
+        position_ids_with_closing_fills = {
             fill.position_id
             for fill in fills_until_to
             if fill.position_id
             and fill.reconciliation_status != "ignored"
             and fill.quantity is not None
-            and fill.side == "buy"
+            and fill.side in {"buy", "sell"}
         }
         position_ids_with_journals = {
             journal.position_id for journal in all_journals if journal.position_id
@@ -326,7 +326,7 @@ class AnalyticsService:
                 count += 1
                 continue
             if (
-                position.position_id in position_ids_with_buy_fills
+                position.position_id in position_ids_with_closing_fills
                 and fill_quantities.get(position.position_id, 0.0) <= 0
             ):
                 count += 1
