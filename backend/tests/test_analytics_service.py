@@ -839,3 +839,108 @@ def test_analytics_overview_prefers_latest_snapshot_equity(session) -> None:
     )
 
     assert overview.equity == 12_345
+
+
+def test_analytics_overview_recomputes_equity_after_stale_snapshot(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.PortfolioSnapshot(
+            account_id=principal.account_id,
+            ts=datetime(2026, 5, 5, tzinfo=UTC),
+            equity=10_050,
+            cash=0,
+            gross_exposure=0,
+            net_exposure=0,
+            open_risk_amount=0,
+            open_risk_pct=0,
+            realized_pnl=0,
+            unrealized_pnl=10,
+        )
+    )
+    session.add_all(
+        [
+            db.Position(
+                position_id="pos_open_after_snapshot",
+                account_id=principal.account_id,
+                symbol_id="QQQ",
+                asset_type="etf",
+                strategy_name="oneil_core_us_etf",
+                entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+                entry_price=100,
+                quantity=1,
+                initial_stop=90,
+                current_stop=90,
+                status="open",
+            ),
+            db.Position(
+                position_id="pos_closed_after_snapshot",
+                account_id=principal.account_id,
+                symbol_id="SPY",
+                asset_type="etf",
+                strategy_name="etf_rotation_us_etf",
+                entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+                entry_price=100,
+                quantity=0,
+                initial_stop=90,
+                current_stop=90,
+                status="closed",
+            ),
+        ]
+    )
+    session.add(
+        db.Bar(
+            symbol_id="QQQ",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=120,
+            source="test",
+        )
+    )
+    session.add(
+        db.ExecutionImport(
+            import_id="exec_import_stale_snapshot",
+            account_id=principal.account_id,
+            broker="edgepilot_generic_csv",
+            status="completed",
+        )
+    )
+    session.add(
+        db.ExecutionFill(
+            fill_id="exec_fill_sell_after_snapshot",
+            import_id="exec_import_stale_snapshot",
+            account_id=principal.account_id,
+            position_id="pos_closed_after_snapshot",
+            idempotency_key="sell_after_snapshot",
+            broker="edgepilot_generic_csv",
+            symbol_id="SPY",
+            asset_type="etf",
+            side="sell",
+            quantity=1,
+            price=115,
+            fees=0,
+            executed_at=datetime(2026, 5, 8, tzinfo=UTC),
+            status="active",
+            reconciliation_status="matched",
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.realized_pnl == 15
+    assert overview.unrealized_pnl == 20
+    assert overview.equity == 10_075

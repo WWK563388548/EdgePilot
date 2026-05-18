@@ -453,13 +453,34 @@ class AnalyticsService:
         fills_until_to: list[db.ExecutionFill],
         unrealized_pnl: float,
     ) -> float:
-        snapshot_equity = AnalyticsService._latest_snapshot_equity(
+        snapshot = AnalyticsService._latest_snapshot(
             session=session,
             principal=principal,
             to_ts=to_ts,
         )
-        if snapshot_equity is not None:
-            return round(snapshot_equity, 6)
+        if snapshot is not None:
+            snapshot_ts = AnalyticsService._as_utc(snapshot.ts)
+            fills_after_snapshot = [
+                fill
+                for fill in fills_until_to
+                if fill.executed_at and AnalyticsService._as_utc(fill.executed_at) > snapshot_ts
+            ]
+            journals_after_snapshot = [
+                journal
+                for journal in journals_until_to
+                if journal.exit_ts and AnalyticsService._as_utc(journal.exit_ts) > snapshot_ts
+            ]
+            realized_delta = sum(
+                event.pnl
+                for event in AnalyticsService._realized_events(
+                    fills=fills_after_snapshot,
+                    journals=journals_after_snapshot,
+                    positions_by_id=positions_by_id,
+                )
+            )
+            snapshot_unrealized = float(snapshot.unrealized_pnl or 0)
+            unrealized_delta = unrealized_pnl - snapshot_unrealized
+            return round(float(snapshot.equity) + realized_delta + unrealized_delta, 6)
 
         account_equity = (
             float(risk_settings.account_equity)
@@ -475,14 +496,14 @@ class AnalyticsService:
         return round(account_equity + realized_pnl + unrealized_pnl, 6)
 
     @staticmethod
-    def _latest_snapshot_equity(
+    def _latest_snapshot(
         *,
         session: Session,
         principal: AuthPrincipal,
         to_ts: datetime,
-    ) -> float | None:
-        return session.scalar(
-            select(db.PortfolioSnapshot.equity)
+    ) -> db.PortfolioSnapshot | None:
+        return session.scalars(
+            select(db.PortfolioSnapshot)
             .where(
                 db.PortfolioSnapshot.account_id == principal.account_id,
                 db.PortfolioSnapshot.ts <= to_ts,
@@ -490,7 +511,7 @@ class AnalyticsService:
             )
             .order_by(db.PortfolioSnapshot.ts.desc())
             .limit(1)
-        )
+        ).first()
 
     @staticmethod
     def _strategy_breakdown(events: list[RealizedEvent]) -> list[AnalyticsStrategyBreakdown]:
