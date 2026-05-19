@@ -655,6 +655,104 @@ def test_analytics_overview_aggregates_journal_trims_as_one_trade(session) -> No
     assert overview.strategy_breakdown[0].average_r == 1.7
 
 
+def test_analytics_overview_reconciles_journal_close_against_entry_fills(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_imported_entry_manual_close",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=100,
+            quantity=0,
+            initial_stop=90,
+            current_stop=90,
+            status="closed",
+            realized_pnl=40,
+            unrealized_pnl=0,
+        )
+    )
+    session.add(
+        db.Bar(
+            symbol_id="SPY",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=130,
+            source="test",
+        )
+    )
+    session.add(
+        db.ExecutionImport(
+            import_id="exec_import_manual_close",
+            account_id=principal.account_id,
+            broker="edgepilot_generic_csv",
+            status="completed",
+        )
+    )
+    session.add(
+        db.ExecutionFill(
+            fill_id="exec_fill_imported_entry_only",
+            import_id="exec_import_manual_close",
+            account_id=principal.account_id,
+            position_id="pos_imported_entry_manual_close",
+            idempotency_key="imported_entry_only",
+            broker="edgepilot_generic_csv",
+            symbol_id="SPY",
+            asset_type="etf",
+            side="buy",
+            quantity=2,
+            price=100,
+            fees=0,
+            executed_at=datetime(2026, 5, 1, tzinfo=UTC),
+            status="active",
+            reconciliation_status="matched",
+        )
+    )
+    session.add(
+        db.TradeJournal(
+            trade_id="trade_imported_entry_manual_close",
+            account_id=principal.account_id,
+            position_id="pos_imported_entry_manual_close",
+            symbol_id="SPY",
+            entry_ts=datetime(2026, 5, 1, tzinfo=UTC),
+            exit_ts=datetime(2026, 5, 9, tzinfo=UTC),
+            entry_price=100,
+            exit_price=120,
+            quantity=2,
+            gross_pnl=40,
+            net_pnl=40,
+            r_multiple=2,
+            setup_type="etf_rotation_us_etf",
+            exit_reason="manual_review",
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.realized_pnl == 40
+    assert overview.unrealized_pnl == 0
+    assert overview.total_pnl == 40
+    assert overview.open_positions_count == 0
+    assert overview.closed_positions_count == 1
+
+
 def test_analytics_overview_aggregates_partial_sell_fills_as_one_trade(session) -> None:
     principal = _principal()
     session.add(

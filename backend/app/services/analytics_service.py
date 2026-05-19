@@ -368,6 +368,10 @@ class AnalyticsService:
         to_ts: datetime,
     ) -> list[OpenPositionAsOf]:
         fill_quantities = AnalyticsService._position_quantities_from_fills(fills_until_to)
+        positions_with_sell_fills = AnalyticsService._position_ids_with_sell_fills(fills_until_to)
+        journal_exit_quantities = AnalyticsService._position_exit_quantities_from_journals(
+            all_journals, to_ts
+        )
         journal_quantities = AnalyticsService._position_quantities_from_journals(
             all_journals, to_ts
         )
@@ -377,6 +381,8 @@ class AnalyticsService:
                 continue
 
             quantity = fill_quantities.get(position.position_id)
+            if quantity is not None and position.position_id not in positions_with_sell_fills:
+                quantity -= journal_exit_quantities.get(position.position_id, 0.0)
             if quantity is None:
                 quantity = journal_quantities.get(position.position_id)
             if quantity is None and position.status in ACTIVE_POSITION_STATUSES:
@@ -397,6 +403,31 @@ class AnalyticsService:
                 continue
             signed_quantity = fill.quantity if fill.side == "buy" else -fill.quantity
             quantities[fill.position_id] = quantities.get(fill.position_id, 0.0) + signed_quantity
+        return quantities
+
+    @staticmethod
+    def _position_ids_with_sell_fills(fills: list[db.ExecutionFill]) -> set[str]:
+        return {
+            fill.position_id
+            for fill in fills
+            if fill.position_id
+            and fill.side == "sell"
+            and fill.reconciliation_status != "ignored"
+            and fill.quantity is not None
+        }
+
+    @staticmethod
+    def _position_exit_quantities_from_journals(
+        journals: list[db.TradeJournal], to_ts: datetime
+    ) -> dict[str, float]:
+        quantities: dict[str, float] = {}
+        for journal in journals:
+            if not journal.position_id or journal.quantity is None or journal.exit_ts is None:
+                continue
+            if AnalyticsService._as_utc(journal.exit_ts) <= to_ts:
+                quantities[journal.position_id] = (
+                    quantities.get(journal.position_id, 0.0) + journal.quantity
+                )
         return quantities
 
     @staticmethod
