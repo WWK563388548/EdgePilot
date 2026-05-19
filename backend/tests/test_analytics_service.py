@@ -1155,6 +1155,127 @@ def test_analytics_overview_excludes_future_buy_fees_from_prior_sell_pnl(session
     assert overview.trades_count == 1
 
 
+def test_analytics_overview_uses_sale_time_cost_basis_for_fill_pnl(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_sale_time_basis",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=200,
+            quantity=1,
+            initial_stop=90,
+            current_stop=90,
+            status="open",
+            realized_pnl=10,
+            unrealized_pnl=0,
+        )
+    )
+    session.add(
+        db.PortfolioSnapshot(
+            account_id=principal.account_id,
+            ts=datetime(2026, 5, 2, tzinfo=UTC),
+            equity=10_000,
+            cash=0,
+            gross_exposure=0,
+            net_exposure=0,
+            open_risk_amount=0,
+            open_risk_pct=0,
+            realized_pnl=0,
+            unrealized_pnl=0,
+        )
+    )
+    session.add(
+        db.ExecutionImport(
+            import_id="exec_import_sale_time_basis",
+            account_id=principal.account_id,
+            broker="edgepilot_generic_csv",
+            status="completed",
+        )
+    )
+    session.add_all(
+        [
+            db.ExecutionFill(
+                fill_id="exec_fill_basis_initial_buy",
+                import_id="exec_import_sale_time_basis",
+                account_id=principal.account_id,
+                position_id="pos_sale_time_basis",
+                idempotency_key="basis_initial_buy",
+                broker="edgepilot_generic_csv",
+                symbol_id="SPY",
+                asset_type="etf",
+                side="buy",
+                quantity=1,
+                price=100,
+                fees=0,
+                executed_at=datetime(2026, 5, 1, tzinfo=UTC),
+                status="active",
+                reconciliation_status="matched",
+            ),
+            db.ExecutionFill(
+                fill_id="exec_fill_basis_first_sell",
+                import_id="exec_import_sale_time_basis",
+                account_id=principal.account_id,
+                position_id="pos_sale_time_basis",
+                idempotency_key="basis_first_sell",
+                broker="edgepilot_generic_csv",
+                symbol_id="SPY",
+                asset_type="etf",
+                side="sell",
+                quantity=1,
+                price=110,
+                fees=0,
+                executed_at=datetime(2026, 5, 5, tzinfo=UTC),
+                status="active",
+                reconciliation_status="matched",
+            ),
+            db.ExecutionFill(
+                fill_id="exec_fill_basis_later_buy",
+                import_id="exec_import_sale_time_basis",
+                account_id=principal.account_id,
+                position_id="pos_sale_time_basis",
+                idempotency_key="basis_later_buy",
+                broker="edgepilot_generic_csv",
+                symbol_id="SPY",
+                asset_type="etf",
+                side="buy",
+                quantity=1,
+                price=200,
+                fees=0,
+                executed_at=datetime(2026, 5, 8, tzinfo=UTC),
+                status="active",
+                reconciliation_status="matched",
+            ),
+        ]
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.realized_pnl == 10
+    assert overview.trades_count == 1
+    assert overview.win_rate == 1
+    assert overview.average_r == 1
+    assert overview.equity == 10_010
+
+
 def test_analytics_overview_falls_back_to_default_equity_without_settings(session) -> None:
     principal = _principal()
     session.add(

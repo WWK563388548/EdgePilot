@@ -43,6 +43,13 @@ class RealizedLeg:
     quantity: float | None
 
 
+@dataclass
+class FillCostState:
+    quantity: float = 0.0
+    average_cost: float = 0.0
+    entry_fee_pool: float = 0.0
+
+
 class AnalyticsService:
     @staticmethod
     def overview(
@@ -176,49 +183,12 @@ class AnalyticsService:
         positions_by_id: dict[str, db.Position],
     ) -> list[RealizedEvent]:
         legs_by_key: dict[str, list[RealizedLeg]] = {}
-        sell_fills_by_position_id: dict[str, list[db.ExecutionFill]] = {}
-        buy_fills_by_position_id = AnalyticsService._buy_fills_by_position_id(
-            fee_fills if fee_fills is not None else fills
-        )
-        for fill in fills:
-            if fill.side != "sell" or fill.reconciliation_status == "ignored":
-                continue
-            position = positions_by_id.get(fill.position_id or "")
-            if position is None:
-                continue
-            sell_fills_by_position_id.setdefault(position.position_id, []).append(fill)
-
-        for position_id, sell_fills in sell_fills_by_position_id.items():
-            position = positions_by_id.get(position_id)
-            if position is None:
-                continue
-            entry_price = position.entry_price
-            if entry_price is None:
-                continue
-            quantity = sum(fill.quantity for fill in sell_fills)
-            gross_pnl = sum((fill.price - entry_price) * fill.quantity for fill in sell_fills)
-            sell_fees = sum(fill.fees or 0 for fill in sell_fills)
-            entry_fees = AnalyticsService._allocated_entry_fees(
-                buy_fills=AnalyticsService._eligible_entry_fee_fills(
-                    buy_fills=buy_fills_by_position_id.get(position_id, []),
-                    sell_fills=sell_fills,
-                ),
-                sold_quantity=quantity,
-            )
-            pnl = round(gross_pnl - sell_fees - entry_fees, 6)
-            legs_by_key.setdefault(position.position_id, []).append(
-                RealizedLeg(
-                    strategy_name=position.strategy_name or "unknown",
-                    pnl=pnl,
-                    r_multiple=AnalyticsService._aggregate_r_multiple(
-                        entry_price=entry_price,
-                        stop=position.initial_stop or position.current_stop,
-                        fills=sell_fills,
-                        quantity=quantity,
-                    ),
-                    quantity=quantity,
-                )
-            )
+        for position_id, fill_legs in AnalyticsService._fill_realized_legs(
+            report_fills=fills,
+            basis_fills=fee_fills if fee_fills is not None else fills,
+            positions_by_id=positions_by_id,
+        ).items():
+            legs_by_key.setdefault(position_id, []).extend(fill_legs)
 
         AnalyticsService._add_journal_realized_legs(
             journals=journals,
@@ -226,6 +196,137 @@ class AnalyticsService:
             positions_by_id=positions_by_id,
         )
         return AnalyticsService._realized_events_from_legs(legs_by_key)
+
+    @staticmethod
+    def _fill_realized_legs(
+        *,
+        report_fills: list[db.ExecutionFill],
+        basis_fills: list[db.ExecutionFill],
+        positions_by_id: dict[str, db.Position],
+    ) -> dict[str, list[RealizedLeg]]:
+        report_sell_ids = {
+            fill.fill_id
+            for fill in report_fills
+            if fill.fill_id
+            and fill.side == "sell"
+            and fill.position_id
+            and fill.quantity is not None
+            and fill.reconciliation_status != "ignored"
+        }
+        if not report_sell_ids:
+            return {}
+
+        legs_by_position_id: dict[str, list[RealizedLeg]] = {}
+        for position_id, position_fills in AnalyticsService._fills_by_position_id(
+            [*basis_fills, *report_fills]
+        ).items():
+            position = positions_by_id.get(position_id)
+            if position is None:
+                continue
+            state = FillCostState()
+            for fill in sorted(
+                position_fills,
+                key=lambda row: (
+                    AnalyticsService._as_utc(row.executed_at)
+                    if row.executed_at
+                    else datetime.min.replace(tzinfo=UTC),
+                    0 if row.side == "buy" else 1,
+                    row.fill_id,
+                ),
+            ):
+                if fill.side == "buy":
+                    AnalyticsService._apply_buy_to_cost_state(state, fill)
+                    continue
+                AnalyticsService._apply_sell_to_realized_legs(
+                    state=state,
+                    fill=fill,
+                    position=position,
+                    report_sell_ids=report_sell_ids,
+                    legs_by_position_id=legs_by_position_id,
+                )
+        return legs_by_position_id
+
+    @staticmethod
+    def _fills_by_position_id(fills: list[db.ExecutionFill]) -> dict[str, list[db.ExecutionFill]]:
+        rows: dict[str, dict[str, db.ExecutionFill]] = {}
+        for fill in fills:
+            if (
+                not fill.position_id
+                or fill.side not in {"buy", "sell"}
+                or fill.reconciliation_status == "ignored"
+                or fill.quantity is None
+                or fill.executed_at is None
+            ):
+                continue
+            rows.setdefault(fill.position_id, {})[fill.fill_id] = fill
+        return {
+            position_id: list(fills_by_id.values()) for position_id, fills_by_id in rows.items()
+        }
+
+    @staticmethod
+    def _apply_buy_to_cost_state(state: FillCostState, fill: db.ExecutionFill) -> None:
+        quantity = float(fill.quantity or 0)
+        if quantity <= 0:
+            return
+        new_quantity = state.quantity + quantity
+        state.average_cost = (
+            (state.average_cost * state.quantity) + (float(fill.price) * quantity)
+        ) / new_quantity
+        state.quantity = new_quantity
+        state.entry_fee_pool += float(fill.fees or 0)
+
+    @staticmethod
+    def _apply_sell_to_realized_legs(
+        *,
+        state: FillCostState,
+        fill: db.ExecutionFill,
+        position: db.Position,
+        report_sell_ids: set[str],
+        legs_by_position_id: dict[str, list[RealizedLeg]],
+    ) -> None:
+        quantity = float(fill.quantity or 0)
+        if quantity <= 0:
+            return
+
+        cost_basis = (
+            state.average_cost
+            if state.quantity > 0
+            else float(position.entry_price)
+            if position.entry_price is not None
+            else None
+        )
+        consumed_quantity = min(quantity, state.quantity) if state.quantity > 0 else 0.0
+        entry_fees = (
+            state.entry_fee_pool * (consumed_quantity / state.quantity)
+            if state.quantity > 0
+            else 0.0
+        )
+
+        if fill.fill_id in report_sell_ids and cost_basis is not None:
+            pnl = round(
+                ((float(fill.price) - cost_basis) * quantity) - float(fill.fees or 0) - entry_fees,
+                6,
+            )
+            legs_by_position_id.setdefault(position.position_id, []).append(
+                RealizedLeg(
+                    strategy_name=position.strategy_name or "unknown",
+                    pnl=pnl,
+                    r_multiple=AnalyticsService._sell_fill_r_multiple(
+                        cost_basis=cost_basis,
+                        stop=position.initial_stop or position.current_stop,
+                        fill=fill,
+                    ),
+                    quantity=quantity,
+                )
+            )
+
+        if state.quantity <= 0:
+            return
+        state.quantity = round(max(0.0, state.quantity - consumed_quantity), 6)
+        state.entry_fee_pool = round(max(0.0, state.entry_fee_pool - entry_fees), 6)
+        if state.quantity == 0:
+            state.average_cost = 0.0
+            state.entry_fee_pool = 0.0
 
     @staticmethod
     def _add_journal_realized_legs(
@@ -288,54 +389,6 @@ class AnalyticsService:
 
         r_values = [leg.r_multiple for leg in legs if leg.r_multiple is not None]
         return round(mean(r_values), 6) if r_values else None
-
-    @staticmethod
-    def _buy_fills_by_position_id(
-        fills: list[db.ExecutionFill],
-    ) -> dict[str, list[db.ExecutionFill]]:
-        rows: dict[str, list[db.ExecutionFill]] = {}
-        for fill in fills:
-            if (
-                fill.side != "buy"
-                or not fill.position_id
-                or fill.reconciliation_status == "ignored"
-            ):
-                continue
-            rows.setdefault(fill.position_id, []).append(fill)
-        return rows
-
-    @staticmethod
-    def _eligible_entry_fee_fills(
-        *,
-        buy_fills: list[db.ExecutionFill],
-        sell_fills: list[db.ExecutionFill],
-    ) -> list[db.ExecutionFill]:
-        cutoff = max(
-            (AnalyticsService._as_utc(fill.executed_at) for fill in sell_fills if fill.executed_at),
-            default=None,
-        )
-        if cutoff is None:
-            return buy_fills
-        return [
-            fill
-            for fill in buy_fills
-            if fill.executed_at and AnalyticsService._as_utc(fill.executed_at) <= cutoff
-        ]
-
-    @staticmethod
-    def _allocated_entry_fees(
-        *,
-        buy_fills: list[db.ExecutionFill],
-        sold_quantity: float,
-    ) -> float:
-        if sold_quantity <= 0:
-            return 0
-        total_buy_quantity = sum(fill.quantity for fill in buy_fills if fill.quantity)
-        if total_buy_quantity <= 0:
-            return 0
-        total_buy_fees = sum(fill.fees or 0 for fill in buy_fills)
-        allocated_quantity = min(sold_quantity, total_buy_quantity)
-        return total_buy_fees * (allocated_quantity / total_buy_quantity)
 
     @staticmethod
     def _unrealized_pnl(
@@ -543,20 +596,18 @@ class AnalyticsService:
         return {symbol_id: close for symbol_id, close in rows if close is not None}
 
     @staticmethod
-    def _aggregate_r_multiple(
+    def _sell_fill_r_multiple(
         *,
-        entry_price: float | None,
+        cost_basis: float,
         stop: float | None,
-        fills: list[db.ExecutionFill],
-        quantity: float,
+        fill: db.ExecutionFill,
     ) -> float | None:
-        if entry_price is None or stop is None or quantity <= 0:
+        if stop is None or fill.quantity <= 0:
             return None
-        risk = entry_price - stop
+        risk = cost_basis - stop
         if risk <= 0:
             return None
-        gross_price_delta = sum((fill.price - entry_price) * fill.quantity for fill in fills)
-        return round(gross_price_delta / (risk * quantity), 6)
+        return round((float(fill.price) - cost_basis) / risk, 6)
 
     @staticmethod
     def _open_risk_pct(positions: list[OpenPositionAsOf], equity: float) -> float:
@@ -637,7 +688,7 @@ class AnalyticsService:
                 event.pnl
                 for event in AnalyticsService._realized_events(
                     fills=fills_for_realized_delta,
-                    fee_fills=fills_after_snapshot,
+                    fee_fills=fills_until_to,
                     journals=journals_for_realized_delta,
                     positions_by_id=positions_by_id,
                 )
