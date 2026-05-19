@@ -26,7 +26,7 @@ export type AnalyticsOverview = {
   realized_pnl: number;
   unrealized_pnl: number;
   win_rate: number;
-  profit_factor: number;
+  profit_factor: number | null;
   expectancy_r: number;
   average_r: number;
   max_drawdown_pct: number;

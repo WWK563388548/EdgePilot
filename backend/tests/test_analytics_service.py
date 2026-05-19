@@ -664,6 +664,94 @@ def test_analytics_overview_aggregates_partial_sell_fills_as_one_trade(session) 
     assert overview.strategy_breakdown[0].average_r == 1.5
 
 
+def test_analytics_overview_subtracts_entry_side_fees_from_fill_pnl(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_fee_backed",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=100,
+            quantity=0,
+            initial_stop=90,
+            current_stop=90,
+            status="closed",
+        )
+    )
+    session.add(
+        db.ExecutionImport(
+            import_id="exec_import_fee_backed",
+            account_id=principal.account_id,
+            broker="edgepilot_generic_csv",
+            status="completed",
+        )
+    )
+    session.add_all(
+        [
+            db.ExecutionFill(
+                fill_id="exec_fill_fee_buy",
+                import_id="exec_import_fee_backed",
+                account_id=principal.account_id,
+                position_id="pos_fee_backed",
+                idempotency_key="fee_buy",
+                broker="edgepilot_generic_csv",
+                symbol_id="SPY",
+                asset_type="etf",
+                side="buy",
+                quantity=1,
+                price=100,
+                fees=3,
+                executed_at=datetime(2026, 5, 1, tzinfo=UTC),
+                status="active",
+                reconciliation_status="matched",
+            ),
+            db.ExecutionFill(
+                fill_id="exec_fill_fee_sell",
+                import_id="exec_import_fee_backed",
+                account_id=principal.account_id,
+                position_id="pos_fee_backed",
+                idempotency_key="fee_sell",
+                broker="edgepilot_generic_csv",
+                symbol_id="SPY",
+                asset_type="etf",
+                side="sell",
+                quantity=1,
+                price=110,
+                fees=1,
+                executed_at=datetime(2026, 5, 10, tzinfo=UTC),
+                status="active",
+                reconciliation_status="matched",
+            ),
+        ]
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 5),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.realized_pnl == 6
+    assert overview.trades_count == 1
+    assert overview.profit_factor is None
+    assert overview.strategy_breakdown[0].realized_pnl == 6
+    assert overview.strategy_breakdown[0].profit_factor is None
+
+
 def test_analytics_overview_falls_back_to_default_equity_without_settings(session) -> None:
     principal = _principal()
     session.add(
@@ -944,3 +1032,67 @@ def test_analytics_overview_recomputes_equity_after_stale_snapshot(session) -> N
     assert overview.realized_pnl == 15
     assert overview.unrealized_pnl == 20
     assert overview.equity == 10_075
+
+
+def test_analytics_overview_does_not_add_unrealized_delta_without_snapshot_breakdown(
+    session,
+) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.PortfolioSnapshot(
+            account_id=principal.account_id,
+            ts=datetime(2026, 5, 5, tzinfo=UTC),
+            equity=10_050,
+            cash=0,
+            gross_exposure=0,
+            net_exposure=0,
+            open_risk_amount=0,
+            open_risk_pct=0,
+            realized_pnl=0,
+            unrealized_pnl=None,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_open_before_snapshot",
+            account_id=principal.account_id,
+            symbol_id="QQQ",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=100,
+            quantity=1,
+            initial_stop=90,
+            current_stop=90,
+            status="open",
+        )
+    )
+    session.add(
+        db.Bar(
+            symbol_id="QQQ",
+            timeframe="1d",
+            ts=datetime(2026, 5, 10, tzinfo=UTC),
+            close=120,
+            source="test",
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.unrealized_pnl == 20
+    assert overview.equity == 10_050

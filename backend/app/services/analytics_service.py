@@ -83,6 +83,7 @@ class AnalyticsService:
 
         realized_events = AnalyticsService._realized_events(
             fills=fills,
+            fee_fills=fills_until_to,
             journals=journals,
             positions_by_id=positions_by_id,
         )
@@ -104,8 +105,6 @@ class AnalyticsService:
         r_values = [event.r_multiple for event in realized_events if event.r_multiple is not None]
         wins = [value for value in pnl_values if value > 0]
         losses = [value for value in pnl_values if value < 0]
-        gross_profit = sum(wins)
-        gross_loss = abs(sum(losses))
         risk_settings = session.get(db.AccountRiskSettings, principal.account_id)
         equity = AnalyticsService._equity_as_of(
             session=session,
@@ -115,6 +114,7 @@ class AnalyticsService:
             to_ts=to_ts,
             journals_until_to=journals_until_to,
             fills_until_to=fills_until_to,
+            open_positions=open_positions,
             unrealized_pnl=unrealized_pnl,
         )
 
@@ -126,7 +126,7 @@ class AnalyticsService:
             realized_pnl=realized_pnl,
             unrealized_pnl=unrealized_pnl,
             win_rate=round(len(wins) / trades_count, 6) if trades_count else 0,
-            profit_factor=round(gross_profit / gross_loss, 6) if gross_loss > 0 else 0,
+            profit_factor=AnalyticsService._profit_factor(wins, losses),
             expectancy_r=round(mean(r_values), 6) if r_values else 0,
             average_r=round(mean(r_values), 6) if r_values else 0,
             max_drawdown_pct=AnalyticsService._max_drawdown_pct(
@@ -163,12 +163,16 @@ class AnalyticsService:
     def _realized_events(
         *,
         fills: list[db.ExecutionFill],
+        fee_fills: list[db.ExecutionFill] | None = None,
         journals: list[db.TradeJournal],
         positions_by_id: dict[str, db.Position],
     ) -> list[RealizedEvent]:
         events: list[RealizedEvent] = []
         sell_fill_position_ids: set[str] = set()
         sell_fills_by_position_id: dict[str, list[db.ExecutionFill]] = {}
+        buy_fills_by_position_id = AnalyticsService._buy_fills_by_position_id(
+            fee_fills if fee_fills is not None else fills
+        )
         for fill in fills:
             if fill.side != "sell" or fill.reconciliation_status == "ignored":
                 continue
@@ -184,14 +188,14 @@ class AnalyticsService:
             entry_price = position.entry_price
             if entry_price is None:
                 continue
-            pnl = round(
-                sum(
-                    (fill.price - entry_price) * fill.quantity - (fill.fees or 0)
-                    for fill in sell_fills
-                ),
-                6,
-            )
             quantity = sum(fill.quantity for fill in sell_fills)
+            gross_pnl = sum((fill.price - entry_price) * fill.quantity for fill in sell_fills)
+            sell_fees = sum(fill.fees or 0 for fill in sell_fills)
+            entry_fees = AnalyticsService._allocated_entry_fees(
+                buy_fills=buy_fills_by_position_id.get(position_id, []),
+                sold_quantity=quantity,
+            )
+            pnl = round(gross_pnl - sell_fees - entry_fees, 6)
             sell_fill_position_ids.add(position.position_id)
             events.append(
                 RealizedEvent(
@@ -223,6 +227,36 @@ class AnalyticsService:
                 )
             )
         return events
+
+    @staticmethod
+    def _buy_fills_by_position_id(
+        fills: list[db.ExecutionFill],
+    ) -> dict[str, list[db.ExecutionFill]]:
+        rows: dict[str, list[db.ExecutionFill]] = {}
+        for fill in fills:
+            if (
+                fill.side != "buy"
+                or not fill.position_id
+                or fill.reconciliation_status == "ignored"
+            ):
+                continue
+            rows.setdefault(fill.position_id, []).append(fill)
+        return rows
+
+    @staticmethod
+    def _allocated_entry_fees(
+        *,
+        buy_fills: list[db.ExecutionFill],
+        sold_quantity: float,
+    ) -> float:
+        if sold_quantity <= 0:
+            return 0
+        total_buy_quantity = sum(fill.quantity for fill in buy_fills if fill.quantity)
+        if total_buy_quantity <= 0:
+            return 0
+        total_buy_fees = sum(fill.fees or 0 for fill in buy_fills)
+        allocated_quantity = min(sold_quantity, total_buy_quantity)
+        return total_buy_fees * (allocated_quantity / total_buy_quantity)
 
     @staticmethod
     def _unrealized_pnl(
@@ -451,6 +485,7 @@ class AnalyticsService:
         to_ts: datetime,
         journals_until_to: list[db.TradeJournal],
         fills_until_to: list[db.ExecutionFill],
+        open_positions: list[OpenPositionAsOf],
         unrealized_pnl: float,
     ) -> float:
         snapshot = AnalyticsService._latest_snapshot(
@@ -470,16 +505,45 @@ class AnalyticsService:
                 for journal in journals_until_to
                 if journal.exit_ts and AnalyticsService._as_utc(journal.exit_ts) > snapshot_ts
             ]
+            if snapshot.unrealized_pnl is None:
+                after_snapshot_position_ids = {
+                    position_id
+                    for position_id, position in positions_by_id.items()
+                    if AnalyticsService._position_start_ts(position) > snapshot_ts
+                }
+                fills_for_realized_delta = [
+                    fill
+                    for fill in fills_after_snapshot
+                    if fill.position_id in after_snapshot_position_ids
+                ]
+                journals_for_realized_delta = [
+                    journal
+                    for journal in journals_after_snapshot
+                    if journal.entry_ts and AnalyticsService._as_utc(journal.entry_ts) > snapshot_ts
+                ]
+                unrealized_delta = AnalyticsService._unrealized_pnl(
+                    session=session,
+                    positions=[
+                        row
+                        for row in open_positions
+                        if AnalyticsService._position_start_ts(row.position) > snapshot_ts
+                    ],
+                    to_ts=to_ts,
+                )
+            else:
+                fills_for_realized_delta = fills_after_snapshot
+                journals_for_realized_delta = journals_after_snapshot
+                unrealized_delta = unrealized_pnl - float(snapshot.unrealized_pnl)
+
             realized_delta = sum(
                 event.pnl
                 for event in AnalyticsService._realized_events(
-                    fills=fills_after_snapshot,
-                    journals=journals_after_snapshot,
+                    fills=fills_for_realized_delta,
+                    fee_fills=fills_after_snapshot,
+                    journals=journals_for_realized_delta,
                     positions_by_id=positions_by_id,
                 )
             )
-            snapshot_unrealized = float(snapshot.unrealized_pnl or 0)
-            unrealized_delta = unrealized_pnl - snapshot_unrealized
             return round(float(snapshot.equity) + realized_delta + unrealized_delta, 6)
 
         account_equity = (
@@ -489,11 +553,21 @@ class AnalyticsService:
         )
         realized_events = AnalyticsService._realized_events(
             fills=fills_until_to,
+            fee_fills=fills_until_to,
             journals=journals_until_to,
             positions_by_id=positions_by_id,
         )
         realized_pnl = sum(event.pnl for event in realized_events)
         return round(account_equity + realized_pnl + unrealized_pnl, 6)
+
+    @staticmethod
+    def _profit_factor(wins: list[float], losses: list[float]) -> float | None:
+        gross_loss = abs(sum(losses))
+        if gross_loss > 0:
+            return round(sum(wins) / gross_loss, 6)
+        if wins:
+            return None
+        return 0
 
     @staticmethod
     def _latest_snapshot(

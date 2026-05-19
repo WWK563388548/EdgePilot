@@ -31,7 +31,7 @@ class AnalyticsOverviewResponse(BaseModel):
     realized_pnl: float
     unrealized_pnl: float
     win_rate: float
-    profit_factor: float
+    profit_factor: float | None
     expectancy_r: float
     average_r: float
     max_drawdown_pct: float
