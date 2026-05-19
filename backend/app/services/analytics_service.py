@@ -213,23 +213,78 @@ class AnalyticsService:
                 )
             )
 
+        events.extend(
+            AnalyticsService._journal_realized_events(
+                journals=journals,
+                skipped_position_ids=sell_fill_position_ids,
+                positions_by_id=positions_by_id,
+            )
+        )
+        return events
+
+    @staticmethod
+    def _journal_realized_events(
+        *,
+        journals: list[db.TradeJournal],
+        skipped_position_ids: set[str],
+        positions_by_id: dict[str, db.Position],
+    ) -> list[RealizedEvent]:
+        journals_by_key: dict[str, list[db.TradeJournal]] = {}
         for journal in journals:
-            if journal.position_id in sell_fill_position_ids:
+            if journal.position_id in skipped_position_ids:
                 continue
             pnl = journal.net_pnl if journal.net_pnl is not None else journal.gross_pnl
             if pnl is None:
                 continue
-            position = positions_by_id.get(journal.position_id or "")
+            key = journal.position_id or journal.trade_id
+            journals_by_key.setdefault(key, []).append(journal)
+
+        events: list[RealizedEvent] = []
+        for grouped_journals in journals_by_key.values():
+            position = positions_by_id.get(grouped_journals[0].position_id or "")
+            strategy_name = (
+                next(
+                    (journal.setup_type for journal in grouped_journals if journal.setup_type), None
+                )
+                or (position.strategy_name if position else None)
+                or "unknown"
+            )
+            pnl = round(
+                sum(
+                    journal.net_pnl if journal.net_pnl is not None else journal.gross_pnl or 0
+                    for journal in grouped_journals
+                ),
+                6,
+            )
             events.append(
                 RealizedEvent(
-                    strategy_name=journal.setup_type
-                    or (position.strategy_name if position else None)
-                    or "unknown",
-                    pnl=round(pnl, 6),
-                    r_multiple=journal.r_multiple,
+                    strategy_name=strategy_name,
+                    pnl=pnl,
+                    r_multiple=AnalyticsService._aggregate_journal_r_multiple(grouped_journals),
                 )
             )
         return events
+
+    @staticmethod
+    def _aggregate_journal_r_multiple(journals: list[db.TradeJournal]) -> float | None:
+        weighted_rows = [
+            (journal.r_multiple, journal.quantity)
+            for journal in journals
+            if journal.r_multiple is not None
+            and journal.quantity is not None
+            and journal.quantity > 0
+        ]
+        if weighted_rows:
+            total_quantity = sum(quantity for _, quantity in weighted_rows)
+            if total_quantity > 0:
+                return round(
+                    sum(r_multiple * quantity for r_multiple, quantity in weighted_rows)
+                    / total_quantity,
+                    6,
+                )
+
+        r_values = [journal.r_multiple for journal in journals if journal.r_multiple is not None]
+        return round(mean(r_values), 6) if r_values else None
 
     @staticmethod
     def _buy_fills_by_position_id(

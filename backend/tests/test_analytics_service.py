@@ -574,6 +574,87 @@ def test_analytics_overview_uses_journal_when_sell_fill_lacks_entry_price(sessio
     assert overview.closed_positions_count == 1
 
 
+def test_analytics_overview_aggregates_journal_trims_as_one_trade(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_journal_scaled_exit",
+            account_id=principal.account_id,
+            symbol_id="SPY",
+            asset_type="etf",
+            strategy_name="etf_rotation_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=100,
+            quantity=0,
+            initial_stop=90,
+            current_stop=90,
+            status="closed",
+            realized_pnl=170,
+        )
+    )
+    session.add_all(
+        [
+            db.TradeJournal(
+                trade_id="trade_scaled_trim",
+                account_id=principal.account_id,
+                position_id="pos_journal_scaled_exit",
+                symbol_id="SPY",
+                entry_ts=datetime(2026, 5, 1, tzinfo=UTC),
+                exit_ts=datetime(2026, 5, 5, tzinfo=UTC),
+                entry_price=100,
+                exit_price=140,
+                quantity=2,
+                gross_pnl=80,
+                net_pnl=80,
+                r_multiple=2,
+                setup_type="etf_rotation_us_etf",
+                exit_reason="trim",
+            ),
+            db.TradeJournal(
+                trade_id="trade_scaled_close",
+                account_id=principal.account_id,
+                position_id="pos_journal_scaled_exit",
+                symbol_id="SPY",
+                entry_ts=datetime(2026, 5, 1, tzinfo=UTC),
+                exit_ts=datetime(2026, 5, 10, tzinfo=UTC),
+                entry_price=100,
+                exit_price=115,
+                quantity=3,
+                gross_pnl=90,
+                net_pnl=90,
+                r_multiple=1.5,
+                setup_type="etf_rotation_us_etf",
+                exit_reason="manual_review",
+            ),
+        ]
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.realized_pnl == 170
+    assert overview.trades_count == 1
+    assert overview.average_r == 1.7
+    assert overview.profit_factor is None
+    assert overview.strategy_breakdown[0].trades_count == 1
+    assert overview.strategy_breakdown[0].realized_pnl == 170
+    assert overview.strategy_breakdown[0].average_r == 1.7
+
+
 def test_analytics_overview_aggregates_partial_sell_fills_as_one_trade(session) -> None:
     principal = _principal()
     session.add(
