@@ -192,7 +192,10 @@ class AnalyticsService:
             gross_pnl = sum((fill.price - entry_price) * fill.quantity for fill in sell_fills)
             sell_fees = sum(fill.fees or 0 for fill in sell_fills)
             entry_fees = AnalyticsService._allocated_entry_fees(
-                buy_fills=buy_fills_by_position_id.get(position_id, []),
+                buy_fills=AnalyticsService._eligible_entry_fee_fills(
+                    buy_fills=buy_fills_by_position_id.get(position_id, []),
+                    sell_fills=sell_fills,
+                ),
                 sold_quantity=quantity,
             )
             pnl = round(gross_pnl - sell_fees - entry_fees, 6)
@@ -242,6 +245,24 @@ class AnalyticsService:
                 continue
             rows.setdefault(fill.position_id, []).append(fill)
         return rows
+
+    @staticmethod
+    def _eligible_entry_fee_fills(
+        *,
+        buy_fills: list[db.ExecutionFill],
+        sell_fills: list[db.ExecutionFill],
+    ) -> list[db.ExecutionFill]:
+        cutoff = max(
+            (AnalyticsService._as_utc(fill.executed_at) for fill in sell_fills if fill.executed_at),
+            default=None,
+        )
+        if cutoff is None:
+            return buy_fills
+        return [
+            fill
+            for fill in buy_fills
+            if fill.executed_at and AnalyticsService._as_utc(fill.executed_at) <= cutoff
+        ]
 
     @staticmethod
     def _allocated_entry_fees(
