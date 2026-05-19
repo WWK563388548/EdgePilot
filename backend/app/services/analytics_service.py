@@ -35,6 +35,14 @@ class OpenPositionAsOf:
     quantity: float
 
 
+@dataclass(frozen=True)
+class RealizedLeg:
+    strategy_name: str
+    pnl: float
+    r_multiple: float | None
+    quantity: float | None
+
+
 class AnalyticsService:
     @staticmethod
     def overview(
@@ -167,8 +175,7 @@ class AnalyticsService:
         journals: list[db.TradeJournal],
         positions_by_id: dict[str, db.Position],
     ) -> list[RealizedEvent]:
-        events: list[RealizedEvent] = []
-        sell_fill_position_ids: set[str] = set()
+        legs_by_key: dict[str, list[RealizedLeg]] = {}
         sell_fills_by_position_id: dict[str, list[db.ExecutionFill]] = {}
         buy_fills_by_position_id = AnalyticsService._buy_fills_by_position_id(
             fee_fills if fee_fills is not None else fills
@@ -199,9 +206,8 @@ class AnalyticsService:
                 sold_quantity=quantity,
             )
             pnl = round(gross_pnl - sell_fees - entry_fees, 6)
-            sell_fill_position_ids.add(position.position_id)
-            events.append(
-                RealizedEvent(
+            legs_by_key.setdefault(position.position_id, []).append(
+                RealizedLeg(
                     strategy_name=position.strategy_name or "unknown",
                     pnl=pnl,
                     r_multiple=AnalyticsService._aggregate_r_multiple(
@@ -210,69 +216,66 @@ class AnalyticsService:
                         fills=sell_fills,
                         quantity=quantity,
                     ),
+                    quantity=quantity,
                 )
             )
 
-        events.extend(
-            AnalyticsService._journal_realized_events(
-                journals=journals,
-                skipped_position_ids=sell_fill_position_ids,
-                positions_by_id=positions_by_id,
-            )
+        AnalyticsService._add_journal_realized_legs(
+            journals=journals,
+            legs_by_key=legs_by_key,
+            positions_by_id=positions_by_id,
         )
-        return events
+        return AnalyticsService._realized_events_from_legs(legs_by_key)
 
     @staticmethod
-    def _journal_realized_events(
+    def _add_journal_realized_legs(
         *,
         journals: list[db.TradeJournal],
-        skipped_position_ids: set[str],
+        legs_by_key: dict[str, list[RealizedLeg]],
         positions_by_id: dict[str, db.Position],
-    ) -> list[RealizedEvent]:
-        journals_by_key: dict[str, list[db.TradeJournal]] = {}
+    ) -> None:
         for journal in journals:
-            if journal.position_id in skipped_position_ids:
-                continue
             pnl = journal.net_pnl if journal.net_pnl is not None else journal.gross_pnl
             if pnl is None:
                 continue
             key = journal.position_id or journal.trade_id
-            journals_by_key.setdefault(key, []).append(journal)
-
-        events: list[RealizedEvent] = []
-        for grouped_journals in journals_by_key.values():
-            position = positions_by_id.get(grouped_journals[0].position_id or "")
-            strategy_name = (
-                next(
-                    (journal.setup_type for journal in grouped_journals if journal.setup_type), None
+            position = positions_by_id.get(journal.position_id or "")
+            legs_by_key.setdefault(key, []).append(
+                RealizedLeg(
+                    strategy_name=journal.setup_type
+                    or (position.strategy_name if position else None)
+                    or "unknown",
+                    pnl=round(pnl, 6),
+                    r_multiple=journal.r_multiple,
+                    quantity=journal.quantity,
                 )
-                or (position.strategy_name if position else None)
-                or "unknown"
             )
-            pnl = round(
-                sum(
-                    journal.net_pnl if journal.net_pnl is not None else journal.gross_pnl or 0
-                    for journal in grouped_journals
-                ),
-                6,
+
+    @staticmethod
+    def _realized_events_from_legs(
+        legs_by_key: dict[str, list[RealizedLeg]],
+    ) -> list[RealizedEvent]:
+        events: list[RealizedEvent] = []
+        for legs in legs_by_key.values():
+            strategy_name = (
+                next((leg.strategy_name for leg in legs if leg.strategy_name != "unknown"), None)
+                or "unknown"
             )
             events.append(
                 RealizedEvent(
                     strategy_name=strategy_name,
-                    pnl=pnl,
-                    r_multiple=AnalyticsService._aggregate_journal_r_multiple(grouped_journals),
+                    pnl=round(sum(leg.pnl for leg in legs), 6),
+                    r_multiple=AnalyticsService._aggregate_leg_r_multiple(legs),
                 )
             )
         return events
 
     @staticmethod
-    def _aggregate_journal_r_multiple(journals: list[db.TradeJournal]) -> float | None:
+    def _aggregate_leg_r_multiple(legs: list[RealizedLeg]) -> float | None:
         weighted_rows = [
-            (journal.r_multiple, journal.quantity)
-            for journal in journals
-            if journal.r_multiple is not None
-            and journal.quantity is not None
-            and journal.quantity > 0
+            (leg.r_multiple, leg.quantity)
+            for leg in legs
+            if leg.r_multiple is not None and leg.quantity is not None and leg.quantity > 0
         ]
         if weighted_rows:
             total_quantity = sum(quantity for _, quantity in weighted_rows)
@@ -283,7 +286,7 @@ class AnalyticsService:
                     6,
                 )
 
-        r_values = [journal.r_multiple for journal in journals if journal.r_multiple is not None]
+        r_values = [leg.r_multiple for leg in legs if leg.r_multiple is not None]
         return round(mean(r_values), 6) if r_values else None
 
     @staticmethod
@@ -368,7 +371,6 @@ class AnalyticsService:
         to_ts: datetime,
     ) -> list[OpenPositionAsOf]:
         fill_quantities = AnalyticsService._position_quantities_from_fills(fills_until_to)
-        positions_with_sell_fills = AnalyticsService._position_ids_with_sell_fills(fills_until_to)
         journal_exit_quantities = AnalyticsService._position_exit_quantities_from_journals(
             all_journals, to_ts
         )
@@ -381,7 +383,7 @@ class AnalyticsService:
                 continue
 
             quantity = fill_quantities.get(position.position_id)
-            if quantity is not None and position.position_id not in positions_with_sell_fills:
+            if quantity is not None:
                 quantity -= journal_exit_quantities.get(position.position_id, 0.0)
             if quantity is None:
                 quantity = journal_quantities.get(position.position_id)
@@ -404,17 +406,6 @@ class AnalyticsService:
             signed_quantity = fill.quantity if fill.side == "buy" else -fill.quantity
             quantities[fill.position_id] = quantities.get(fill.position_id, 0.0) + signed_quantity
         return quantities
-
-    @staticmethod
-    def _position_ids_with_sell_fills(fills: list[db.ExecutionFill]) -> set[str]:
-        return {
-            fill.position_id
-            for fill in fills
-            if fill.position_id
-            and fill.side == "sell"
-            and fill.reconciliation_status != "ignored"
-            and fill.quantity is not None
-        }
 
     @staticmethod
     def _position_exit_quantities_from_journals(
