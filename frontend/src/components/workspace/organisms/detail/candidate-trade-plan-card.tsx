@@ -60,6 +60,7 @@ export function CandidateTradePlanCard({
         queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics-overview"] }),
         queryClient.invalidateQueries({ queryKey: ["notifications"] }),
         queryClient.invalidateQueries({ queryKey: ["notifications-count"] }),
         queryClient.invalidateQueries({ queryKey: ["notifications-unread-count"] }),
