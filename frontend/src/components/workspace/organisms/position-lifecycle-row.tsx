@@ -59,6 +59,7 @@ export function PositionLifecycleRow({ locale, position }: PositionLifecycleRowP
       queryClient.invalidateQueries({ queryKey: ["positions"] }),
       queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
       queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
+      queryClient.invalidateQueries({ queryKey: ["analytics-overview"] }),
       queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       queryClient.invalidateQueries({ queryKey: ["alerts"] }),
       queryClient.invalidateQueries({ queryKey: ["alerts-count"] }),

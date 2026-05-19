@@ -69,7 +69,8 @@ export function AlertsTable({
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
-        queryClient.invalidateQueries({ queryKey: ["positions-count"] })
+        queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics-overview"] })
       ]);
     },
     onError: () => {

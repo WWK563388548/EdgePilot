@@ -3,30 +3,34 @@
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   BriefcaseBusiness,
   Database,
+  Gauge,
   ListChecks,
   ShieldCheck
 } from "lucide-react";
 
 import { Field } from "@/components/workspace/atoms/field";
 import { Metric } from "@/components/workspace/atoms/stat-card";
-import type { DashboardSummary, PortfolioRiskSummary } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import type { AnalyticsOverview, DashboardSummary, PortfolioRiskSummary } from "@/lib/api";
+import { formatDate, formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n-config";
 import { localeTag } from "@/lib/i18n-config";
 import { useAppI18n } from "@/lib/use-app-i18n";
 
 export function OverviewView({
+  analytics,
   locale,
   portfolioRisk,
   summary
 }: {
+  analytics: AnalyticsOverview | undefined;
   locale: Locale;
   portfolioRisk: PortfolioRiskSummary | undefined;
   summary: DashboardSummary | undefined;
 }) {
-  const { t } = useAppI18n();
+  const { labelFor, t } = useAppI18n();
   const riskUsedPct = portfolioRisk?.total_risk_pct ?? 0;
   const riskBudgetPct = portfolioRisk?.max_total_risk_pct ?? 0;
   const riskUsage =
@@ -35,10 +39,90 @@ export function OverviewView({
   return (
     <div className="flex flex-col gap-6">
       <section className="grid gap-3 md:grid-cols-4">
-        <Metric icon={<ListChecks size={18} />} label={t("candidates")} value={summary?.candidate_count ?? 0} />
-        <Metric icon={<BriefcaseBusiness size={18} />} label={t("openPositions")} value={summary?.open_position_count ?? 0} />
-        <Metric icon={<AlertTriangle size={18} />} label={t("openAlerts")} value={summary?.exit_alert_count ?? 0} />
-        <Metric icon={<ShieldCheck size={18} />} label={t("highestLevel")} value={summary?.highest_exit_level ?? "-"} />
+        <Metric icon={<BarChart3 size={18} />} label={t("totalPnl")} value={formatMoney(analytics?.total_pnl, locale)} />
+        <Metric icon={<Gauge size={18} />} label={t("averageR")} value={formatR(analytics?.average_r, locale)} />
+        <Metric icon={<ListChecks size={18} />} label={t("trades")} value={analytics?.trades_count ?? 0} />
+        <Metric icon={<BriefcaseBusiness size={18} />} label={t("openPositions")} value={analytics?.open_positions_count ?? summary?.open_position_count ?? 0} />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-ink">{t("realPerformance")}</h2>
+              <p className="mt-1 text-xs text-slate-600">{t("realPerformanceHelp")}</p>
+            </div>
+            <BarChart3 size={18} className="text-teal" />
+          </div>
+          <dl className="grid gap-3 sm:grid-cols-3">
+            <Field label={t("realizedPnl")} value={formatMoney(analytics?.realized_pnl, locale)} />
+            <Field label={t("unrealizedPnl")} value={formatMoney(analytics?.unrealized_pnl, locale)} />
+            <Field label={t("winRate")} value={formatPercent(analytics?.win_rate, locale)} />
+            <Field label={t("profitFactor")} value={formatNumber(analytics?.profit_factor, 2, locale)} />
+            <Field label={t("expectancyR")} value={formatR(analytics?.expectancy_r, locale)} />
+            <Field label={t("maxDrawdown")} value={formatPercent(analytics?.max_drawdown_pct, locale)} />
+          </dl>
+        </div>
+
+        <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-ink">{t("executionQuality")}</h2>
+              <p className="mt-1 text-xs text-slate-600">{t("executionQualityHelp")}</p>
+            </div>
+            <Gauge size={18} className="text-teal" />
+          </div>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <Field label={t("fills")} value={analytics?.execution_quality.fills_count ?? 0} />
+            <Field label={t("needsReview")} value={analytics?.execution_quality.review_needed_fills_count ?? 0} />
+            <Field label={t("entryDragR")} value={formatR(analytics?.execution_quality.average_entry_drag_r, locale)} />
+            <Field label={t("entrySlippage")} value={formatPercent(analytics?.execution_quality.average_entry_slippage_pct, locale)} />
+            <Field label={t("exitDragR")} value={formatR(analytics?.execution_quality.average_exit_drag_r, locale)} />
+            <Field label={t("plannedEntries")} value={analytics?.execution_quality.planned_entry_count ?? 0} />
+          </dl>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">{t("strategyBreakdown")}</h2>
+            <p className="mt-1 text-xs text-slate-600">{t("strategyBreakdownHelp")}</p>
+          </div>
+          <Activity size={18} className="text-teal" />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="border-b border-line text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-2 py-2">{t("strategy")}</th>
+                <th className="px-2 py-2">{t("trades")}</th>
+                <th className="px-2 py-2">{t("realizedPnl")}</th>
+                <th className="px-2 py-2">{t("winRate")}</th>
+                <th className="px-2 py-2">{t("averageR")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analytics?.strategy_breakdown.length ? (
+                analytics.strategy_breakdown.map((row) => (
+                  <tr className="border-b border-line last:border-0" key={row.strategy_name}>
+                    <td className="px-2 py-2 font-medium text-ink">{labelFor("plan", row.strategy_name)}</td>
+                    <td className="px-2 py-2 text-slate-700">{row.trades_count}</td>
+                    <td className="px-2 py-2 text-slate-700">{formatMoney(row.realized_pnl, locale)}</td>
+                    <td className="px-2 py-2 text-slate-700">{formatPercent(row.win_rate, locale)}</td>
+                    <td className="px-2 py-2 text-slate-700">{formatR(row.average_r, locale)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="px-2 py-4 text-sm text-slate-600" colSpan={5}>
+                    {t("noRealAnalytics")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
@@ -173,4 +257,11 @@ function formatPercent(value: number | null | undefined, locale: Locale) {
     minimumFractionDigits: 0,
     style: "percent"
   }).format(value);
+}
+
+function formatR(value: number | null | undefined, locale: Locale) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return `${formatNumber(value, 2, locale)}R`;
 }

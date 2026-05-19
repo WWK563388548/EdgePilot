@@ -89,6 +89,7 @@ export function ExecutionImportView({ locale }: { locale: Locale }) {
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
         queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics-overview"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       ]);
     }
@@ -104,6 +105,7 @@ export function ExecutionImportView({ locale }: { locale: Locale }) {
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
         queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
         queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics-overview"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       ]);
     }

@@ -92,6 +92,11 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
     queryFn: api.portfolioRisk,
     enabled: queriesEnabled
   });
+  const analyticsOverview = useQuery({
+    queryKey: ["analytics-overview"],
+    queryFn: api.analyticsOverview,
+    enabled: queriesEnabled
+  });
   const paperReview = useQuery({
     queryKey: ["paper-review"],
     queryFn: api.paperReview,
@@ -264,6 +269,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
 
         {view === "overview" && (
           <OverviewView
+            analytics={analyticsOverview.data}
             locale={locale}
             portfolioRisk={portfolioRisk.data}
             summary={summary}

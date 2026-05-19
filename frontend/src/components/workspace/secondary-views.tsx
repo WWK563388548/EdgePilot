@@ -117,7 +117,8 @@ export function SettingsPanel({ locale }: { locale: Locale }) {
         queryClient.invalidateQueries({ queryKey: ["candidate-plan-preview"] }),
         queryClient.invalidateQueries({ queryKey: ["portfolio-risk"] }),
         queryClient.invalidateQueries({ queryKey: ["positions"] }),
-        queryClient.invalidateQueries({ queryKey: ["positions-count"] })
+        queryClient.invalidateQueries({ queryKey: ["positions-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics-overview"] })
       ]);
     }
   });
