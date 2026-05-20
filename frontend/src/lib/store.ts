@@ -6,6 +6,7 @@ export type WorkspaceView =
   | "pa_lab"
   | "outcomes"
   | "paper_review"
+  | "validation"
   | "positions"
   | "alerts"
   | "notifications"

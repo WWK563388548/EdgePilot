@@ -9,3 +9,4 @@ export type * from "./types/risk";
 export type * from "./types/positions";
 export type * from "./types/execution";
 export type * from "./types/tenant";
+export type * from "./types/validation";

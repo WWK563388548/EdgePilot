@@ -14,6 +14,7 @@ from backend.app.schemas.analytics import (
     AnalyticsExecutionQuality,
     AnalyticsOverviewResponse,
     AnalyticsStrategyBreakdown,
+    AnalyticsUnrealizedPosition,
 )
 from backend.app.services.risk_settings_service import DEFAULT_ACCOUNT_EQUITY
 
@@ -33,6 +34,23 @@ class RealizedEvent:
 class OpenPositionAsOf:
     position: db.Position
     quantity: float
+
+
+@dataclass(frozen=True)
+class LatestMark:
+    close: float
+    ts: datetime
+
+
+@dataclass(frozen=True)
+class UnrealizedPositionMark:
+    position: db.Position
+    quantity: float
+    entry_price: float | None
+    mark_price: float | None
+    mark_ts: datetime | None
+    unrealized_pnl: float
+    source: str
 
 
 @dataclass(frozen=True)
@@ -109,11 +127,12 @@ class AnalyticsService:
             all_journals=all_journals,
             to_ts=to_ts,
         )
-        unrealized_pnl = AnalyticsService._unrealized_pnl(
+        unrealized_marks = AnalyticsService._unrealized_position_marks(
             session=session,
             positions=open_positions,
             to_ts=to_ts,
         )
+        unrealized_pnl = round(sum(row.unrealized_pnl for row in unrealized_marks), 6)
         total_pnl = round(realized_pnl + unrealized_pnl, 6)
         trades_count = len(realized_events)
         pnl_values = [event.pnl for event in realized_events]
@@ -165,6 +184,20 @@ class AnalyticsService:
                 all_journals=all_journals,
                 to_ts=to_ts,
             ),
+            unrealized_positions=[
+                AnalyticsUnrealizedPosition(
+                    position_id=row.position.position_id,
+                    symbol_id=row.position.symbol_id,
+                    strategy_name=row.position.strategy_name,
+                    quantity=round(row.quantity, 6),
+                    entry_price=row.entry_price,
+                    mark_price=row.mark_price,
+                    mark_ts=row.mark_ts.isoformat() if row.mark_ts else None,
+                    unrealized_pnl=round(row.unrealized_pnl, 6),
+                    source=row.source,
+                )
+                for row in unrealized_marks
+            ],
             strategy_breakdown=AnalyticsService._strategy_breakdown(realized_events),
             execution_quality=AnalyticsService._execution_quality(
                 session=session,
@@ -397,23 +430,66 @@ class AnalyticsService:
         positions: list[OpenPositionAsOf],
         to_ts: datetime,
     ) -> float:
-        latest_closes = AnalyticsService._latest_closes(
+        return round(
+            sum(
+                row.unrealized_pnl
+                for row in AnalyticsService._unrealized_position_marks(
+                    session=session,
+                    positions=positions,
+                    to_ts=to_ts,
+                )
+            ),
+            6,
+        )
+
+    @staticmethod
+    def _unrealized_position_marks(
+        *,
+        session: Session,
+        positions: list[OpenPositionAsOf],
+        to_ts: datetime,
+    ) -> list[UnrealizedPositionMark]:
+        latest_marks = AnalyticsService._latest_marks(
             session=session,
             symbol_ids={row.position.symbol_id for row in positions},
             to_ts=to_ts,
         )
-        total = 0.0
+        rows: list[UnrealizedPositionMark] = []
         for open_position in positions:
             position = open_position.position
-            if position.entry_price is None:
+            entry_price = float(position.entry_price) if position.entry_price is not None else None
+            mark = latest_marks.get(position.symbol_id)
+            if entry_price is not None and mark is not None:
+                unrealized_pnl = (mark.close - entry_price) * open_position.quantity
+                rows.append(
+                    UnrealizedPositionMark(
+                        position=position,
+                        quantity=open_position.quantity,
+                        entry_price=entry_price,
+                        mark_price=mark.close,
+                        mark_ts=mark.ts,
+                        unrealized_pnl=round(unrealized_pnl, 6),
+                        source="latest_bar",
+                    )
+                )
                 continue
-            mark = latest_closes.get(position.symbol_id)
+
+            fallback_pnl = 0.0
             if mark is None:
                 if position.status in ACTIVE_POSITION_STATUSES:
-                    total += float(position.unrealized_pnl or 0)
-                continue
-            total += (mark - position.entry_price) * open_position.quantity
-        return round(total, 6)
+                    fallback_pnl = float(position.unrealized_pnl or 0)
+            rows.append(
+                UnrealizedPositionMark(
+                    position=position,
+                    quantity=open_position.quantity,
+                    entry_price=entry_price,
+                    mark_price=None,
+                    mark_ts=None,
+                    unrealized_pnl=round(fallback_pnl, 6),
+                    source="position_snapshot",
+                )
+            )
+        return rows
 
     @staticmethod
     def _open_positions_as_of(
@@ -566,12 +642,12 @@ class AnalyticsService:
         return value.astimezone(UTC)
 
     @staticmethod
-    def _latest_closes(
+    def _latest_marks(
         *,
         session: Session,
         symbol_ids: set[str],
         to_ts: datetime,
-    ) -> dict[str, float]:
+    ) -> dict[str, LatestMark]:
         if not symbol_ids:
             return {}
         latest_ts = (
@@ -586,14 +662,18 @@ class AnalyticsService:
             .subquery()
         )
         rows = session.execute(
-            select(db.Bar.symbol_id, db.Bar.close)
+            select(db.Bar.symbol_id, db.Bar.close, db.Bar.ts)
             .join(
                 latest_ts,
                 (db.Bar.symbol_id == latest_ts.c.symbol_id) & (db.Bar.ts == latest_ts.c.ts),
             )
             .where(db.Bar.timeframe == "1d")
         ).all()
-        return {symbol_id: close for symbol_id, close in rows if close is not None}
+        return {
+            symbol_id: LatestMark(close=float(close), ts=AnalyticsService._as_utc(ts))
+            for symbol_id, close, ts in rows
+            if close is not None and ts is not None
+        }
 
     @staticmethod
     def _sell_fill_r_multiple(

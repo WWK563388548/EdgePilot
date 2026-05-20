@@ -93,7 +93,9 @@ class AccountRiskSettings(Base):
     max_total_risk_pct: Mapped[float | None] = mapped_column(Float)
     max_open_positions: Mapped[int | None] = mapped_column(Integer)
     max_risk_distance_pct: Mapped[float | None] = mapped_column(Float)
-    shadow_only_requires_paper: Mapped[bool | None] = mapped_column(Boolean, server_default=text("true"))
+    shadow_only_requires_paper: Mapped[bool | None] = mapped_column(
+        Boolean, server_default=text("true")
+    )
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
@@ -145,9 +147,7 @@ class LegalAcknowledgement(Base):
 
 class TenantApiKey(Base):
     __tablename__ = "tenant_api_keys"
-    __table_args__ = (
-        Index("idx_tenant_api_keys_tenant_provider", "tenant_id", "provider"),
-    )
+    __table_args__ = (Index("idx_tenant_api_keys_tenant_provider", "tenant_id", "provider"),)
 
     credential_id: Mapped[str] = mapped_column(Text, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id"))
@@ -521,6 +521,150 @@ class PACalibrationStat(Base):
     )
 
 
+class TestRun(Base):
+    __tablename__ = "test_runs"
+    __table_args__ = (
+        Index(
+            "idx_test_runs_account_strategy_completed",
+            "account_id",
+            "strategy_name",
+            "completed_at",
+        ),
+        Index("idx_test_runs_account_status", "account_id", "status"),
+    )
+
+    test_run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    strategy_name: Mapped[str] = mapped_column(Text)
+    stage: Mapped[str] = mapped_column(Text)
+    run_type: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    sample_count: Mapped[int | None] = mapped_column(Integer)
+    trades_count: Mapped[int | None] = mapped_column(Integer)
+    win_rate: Mapped[float | None] = mapped_column(Float)
+    profit_factor: Mapped[float | None] = mapped_column(Float)
+    expectancy_r: Mapped[float | None] = mapped_column(Float)
+    max_drawdown_pct: Mapped[float | None] = mapped_column(Float)
+    execution_drag_r: Mapped[float | None] = mapped_column(Float)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class SimulatedTrade(Base):
+    __tablename__ = "simulated_trades"
+    __table_args__ = (
+        Index(
+            "idx_simulated_trades_account_strategy_exit", "account_id", "strategy_name", "exit_ts"
+        ),
+        Index("idx_simulated_trades_test_run", "test_run_id"),
+    )
+
+    simulated_trade_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    test_run_id: Mapped[str | None] = mapped_column(ForeignKey("test_runs.test_run_id"))
+    strategy_name: Mapped[str] = mapped_column(Text)
+    symbol_id: Mapped[str] = mapped_column(Text)
+    side: Mapped[str | None] = mapped_column(Text)
+    entry_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exit_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entry_price: Mapped[float | None] = mapped_column(Float)
+    exit_price: Mapped[float | None] = mapped_column(Float)
+    quantity: Mapped[float | None] = mapped_column(Float)
+    pnl: Mapped[float | None] = mapped_column(Float)
+    r_multiple: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class SignalFunnelSnapshot(Base):
+    __tablename__ = "signal_funnel_snapshots"
+    __table_args__ = (
+        Index(
+            "idx_signal_funnel_account_strategy_date", "account_id", "strategy_name", "scan_date"
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    strategy_name: Mapped[str] = mapped_column(Text)
+    stage: Mapped[str | None] = mapped_column(Text)
+    scan_date: Mapped[date] = mapped_column(Date)
+    scanned_count: Mapped[int | None] = mapped_column(Integer)
+    rejected_count: Mapped[int | None] = mapped_column(Integer)
+    watch_count: Mapped[int | None] = mapped_column(Integer)
+    candidate_count: Mapped[int | None] = mapped_column(Integer)
+    planned_count: Mapped[int | None] = mapped_column(Integer)
+    accepted_count: Mapped[int | None] = mapped_column(Integer)
+    rejection_breakdown: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class GoLiveGate(Base):
+    __tablename__ = "go_live_gates"
+    __table_args__ = (
+        Index("idx_go_live_gates_unique", "account_id", "strategy_name", unique=True),
+        Index("idx_go_live_gates_account_status", "account_id", "status"),
+    )
+
+    gate_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    strategy_name: Mapped[str] = mapped_column(Text)
+    stage: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    required_trades: Mapped[int | None] = mapped_column(Integer)
+    min_profit_factor: Mapped[float | None] = mapped_column(Float)
+    min_expectancy_r: Mapped[float | None] = mapped_column(Float)
+    max_drawdown_pct: Mapped[float | None] = mapped_column(Float)
+    max_execution_drag_r: Mapped[float | None] = mapped_column(Float)
+    current_trades: Mapped[int | None] = mapped_column(Integer)
+    current_profit_factor: Mapped[float | None] = mapped_column(Float)
+    current_expectancy_r: Mapped[float | None] = mapped_column(Float)
+    current_max_drawdown_pct: Mapped[float | None] = mapped_column(Float)
+    current_execution_drag_r: Mapped[float | None] = mapped_column(Float)
+    reasons: Mapped[list[str] | None] = mapped_column(PA_JSON)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
+class StrategyKillSwitchStatus(Base):
+    __tablename__ = "strategy_kill_switch_status"
+    __table_args__ = (
+        PrimaryKeyConstraint("account_id", "strategy_name"),
+        Index("idx_strategy_kill_switch_account_status", "account_id", "status"),
+    )
+
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"))
+    strategy_name: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    paused_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.user_id"))
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(PA_JSON)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+
+
 class Position(Base):
     __tablename__ = "positions"
     __table_args__ = (
@@ -554,7 +698,9 @@ class Position(Base):
 class ExitAlert(Base):
     __tablename__ = "exit_alerts"
     __table_args__ = (
-        Index("idx_exit_alerts_account_ack_level", "account_id", "acknowledged", "level", "alert_ts"),
+        Index(
+            "idx_exit_alerts_account_ack_level", "account_id", "acknowledged", "level", "alert_ts"
+        ),
         Index("idx_exit_alerts_account_position", "account_id", "position_id", "alert_ts"),
     )
 
