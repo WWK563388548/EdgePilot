@@ -260,6 +260,13 @@ def test_analytics_overview_uses_ledger_fills_journal_and_open_marks(session) ->
     assert overview.realized_pnl == 16
     assert overview.unrealized_pnl == 20
     assert overview.total_pnl == 36
+    assert len(overview.unrealized_positions) == 1
+    assert overview.unrealized_positions[0].symbol_id == "QQQ"
+    assert overview.unrealized_positions[0].quantity == 4
+    assert overview.unrealized_positions[0].entry_price == 50
+    assert overview.unrealized_positions[0].mark_price == 55
+    assert overview.unrealized_positions[0].unrealized_pnl == 20
+    assert overview.unrealized_positions[0].source == "latest_bar"
     assert overview.equity == 10136
     assert overview.trades_count == 2
     assert overview.win_rate == 0.5
@@ -487,7 +494,58 @@ def test_analytics_overview_batches_mark_price_lookups(session) -> None:
 
     assert overview.unrealized_pnl == 50
     assert overview.open_positions_count == 3
+    marks_by_symbol = {row.symbol_id: row for row in overview.unrealized_positions}
+    assert marks_by_symbol["SPY"].unrealized_pnl == 20
+    assert marks_by_symbol["SPY"].mark_price == 110
+    assert marks_by_symbol["SPY"].mark_ts == "2026-05-10T00:00:00+00:00"
+    assert marks_by_symbol["QQQ"].unrealized_pnl == 10
+    assert marks_by_symbol["IWM"].unrealized_pnl == 20
     assert len(bar_queries) == 1
+
+
+def test_analytics_overview_explains_unrealized_snapshot_fallback(session) -> None:
+    principal = _principal()
+    session.add(
+        db.AccountRiskSettings(
+            account_id=principal.account_id,
+            account_equity=10_000,
+            max_risk_per_trade_pct=0.005,
+            max_total_risk_pct=0.02,
+            max_open_positions=3,
+        )
+    )
+    session.add(
+        db.Position(
+            position_id="pos_no_mark",
+            account_id=principal.account_id,
+            symbol_id="USO",
+            asset_type="etf",
+            strategy_name="oneil_core_us_etf",
+            entry_date=datetime(2026, 5, 1, tzinfo=UTC),
+            entry_price=150,
+            quantity=3,
+            initial_stop=135,
+            current_stop=135,
+            status="open",
+            unrealized_pnl=-48.09,
+        )
+    )
+    session.commit()
+
+    overview = AnalyticsService.overview(
+        session=session,
+        principal=principal,
+        from_date=date(2026, 5, 1),
+        to_date=date(2026, 5, 11),
+    )
+
+    assert overview.unrealized_pnl == -48.09
+    assert overview.total_pnl == -48.09
+    assert overview.unrealized_positions[0].symbol_id == "USO"
+    assert overview.unrealized_positions[0].mark_price is None
+    assert overview.unrealized_positions[0].mark_ts is None
+    assert overview.unrealized_positions[0].unrealized_pnl == -48.09
+    assert overview.unrealized_positions[0].source == "position_snapshot"
 
 
 def test_analytics_overview_uses_journal_when_sell_fill_lacks_entry_price(session) -> None:

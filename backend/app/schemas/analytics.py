@@ -23,6 +23,18 @@ class AnalyticsExecutionQuality(BaseModel):
     average_exit_drag_r: float | None = None
 
 
+class AnalyticsUnrealizedPosition(BaseModel):
+    position_id: str
+    symbol_id: str
+    strategy_name: str | None = None
+    quantity: float
+    entry_price: float | None = None
+    mark_price: float | None = None
+    mark_ts: str | None = None
+    unrealized_pnl: float
+    source: str
+
+
 class AnalyticsOverviewResponse(BaseModel):
     from_date: date
     to_date: date
@@ -40,6 +52,7 @@ class AnalyticsOverviewResponse(BaseModel):
     open_risk_pct: float
     open_positions_count: int = 0
     closed_positions_count: int = 0
+    unrealized_positions: list[AnalyticsUnrealizedPosition] = Field(default_factory=list)
     strategy_breakdown: list[AnalyticsStrategyBreakdown] = Field(default_factory=list)
     execution_quality: AnalyticsExecutionQuality = Field(
         default_factory=lambda: AnalyticsExecutionQuality(

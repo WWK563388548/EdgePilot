@@ -70,7 +70,12 @@ import type {
   TenantApiKeyCreate,
   TenantDataCapability,
   DataSourceCheckResponse,
-  VerificationEmailResponse
+  VerificationEmailResponse,
+  StrategyReadiness,
+  ValidationGate,
+  ValidationGateEvaluateRequest,
+  ValidationKillSwitch,
+  StrategyKillSwitchUpdate
 } from "./types";
 
 export const api = {
@@ -90,6 +95,21 @@ export const api = {
   checkDataCapability: (capabilityKey: string) =>
     postJson<DataSourceCheckResponse>(
       `/api/data-capabilities/${encodeURIComponent(capabilityKey)}/check`
+    ),
+  validationReadiness: () => getJson<StrategyReadiness[]>("/api/validation/strategies"),
+  validationGates: () => getJson<ValidationGate[]>("/api/validation/gates"),
+  evaluateValidationStrategy: (
+    strategyName: string,
+    request: ValidationGateEvaluateRequest = {}
+  ) =>
+    postJson<StrategyReadiness>(
+      `/api/validation/strategies/${encodeURIComponent(strategyName)}/evaluate`,
+      request
+    ),
+  updateStrategyKillSwitch: (strategyName: string, request: StrategyKillSwitchUpdate) =>
+    patchJson<ValidationKillSwitch>(
+      `/api/validation/strategies/${encodeURIComponent(strategyName)}/kill-switch`,
+      request
     ),
   dashboard: () => getJson<DashboardSummary>("/api/dashboard/summary"),
   riskSettings: () => getJson<AccountRiskSettings>("/api/settings/risk"),

@@ -7,6 +7,7 @@ import {
   BriefcaseBusiness,
   Database,
   Gauge,
+  Info,
   ListChecks,
   ShieldCheck
 } from "lucide-react";
@@ -33,13 +34,77 @@ export function OverviewView({
   const { labelFor, t } = useAppI18n();
   const riskUsedPct = portfolioRisk?.total_risk_pct ?? 0;
   const riskBudgetPct = portfolioRisk?.max_total_risk_pct ?? 0;
+  const unrealizedPositions = analytics?.unrealized_positions ?? [];
   const riskUsage =
     riskBudgetPct > 0 ? Math.min(100, Math.max(0, (riskUsedPct / riskBudgetPct) * 100)) : 0;
 
   return (
     <div className="flex flex-col gap-6">
       <section className="grid gap-3 md:grid-cols-4">
-        <Metric icon={<BarChart3 size={18} />} label={t("totalPnl")} value={formatMoney(analytics?.total_pnl, locale)} />
+        <div className="rounded-md border border-line bg-white p-4 shadow-[0_1px_0_rgba(22,32,42,0.04)]">
+          <div className="mb-3 flex items-center justify-between text-slate-500">
+            <BarChart3 size={18} />
+            <Info size={14} />
+          </div>
+          <div className="text-2xl font-semibold text-ink">
+            {formatMoney(analytics?.total_pnl, locale, 2)}
+          </div>
+          <div className="mt-1 text-sm text-slate-600">{t("totalPnl")}</div>
+          <details className="group relative mt-3 text-xs text-slate-700">
+            <summary className="inline-flex cursor-pointer list-none rounded-md border border-line bg-panel/40 px-3 py-2 font-semibold text-ink transition hover:border-teal/40 hover:bg-teal/5">
+              {t("showPnlSources")}
+            </summary>
+            <div className="absolute left-0 top-full z-30 mt-2 flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-2 rounded-md border border-line bg-white p-3 shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-ink">{t("pnlBreakdown")}</div>
+                  <p className="mt-1 text-slate-600">{t("pnlBreakdownHelp")}</p>
+                </div>
+                <Info size={14} className="mt-0.5 shrink-0 text-teal" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <span>{t("realizedPnl")}</span>
+                <span className="text-right font-semibold text-ink">
+                  {formatMoney(analytics?.realized_pnl, locale, 2)}
+                </span>
+                <span>{t("unrealizedPnl")}</span>
+                <span className="text-right font-semibold text-ink">
+                  {formatMoney(analytics?.unrealized_pnl, locale, 2)}
+                </span>
+              </div>
+              {unrealizedPositions.length ? (
+                <div className="flex flex-col gap-2 border-t border-line pt-2">
+                  {unrealizedPositions.map((row) => (
+                    <div className="rounded border border-line bg-white p-2" key={row.position_id}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-ink">{row.symbol_id}</span>
+                        <span className="font-semibold text-ink">
+                          {formatMoney(row.unrealized_pnl, locale, 2)}
+                        </span>
+                      </div>
+                      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-slate-600">
+                        <span>{t("quantity")}</span>
+                        <span className="text-right">{formatNumber(row.quantity, 2, locale)}</span>
+                        <span>{t("entry")}</span>
+                        <span className="text-right">{formatPrice(row.entry_price, locale)}</span>
+                        <span>{t("markPrice")}</span>
+                        <span className="text-right">{formatPrice(row.mark_price, locale)}</span>
+                        <span>{t("markDate")}</span>
+                        <span className="text-right">{formatDate(row.mark_ts, locale)}</span>
+                        <span>{t("pnlSource")}</span>
+                        <span className="text-right">
+                          {row.source === "latest_bar" ? t("latestBarMark") : t("positionSnapshotMark")}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="border-t border-line pt-2 text-slate-600">{t("noUnrealizedSources")}</p>
+              )}
+            </div>
+          </details>
+        </div>
         <Metric icon={<Gauge size={18} />} label={t("averageR")} value={formatR(analytics?.average_r, locale)} />
         <Metric icon={<ListChecks size={18} />} label={t("trades")} value={analytics?.trades_count ?? 0} />
         <Metric icon={<BriefcaseBusiness size={18} />} label={t("openPositions")} value={analytics?.open_positions_count ?? summary?.open_position_count ?? 0} />
@@ -236,15 +301,25 @@ function RiskSlice({ label, locale, value }: { label: string; locale: Locale; va
   );
 }
 
-function formatMoney(value: number | null | undefined, locale: Locale) {
+function formatMoney(value: number | null | undefined, locale: Locale, maximumFractionDigits = 0) {
   if (value === null || value === undefined) {
     return "-";
   }
   return new Intl.NumberFormat(localeTag[locale], {
     currency: "USD",
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
+    maximumFractionDigits,
+    minimumFractionDigits: maximumFractionDigits,
     style: "currency"
+  }).format(value);
+}
+
+function formatPrice(value: number | null | undefined, locale: Locale) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return new Intl.NumberFormat(localeTag[locale], {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
   }).format(value);
 }
 

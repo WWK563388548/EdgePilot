@@ -18,6 +18,18 @@ export type AnalyticsExecutionQuality = {
   average_exit_drag_r: number | null;
 };
 
+export type AnalyticsUnrealizedPosition = {
+  position_id: string;
+  symbol_id: string;
+  strategy_name: string | null;
+  quantity: number;
+  entry_price: number | null;
+  mark_price: number | null;
+  mark_ts: string | null;
+  unrealized_pnl: number;
+  source: string;
+};
+
 export type AnalyticsOverview = {
   from_date: string;
   to_date: string;
@@ -35,6 +47,7 @@ export type AnalyticsOverview = {
   open_risk_pct: number;
   open_positions_count: number;
   closed_positions_count: number;
+  unrealized_positions: AnalyticsUnrealizedPosition[];
   strategy_breakdown: AnalyticsStrategyBreakdown[];
   execution_quality: AnalyticsExecutionQuality;
 };

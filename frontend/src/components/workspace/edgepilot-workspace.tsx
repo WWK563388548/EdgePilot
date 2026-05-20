@@ -11,6 +11,7 @@ import {
   FileUp,
   ListChecks,
   Settings,
+  BadgeCheck,
   ShieldCheck,
   Workflow
 } from "lucide-react";
@@ -29,6 +30,7 @@ import { OverviewView } from "@/components/workspace/overview-view";
 import { OutcomesView } from "@/components/workspace/outcomes-view";
 import { PALabView } from "@/components/workspace/pa-lab-view";
 import { PaperReviewView } from "@/components/workspace/paper-review-view";
+import { ValidationView } from "@/components/workspace/validation-view";
 import { AlertsTable, JournalTable, PositionsTable } from "@/components/workspace/organisms/account-tables";
 import { NotificationBell, NotificationModal } from "@/components/workspace/organisms/notification-center";
 import { SettingsPanel } from "@/components/workspace/secondary-views";
@@ -45,6 +47,7 @@ const views: WorkspaceNavItem[] = [
   { id: "pa_lab", labelKey: "paLab", icon: ShieldCheck },
   { id: "outcomes", labelKey: "outcomes", icon: Activity },
   { id: "paper_review", labelKey: "paperReview", icon: ClipboardCheck },
+  { id: "validation", labelKey: "validationEngine", icon: BadgeCheck },
   { id: "positions", labelKey: "positions", icon: BriefcaseBusiness },
   { id: "alerts", labelKey: "alerts", icon: AlertTriangle },
   { id: "automation", labelKey: "automation", icon: Workflow },
@@ -308,6 +311,7 @@ export function EdgePilotWorkspace({ locale }: { locale: Locale }) {
             locale={locale}
           />
         )}
+        {view === "validation" && <ValidationView locale={locale} />}
         {view === "positions" && (
           <PositionsTable
             data={positionRows}
